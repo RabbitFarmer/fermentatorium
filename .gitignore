@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+dist/
+build/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# OS/editor
+.DS_Store
+*.swp
+*.bak
+
+# App runtime data (generated locally; keep out of git)
+logs/
+batches/
+export/
+temp_control/
+config/*.json
+*.sqlite
+*.db
+*.log
+
+# Caches
+.cache/
+.pytest_cache/
+.mypy_cache/
