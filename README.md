@@ -1,43 +1,36 @@
-# Three Controller - Fermentation Monitor
+"""
+BrewID utilities for tiltcontrlmonitor:
+- Centralized BrewID generation and parsing
 
-This project is a Raspberry Pi-based fermentation monitor and temperature controller for homebrewing. It uses Tilt hydrometers and TP-Link Kasa smart plugs to manage and log fermentation temperature with a web dashboard.
+BrewID format: '{batch_id}-{color_code}-{model_code}-{mac_short}'
+  - batch_id: user/batch-defined string
+  - color_code: first 3 characters of Tilt color (lowercase)
+  - model_code: 1=Pro/Mini-Pro (low value > 5000), 0=Standard
+  - mac_short: last 4 hex chars of MAC (uppercase, no colons)
+"""
 
-> **Privacy Note for New Users:** This repository does not contain any personal data. Your configuration files, batch data, and logs are automatically created on your system and remain private - they are not tracked by git.
+import re
 
-## Features
+def make_brewid(batch_id, color, model_code, mac):
+    """
+    Create an expanded BrewID using batch_id, color, model_code, and last 4 of MAC.
+    """
+    color_code = color[:3].lower()
+    mac_clean = mac.replace(':', '').replace('-', '').upper()
+    mac_short = mac_clean[-4:]
+    return f"{batch_id}-{color_code}-{model_code}-{mac_short}"
 
-- **Multi-Device Tilt Support**: Track multiple Tilt hydrometers simultaneously for fermentation monitoring
-  - Supports all 8 colors of the standard Tilt Hydrometer (Black, Blue, Green, Orange, Pink, Purple, Red, Yellow)
-  - Each Tilt can be independently monitored for fermentation data
-- **Three Independent Temperature Controllers**: Control up to 3 fermenters simultaneously
-  - Each controller can be assigned to a different Tilt color
-  - Independent temperature limits (high/low) for each controller
-  - Each controller manages its own heating and cooling Kasa smart plugs (15 amp rated)
-  - Controllers operate completely independently of one another
-  - Temperature control UI is integrated directly into each Tilt's card for easy monitoring
-- **Interactive Charting**: Real-time charts for both Tilt-tracked fermentation data and temperature control monitoring
-  - Fermentation charts display gravity and temperature trends over time
-  - Temperature control charts show heating/cooling events and temperature readings
-  - Powered by Plotly for interactive zooming, panning, and data exploration
-- **CSV Data Export**: Export fermentation batch data and temperature control logs to CSV format for external analysis
-- Reads Tilt hydrometer data via Bluetooth (BLE)
-- Web dashboard for monitoring and configuration (Flask)
-  - Accessible from anywhere on your home network
-  - Remote access via [Raspberry Pi Connect](https://connect.raspberrypi.com) (free, no VPN required)
-- Batch history and temperature logging to JSONL/CSV
-- **Email/Push notifications for fermentation status and temperature alerts**
-  - Temperature control alerts (temp out of range, heating/cooling events, Kasa plug failures)
-  - Batch alerts (signal loss, fermentation starting, daily reports)
-  - Configurable notification settings per event type
-  - See [NOTIFICATIONS.md](NOTIFICATIONS.md) for detailed configuration guide
-  - See [Notification Types](#notification-types) section below for complete list of 11 notification types
-
-## Getting Started
-
-### Prerequisites
-
-- Raspberry Pi (recommended)
-- Python 3.7+
-- Bluetooth enabled (for Tilt)
-- TP-Link Kasa plugs for temperature control
-...
+def parse_brewid(brewid):
+    """
+    Parse a BrewID into its components.
+    Returns dict with batch_id, color_code, model_code, mac_short
+    """
+    match = re.match(r"(.+)-([a-z]{2,3})-(\d+)-([0-9A-F]{4})$", brewid)
+    if not match:
+        raise ValueError("Invalid BrewID format!")
+    return {
+        "batch_id": match.group(1),
+        "color_code": match.group(2),
+        "model_code": int(match.group(3)),
+        "mac_short": match.group(4)
+    }
