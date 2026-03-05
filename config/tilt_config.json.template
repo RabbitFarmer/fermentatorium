@@ -1,0 +1,91 @@
+{
+  "Red": {
+    "batch_id": "red-default",
+    "beer_name": "Unnamed Beer",
+    "batch_name": "",
+    "recipe_og": null,
+    "recipe_fg": null,
+    "recipe_abv": null,
+    "devices": {
+      "AA:AA:AA:AA:AA:AA": {
+        "batch_id": "red-1",
+        "beer_name": "Example Red Beer",
+        "batch_name": "Example Batch"
+      }
+    }
+  },
+  "Green": {
+    "batch_id": "green-default",
+    "beer_name": "Unnamed Beer",
+    "batch_name": "",
+    "recipe_og": null,
+    "recipe_fg": null,
+    "recipe_abv": null,
+    "devices": {}
+  },
+  "Black": {
+    "batch_id": "black-default",
+    "beer_name": "Unnamed Beer",
+    "batch_name": "",
+    "recipe_og": null,
+    "recipe_fg": null,
+    "recipe_abv": null,
+    "devices": {}
+  },
+  "Purple": {
+    "batch_id": "purple-default",
+    "beer_name": "Unnamed Beer",
+    "batch_name": "",
+    "recipe_og": null,
+    "recipe_fg": null,
+    "recipe_abv": null,
+    "devices": {}
+  },
+  "Orange": {
+    "batch_id": "orange-default",
+    "beer_name": "Unnamed Beer",
+    "batch_name": "",
+    "recipe_og": null,
+    "recipe_fg": null,
+    "recipe_abv": null,
+    "devices": {}
+  },
+  "Blue": {
+    "batch_id": "blue-default",
+    "beer_name": "Unnamed Beer",
+    "batch_name": "",
+    "recipe_og": null,
+    "recipe_fg": null,
+    "recipe_abv": null,
+    "devices": {}
+  },
+  "Yellow": {
+    "batch_id": "yellow-default",
+    "beer_name": "Unnamed Beer",
+    "batch_name": "",
+    "recipe_og": null,
+    "recipe_fg": null,
+    "recipe_abv": null,
+    "devices": {
+      "BB:BB:BB:BB:BB:BB": {
+        "batch_id": "yellow-standard-1",
+        "beer_name": "Example Hefeweizen",
+        "batch_name": "Batch 12"
+      },
+      "CC:CC:CC:CC:CC:CC": {
+        "batch_id": "yellow-mini-pro-1",
+        "beer_name": "Example Pilsner",
+        "batch_name": "Batch 13"
+      }
+    }
+  },
+  "Pink": {
+    "batch_id": "pink-default",
+    "beer_name": "Unnamed Beer",
+    "batch_name": "",
+    "recipe_og": null,
+    "recipe_fg": null,
+    "recipe_abv": null,
+    "devices": {}
+  }
+}

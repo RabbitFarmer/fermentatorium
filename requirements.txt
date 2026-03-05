@@ -1,0 +1,6 @@
+flask
+flask-cors
+bleak
+python-daemon
+python-kasa
+requests

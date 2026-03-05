@@ -1,0 +1,11 @@
+{
+  "brewery_name": "ThreeControl",
+  "brewer_name": "Your Name",
+  "units": "Fahrenheit",
+  "display_mode": "4",
+  "push_provider": "pushover",
+  "pushover_user_key": "",
+  "pushover_api_token": "",
+  "tilt_inactivity_timeout_minutes": 30,
+  "flask_port": 5001
+}
