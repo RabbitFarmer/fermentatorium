@@ -34,61 +34,104 @@ This project is a Raspberry Pi-based fermentation monitor and temperature contro
 
 ## Getting Started
 
+## Installation
+
 ### Prerequisites
 
-- Raspberry Pi (recommended)
-- Python 3.7+
-- Bluetooth enabled (for Tilt)
-- TP-Link Kasa plugs for temperature control
+- Raspberry Pi (recommended) running Raspberry Pi OS
+- Python 3
+- Bluetooth enabled (for Tilt hydrometer scanning)
+- (Optional) TP-Link Kasa plugs for temperature control
 
-### One-Command Install (Fastest Method)
+### One-Command Install (Recommended)
 
-For a fresh Raspberry Pi OS installation, run this single command:
+For a fresh Raspberry Pi OS installation, run:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/RabbitFarmer/threecontrol-/main/installer/automated-install.sh | sudo bash
-
-### Quick Installation
-
-**Automated Setup (Recommended):**
-```bash
-git clone https://github.com/RabbitFarmer/threecontrol-.git
-cd threecontrol-
-./setup.sh
-./start.sh
+curl -sSL https://raw.githubusercontent.com/RabbitFarmer/fermentatorium/main/installer/automated-install.sh | sudo bash
 ```
 
-The setup script will automatically create a virtual environment and install all dependencies.
+This will:
 
-> **Important for Raspberry Pi Users:** Modern Python installations require using virtual environments. The setup script handles this automatically. See [INSTALLATION.md](INSTALLATION.md) for details.
+- Install OS dependencies
+- Create the `fermentatorium` system user and group
+- Install the application to `/opt/fermentatorium`
+- Create a Python virtual environment at `/opt/fermentatorium/.venv` (if missing) and install `requirements.txt`
+- Install and enable `fermentatorium.service` (systemd)
+- Start the service listening on port `5001`
 
-### Manual Installation
+After installation, open:
 
-If you prefer to install manually or encounter issues:
+- `http://<raspberry-pi-ip>:5001`
 
-1. **Clone the repository:**
+### Quick Installation (Git Clone)
+
+```bash
+git clone https://github.com/RabbitFarmer/fermentatorium.git
+cd fermentatorium
+sudo ./install.sh
+```
+
+### Service Management
+
+```bash
+sudo systemctl status fermentatorium.service --no-pager
+sudo systemctl restart fermentatorium.service
+journalctl -u fermentatorium.service -n 200 --no-pager
+```
+
+### Manual Installation (Advanced)
+
+If you prefer to install manually:
+
+1. **Clone the repository**
    ```bash
-   git clone https://github.com/RabbitFarmer/threecontrol-.git
-   cd threecontrol-
+   git clone https://github.com/RabbitFarmer/fermentatorium.git
+   cd fermentatorium
    ```
 
-2. **Set up a Python virtual environment (REQUIRED on Raspberry Pi):**
+2. **Create the system user/group**
    ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
+   sudo groupadd --system fermentatorium || true
+   sudo useradd --system --gid fermentatorium --create-home --home-dir /home/fermentatorium --shell /usr/sbin/nologin fermentatorium || true
+   sudo usermod -aG bluetooth fermentatorium
    ```
-   
-   > **Note:** You can use either `.venv` or `venv` as the directory name. The `start.sh` script automatically detects both. If you get "No module named venv" error, install it first:
-   > ```bash
+
+3. **Copy to `/opt` and set ownership**
+   ```bash
+   sudo mkdir -p /opt/fermentatorium
+   sudo rsync -a --delete --exclude .git ./ /opt/fermentatorium/
+   sudo chown -R fermentatorium:fermentatorium /opt/fermentatorium
+   ```
+
+4. **Create the virtual environment + install dependencies**
+   ```bash
+   sudo -u fermentatorium -H python3 -m venv /opt/fermentatorium/.venv
+   sudo -u fermentatorium -H /opt/fermentatorium/.venv/bin/pip install -r /opt/fermentatorium/requirements.txt
+   ```
+
+5. **Install systemd service**
+   Create `/etc/systemd/system/fermentatorium.service` (see `install.sh` for the exact unit contents), then:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now fermentatorium.service
+   ```
+
+6. **Set up a Python virtual environment (REQUIRED on Raspberry Pi):**
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+
    > sudo apt install python3-venv python3-full
    > ```
 
-3. **Install Python dependencies:**
+7. **Install Python dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
 
-4. **Start the application:**
+8. **Start the application:**
    
    **Option A: Using the convenience script (automatically opens browser):**
    ```bash
@@ -98,7 +141,7 @@ If you prefer to install manually or encounter issues:
    
    **Option B: Manual start:**
    ```bash
-   python3 app3.py
+   python3 app.py
    ```
    Then visit `http://<raspberry-pi-ip>:5001` in your browser.
 
@@ -189,14 +232,14 @@ If port 5001 is in use when starting the application:
 **Solution 1: Use a different port**
 ```bash
 # Option A: Set environment variable (temporary)
-FLASK_PORT=5001 python3 app3.py
+FLASK_PORT=5001 python3 app.py
 # Or when using start.sh:
 FLASK_PORT=5001 ./start.sh
 
 # Option B: Update config file (permanent)
 # Edit config/system_config.json and set flask_port:
 {
-  "brewery_name": "ThreeControl",
+  "brewery_name": "Tilt Fermentatorium",
   "brewer_name": "Your Name",
   "flask_port": 5001,
   ...
