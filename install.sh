@@ -64,6 +64,26 @@ sync_app_files() {
   chown -R "${APP_USER}:${APP_GROUP}" "${INSTALL_DIR}"
 }
 
+ensure_default_configs() {
+  local cfg_dir="${INSTALL_DIR}/config"
+  mkdir -p "${cfg_dir}"
+  chown "${APP_USER}:${APP_GROUP}" "${cfg_dir}"
+
+  copy_if_missing() {
+    local template="$1"
+    local dest="$2"
+    if [[ -f "${template}" && ! -f "${dest}" ]]; then
+      cp -a "${template}" "${dest}"
+      chown "${APP_USER}:${APP_GROUP}" "${dest}"
+    fi
+  }
+
+  copy_if_missing "${cfg_dir}/system_config.json.template"        "${cfg_dir}/system_config.json"
+  copy_if_missing "${cfg_dir}/temp_control_config.json.template"  "${cfg_dir}/temp_control_config.json"
+  copy_if_missing "${cfg_dir}/tilt_config.json.template"          "${cfg_dir}/tilt_config.json"
+  copy_if_missing "${cfg_dir}/tilt_table.json.template"           "${cfg_dir}/tilt_table.json"
+}
+
 pick_venv_dir() {
   if [[ -d "${INSTALL_DIR}/${PREFERRED_VENV_NAME}" ]]; then
     echo "${INSTALL_DIR}/${PREFERRED_VENV_NAME}"
@@ -127,6 +147,7 @@ main() {
   install_os_deps
   ensure_user_group
   sync_app_files
+  ensure_default_configs
   ensure_venv_and_deps
   install_systemd_service
 
