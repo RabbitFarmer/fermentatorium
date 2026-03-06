@@ -371,23 +371,26 @@ def free_port(port: int) -> None:
     killed = False
 
     if psutil is not None:
-        for proc in psutil.process_iter(["pid", "name"]):
-            try:
-                for conn in proc.net_connections(kind="inet"):
-                    if conn.laddr.port == port and conn.status == "LISTEN":
-                        pid = proc.pid
-                        print(f"[startup] Port {port} is in use by PID {pid} ({proc.info['name']}). Terminating…")
-                        try:
-                            proc.terminate()
-                            proc.wait(timeout=5)
-                        except psutil.TimeoutExpired:
-                            proc.kill()
-                        except psutil.AccessDenied:
-                            print(f"[startup] Access denied when terminating PID {pid}. Try running with sudo.")
-                            return
-                        killed = True
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
+        try:
+            connections = psutil.net_connections(kind="inet")
+        except (psutil.AccessDenied, AttributeError):
+            connections = []
+        for conn in connections:
+            if conn.laddr.port == port and conn.status == "LISTEN" and conn.pid:
+                try:
+                    proc = psutil.Process(conn.pid)
+                    print(f"[startup] Port {port} is in use by PID {conn.pid} ({proc.name()}). Terminating…")
+                    proc.terminate()
+                    proc.wait(timeout=5)
+                    killed = True
+                except psutil.TimeoutExpired:
+                    proc.kill()
+                    killed = True
+                except psutil.AccessDenied:
+                    print(f"[startup] Access denied when terminating PID {conn.pid}. Try running with sudo.")
+                    return
+                except psutil.NoSuchProcess:
+                    pass
     else:
         # Fallback: use lsof to find and kill the occupying process
         try:
