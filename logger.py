@@ -38,7 +38,7 @@ def log_kasa_command(mode, url, action, success=None, error=None):
     is_error = (success is False)
     if not is_error:
         try:
-            from app3 import system_cfg as _sys_cfg
+            from app import system_cfg as _sys_cfg
             if not _sys_cfg.get('enable_kasa_activity_log', False):
                 return
         except ImportError:
@@ -217,7 +217,7 @@ def send_notification(event_type, message, tilt_color=None):
     Only sends if the specific notification type is enabled in system_cfg.
     """
     try:
-        from app3 import system_cfg, attempt_send_notifications
+        from app import system_cfg, attempt_send_notifications
     except ImportError:
         return
 

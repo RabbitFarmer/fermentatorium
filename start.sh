@@ -43,7 +43,7 @@ if [ -f "requirements.txt" ]; then
         echo "Dependencies already satisfied (skipping pip install)"
     else
         echo "Installing/updating dependencies from requirements.txt..."
-        if ! pip install --quiet --disable-pip-version-check -r requirements.txt 2>>app3.log; then
+        if ! pip install --quiet --disable-pip-version-check -r requirements.txt 2>>app.log; then
             echo "WARNING: Failed to install dependencies"
             if ! "$VENV_DIR/bin/python3" -c "import flask" 2>/dev/null; then
                 echo "ERROR: Flask not available. Cannot start application."
@@ -82,7 +82,7 @@ export FLASK_PORT
 
 echo "Starting the application..."
 PYTHON_PATH="$(which python3)"
-APP_PATH="$SCRIPT_DIR/app3.py"
+APP_PATH="$SCRIPT_DIR/app.py"
 
 if [ -z "$DISPLAY" ]; then
     export SKIP_BROWSER_OPEN=1
