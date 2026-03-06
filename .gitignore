@@ -32,3 +32,9 @@ config/*.json
 .cache/
 .pytest_cache/
 .mypy_cache/
+
+# Local/private configuration & runtime state (do not commit)
+config/system_config.json
+config/temp_control_config.json
+config/tilt_config.json
+config/tilt_table.json

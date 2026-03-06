@@ -1,0 +1,14 @@
+{
+  "AA:BB:CC:DD:EE:FF": {
+    "device_label": "Example Tilt (Standard)",
+    "first_seen": "2026-01-01T00:00:00Z",
+    "last_gravity": 1.050,
+    "last_seen": "2026-01-01T00:00:00Z",
+    "last_temp_f": 68.0,
+    "mac": "AA:BB:CC:DD:EE:FF",
+    "rssi_last": -55,
+    "tilt_color": "Red",
+    "tilt_type": "standard",
+    "uuid": "00000000000000000000000000000000"
+  }
+}
