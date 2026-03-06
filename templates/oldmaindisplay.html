@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ system_settings.brewery_name }} - Fermentation Dashboard</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="config-ribbon">
+    <a href="/system_config">System Settings</a>
+    <a href="/temp_config">Temperature Control</a>
+    <a href="/tilt_config">Batch Settings</a>
+  </div>
+  <div class="dashboard-title">{{ system_settings.brewery_name }}</div>
+  <div class="tiltcard-container">
+    {% for color, tilt in tilts.items() %}
+      <div class="tilt-card">
+        <div class="tilt-banner"
+             style="background-color: {{ tilt.color_code }};
+                    text-align: center;
+                    color: {% if tilt.color_code == '#ffff00' or tilt.color_code == '#ffc0cb' or tilt.color_code == '#00ff00' %}black{% else %}white{% endif %};">
+          {{ tilt.beer_name or 'Unnamed Beer' }}
+        </div>
+        <div class="tilt-batch">{{ 'Batch: ' ~ (tilt.batch_name or 'Unnamed Batch') }}</div>
+        <table class="tilt-metrics">
+          <tr>
+            <th style="width:43%"></th>
+            <th class="right-header" style="width:30%">Recipe</th>
+            <th class="right-header" style="width:30%">Actual</th>
+          </tr>
+          <tr>
+            <td class="label">Original Gravity</td>
+            <td class="value">{{ "%.3f"|format(tilt.recipe_og|default(0)|float) }}</td>
+            <td class="value"><b>{{ "%.3f"|format(tilt.original_gravity|default(0)|float) }}</b></td>
+          </tr>
+          <tr>
+            <td class="label">Final / Current Gravity</td>
+            <td class="value">{{ "%.3f"|format(tilt.recipe_fg|default(0)|float) }}</td>
+            <td class="value"><b>{{ "%.3f"|format(tilt.gravity|default(0)|float) }}</b></td>
+          </tr>
+          <tr>
+            <td class="label">Temperature</td>
+            <td class="value"></td>
+            <td class="value"><b>{{ "%.1f"|format(tilt.temp_f|default(0)|float) }}°F</b></td>
+          </tr>
+          <tr>
+            <td class="label">A.B.V.</td>
+            <td class="value">
+              {% if tilt.recipe_abv %}{{ "%.1f"|format(tilt.recipe_abv|float) }}%{% else %}--{% endif %}
+            </td>
+            <td class="value"><b>
+              {% if tilt.actual_og and tilt.gravity %}
+                {{ ((tilt.actual_og|float - tilt.gravity|float) * 131.25)|round(1) }}%
+              {% else %}--{% endif %}
+            </b></td>
+          </tr>
+        </table>
+        <div class="tilt-footer">
+          <div class="footer-row"><div class="footer-item">Brew ID: {{ tilt.brewid or '--' }}</div></div>
+          <div class="footer-row">
+            <div class="footer-item" style="display:inline-block;">Last Reading: {{ tilt.timestamp | localtime }}</div>
+            <div class="footer-chart" style="float:right;">
+              <form action="/chart/{{ color }}" method="get" style="display:inline;">
+                <button type="submit" class="btn-chart-footer">Chart</button>
+              </form>
+            </div>
+          </div>
+          <div class="footer-row"><div class="footer-item">{{ color }} Tilt</div></div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</body>
+</html>

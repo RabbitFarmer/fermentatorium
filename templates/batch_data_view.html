@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>All Batch Data: {{ batch.beer_name }}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    .review-container { max-width:1400px; margin:18px auto; padding:18px; background:#fff; border-radius:8px; box-shadow:0 1px 6px rgba(0,0,0,0.04); }
+    .heading { font-weight:900; margin-bottom:12px; font-size:1.8em; color:#1a6; }
+    .subheading { font-weight:700; margin-top:20px; margin-bottom:8px; font-size:1.3em; color:#333; }
+    .data-table { width:100%; border-collapse:collapse; margin-top:12px; font-size:0.9em; }
+    .data-table th { background:#1a6; color:#fff; padding:10px; text-align:left; position:sticky; top:0; }
+    .data-table td { padding:8px; border-bottom:1px solid #eee; }
+    .data-table tr:nth-child(even) { background:#f9f9f9; }
+    .data-table tr:hover { background:#e8f5e9; }
+    .btn-action { padding:10px 20px; background-color:#8B4513; color:white; border:none; cursor:pointer; font-size:16px; font-weight:bold; border-radius:5px; text-decoration:none; display:inline-block; margin-right:10px; }
+    .btn-print { padding:10px 20px; background-color:#4CAF50; color:white; border:none; cursor:pointer; font-size:16px; font-weight:bold; border-radius:5px; text-decoration:none; display:inline-block; }
+    .info-banner { background:#e3f2fd; padding:12px; border-radius:6px; margin-bottom:16px; }
+    .no-print { }
+    
+    @media print {
+      .no-print { display:none !important; }
+      .review-container { box-shadow:none; margin:0; padding:10px; }
+      .data-table th { position:static; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-container">
+    <div class="review-container">
+      <div class="no-print" style="margin-bottom:20px;">
+        <button type="button" onclick="window.location='/batch_review/{{ batch.brewid }}'" class="btn-action">← Back to Batch Review</button>
+        <button type="button" onclick="window.print()" class="btn-print">Print / Save PDF</button>
+      </div>
+
+      <div class="heading">{{ batch.beer_name or 'Unnamed Beer' }}</div>
+      <div style="font-size:1.2em; color:#666; margin-bottom:20px;">{{ batch.batch_name or 'Batch' }} - Complete Data View</div>
+
+      <div class="info-banner">
+        <strong>Tilt:</strong> {{ color }} • 
+        <strong>Brew ID:</strong> {{ batch.brewid[:16] if batch.brewid else 'N/A' }} • 
+        <strong>Started:</strong> {{ batch.ferm_start_date or 'N/A' }} • 
+        <strong>Total Readings:</strong> {{ samples|length }} • 
+        {% if start_idx or end_idx %}
+          <strong>Range:</strong> {{ start_idx or 1 }} to {{ end_idx or samples|length }}
+        {% else %}
+          <strong>Range:</strong> All data
+        {% endif %}
+      </div>
+
+      <div class="subheading">All Fermentation Data</div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Timestamp</th>
+            <th>Temperature (°F)</th>
+            <th>Gravity (SG)</th>
+            <th>RSSI</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for sample in samples %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ sample.timestamp or 'N/A' }}</td>
+            <td>{{ sample.temp_f if sample.temp_f is not none else 'N/A' }}</td>
+            <td>{{ "%.3f"|format(sample.gravity) if sample.gravity is not none else 'N/A' }}</td>
+            <td>{{ sample.rssi if sample.rssi is not none else 'N/A' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      {% if not samples %}
+      <p style="color:#999; font-style:italic; padding:20px; text-align:center;">No data available for this batch.</p>
+      {% endif %}
+
+      <div class="no-print" style="margin-top:30px;">
+        <button type="button" onclick="window.location='/batch_review/{{ batch.brewid }}'" class="btn-action">← Back to Batch Review</button>
+        <button type="button" onclick="window.print()" class="btn-print">Print / Save PDF</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
