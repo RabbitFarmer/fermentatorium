@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Starting Up...</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+    }
+    .startup-container {
+      text-align: center;
+      color: white;
+      padding: 40px;
+      animation: fadeIn 0.8s ease-in;
+    }
+    .beer-icon { width: 150px; height: 150px; margin: 0 auto 30px; animation: bounce 2s infinite; }
+    .startup-title { font-size: 4em; font-weight: bold; margin: 20px 0; text-shadow: 3px 3px 10px rgba(0,0,0,0.5); animation: slideDown 0.8s ease-out; }
+    .startup-message { font-size: 2em; margin-top: 20px; opacity: 0.9; animation: fadeIn 1.5s ease-in; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideDown { from { transform: translateY(-50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-20px); } }
+    @keyframes ellipsis { 0%, 20% { opacity: 0; } 40% { opacity: 1; } 100% { opacity: 0; } }
+    .dot1 { animation: ellipsis 1.4s infinite 0s; }
+    .dot2 { animation: ellipsis 1.4s infinite 0.2s; }
+    .dot3 { animation: ellipsis 1.4s infinite 0.4s; }
+    .spinner { margin: 40px auto 0; width: 80px; height: 80px; position: relative; }
+    .spinner-ring { display: block; width: 80px; height: 80px; border: 8px solid rgba(255,255,255,0.2); border-top-color: #FFD700; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+  <script>
+    let attempts = 0;
+    const MAX_ATTEMPTS = 30;
+    function checkAppReady() {
+      attempts++;
+      if (attempts > MAX_ATTEMPTS) { window.location.href = '/'; return; }
+      fetch('/')
+        .then(response => { if (response.ok) { window.location.href = '/'; } else { setTimeout(checkAppReady, 2000); } })
+        .catch(() => { setTimeout(checkAppReady, 2000); });
+    }
+    setTimeout(checkAppReady, 2000);
+  </script>
+</head>
+<body>
+  <div class="startup-container">
+    <img src="/static/beer-stein.svg" alt="Beer Stein" class="beer-icon">
+    <h1 class="startup-title">It's Coming</h1>
+    <p class="startup-message">Please wait, starting up<span class="dot1">.</span><span class="dot2">.</span><span class="dot3">.</span></p>
+    <div class="spinner"><div class="spinner-ring"></div></div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Temperature Controller #{{ controller_id + 1 }} Summary</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    .summary-container { max-width:900px; margin:18px auto; padding:18px; background:#fff; border-radius:8px; box-shadow:0 1px 6px rgba(0,0,0,0.06); }
+    .summary-header { background: {{ color_code }}; color: {% if color_code in ['#ffff00','#ffc0cb','#00ff00'] %}black{% else %}white{% endif %}; padding:16px 20px; border-radius:6px; margin-bottom:18px; }
+    .summary-header h2 { margin:0; font-size:1.5em; }
+    .summary-header .subtitle { font-size:1em; opacity:0.85; margin-top:4px; }
+    .info-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin-bottom:20px; }
+    .info-card { padding:12px; background:#f9f9f9; border-radius:6px; border-left:4px solid #8B4513; }
+    .info-label { font-weight:700; color:#666; font-size:0.85em; text-transform:uppercase; }
+    .info-value { font-size:1.15em; margin-top:4px; font-weight:600; }
+    .btn-action { padding:10px 20px; background:#8B4513; color:#fff; border:none; cursor:pointer; font-size:15px; font-weight:700; border-radius:5px; text-decoration:none; display:inline-block; margin-right:10px; }
+    .section-title { font-weight:800; font-size:1.1em; color:#333; margin:18px 0 8px; padding-bottom:4px; border-bottom:2px solid #8B4513; }
+    .status-badge { font-weight:800; font-size:1em; padding:4px 12px; border-radius:12px; display:inline-block; margin-top:4px; }
+    .status-heating { background:#ffe0e0; color:#c91f1f; }
+    .status-cooling { background:#e0f0ff; color:#1e6fb0; }
+    .status-off { background:#eee; color:#555; }
+  </style>
+</head>
+<body>
+  <div class="page-container">
+    <h1 class="dashboard-title">{{ system_settings.brewery_name }}</h1>
+    <div class="summary-container">
+      <div style="margin-bottom:16px;">
+        <a href="/" class="btn-action">← Dashboard</a>
+        <a href="/temp_config?controller_id={{ controller_id }}" class="btn-action" style="background:#4CAF50;">⚙ Settings</a>
+      </div>
+
+      <div class="summary-header">
+        <h2>Temperature Controller #{{ controller_id + 1 }}</h2>
+        {% if tilt_color %}
+        <div class="subtitle">Assigned Tilt: {{ tilt_color }}</div>
+        {% else %}
+        <div class="subtitle">No Tilt Assigned</div>
+        {% endif %}
+      </div>
+
+      <div class="section-title">Control Settings</div>
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="info-label">High Limit</div>
+          <div class="info-value">{{ controller.get('high_limit', '--') }} °F</div>
+        </div>
+        <div class="info-card">
+          <div class="info-label">Low Limit</div>
+          <div class="info-value">{{ controller.get('low_limit', '--') }} °F</div>
+        </div>
+        <div class="info-card">
+          <div class="info-label">Current Temperature</div>
+          <div class="info-value">{% if controller.get('current_temp') is not none %}{{ controller.get('current_temp') }} °F{% else %}--{% endif %}</div>
+        </div>
+        <div class="info-card">
+          <div class="info-label">Status</div>
+          <div class="info-value">{{ controller.get('status', '--') }}</div>
+        </div>
+        <div class="info-card">
+          <div class="info-label">Heating Enabled</div>
+          <div class="info-value">{{ 'Yes' if controller.get('enable_heating') else 'No' }}</div>
+        </div>
+        <div class="info-card">
+          <div class="info-label">Cooling Enabled</div>
+          <div class="info-value">{{ 'Yes' if controller.get('enable_cooling') else 'No' }}</div>
+        </div>
+      </div>
+
+      <div class="section-title">Operational Mode</div>
+      {% if controller.get('heating_error') or controller.get('cooling_error') %}
+        <span class="status-badge" style="background:#FFD700; color:#c91f1f;">⚠ KASA Plug Connection Error</span>
+      {% elif controller.get('enable_heating') and controller.get('heater_on') %}
+        <span class="status-badge status-heating">🔥 Heating Operational</span>
+      {% elif controller.get('enable_cooling') and controller.get('cooler_on') %}
+        <span class="status-badge status-cooling">❄ Cooling Operational</span>
+      {% elif controller.get('enable_heating') %}
+        <span class="status-badge status-heating" style="opacity:0.7;">Heating Enabled (standby)</span>
+      {% elif controller.get('enable_cooling') %}
+        <span class="status-badge status-cooling" style="opacity:0.7;">Cooling Enabled (standby)</span>
+      {% else %}
+        <span class="status-badge status-off">Off / Not Configured</span>
+      {% endif %}
+
+      <div class="section-title">Temperature &amp; Activity Chart</div>
+      <iframe style="width:100%; border:none; border-radius:6px; margin-top:18px; display:block; height:600px;" src="/chart_plotly/TempControl" title="Temperature Control Chart"></iframe>
+    </div>
+  </div>
+</body>
+</html>

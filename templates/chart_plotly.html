@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Temperature & Gravity Chart</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 16px; background: #f6f6f6; }
+    #chart-container { max-width: 1200px; margin: auto; background: #ffffff; border-radius: 4px; padding: 16px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1); }
+    #tempChart { height: 500px; }
+    .controls { text-align: center; margin: 12px 0; }
+    .controls input { width: 80px; margin-right: 12px; }
+    .controls button { padding: 6px 16px; margin: 0 4px; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    .controls button:hover { background-color: #45a049; }
+    .controls button.active { background-color: #2E7D32; }
+    .date-range { text-align: center; margin-top: 8px; font-size: 14px; color: #555; display: none; }
+    @media print {
+      .controls { display: none; }
+      body { background: white; margin: 0; }
+    }
+  </style>
+</head>
+<body>
+  <h2 style="text-align: center;">Temperature & Gravity Chart</h2>
+  <div class="controls">
+    <button id="print">Print</button>
+    {% if tilt_color == "TempControl" %}
+    <button id="export">Export CSV</button>
+    {% endif %}
+    <button id="dashboard">Dashboard</button>
+    <span id="status"></span>
+  </div>
+
+  <div id="chart-container">
+    <div id="tempChart"></div>
+    <div id="date-range" class="date-range"></div>
+  </div>
+
+  <script>
+    const tiltColor = "{{ tilt_color or '' }}";
+    {% if tilt_color == "TempControl" %}
+    const beerName = "Temperature Control";
+    const batchName = "N/A";
+    const brewId = "N/A";
+    const recipeOg = null;
+    const recipeFg = null;
+    const actualOg = null;
+    const fermentationComplete = false;
+    {% else %}
+    const beerName = "{{ tilt_cfg[tilt_color].beer_name or 'Unknown' }}";
+    const batchName = "{{ tilt_cfg[tilt_color].batch_name or 'Unknown' }}";
+    const brewId = "{{ tilt_cfg[tilt_color].brewid or 'Unknown' }}";
+    const recipeOg = {{ tilt_cfg[tilt_color].get('recipe_og') or 'null' }};
+    const recipeFg = {{ tilt_cfg[tilt_color].get('recipe_fg') or 'null' }};
+    const actualOg = {{ tilt_cfg[tilt_color].get('actual_og') or 'null' }};
+    const fermentationComplete = {{ 'true' if tilt_cfg[tilt_color].get('notification_state', {}).get('fermentation_completion_datetime') else 'false' }};
+    {% endif %}
+    
+    async function loadData(limit = 3000) {
+      document.getElementById('status').textContent = 'Loading data...';
+
+      const url = `/chart_data/${encodeURIComponent(tiltColor)}?limit=${limit}`;
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Failed to fetch data');
+
+        const json = await response.json();
+        let dataPoints = json.points || [];
+        
+        // Normalize data points - handle legacy log format
+        // Old logs have separate 'date' and 'time' fields instead of 'timestamp'
+        dataPoints = dataPoints.map((p) => {
+          let ts = p.timestamp;
+          // If timestamp is missing, construct it from date and time
+          if (!ts && p.date && p.time) {
+            ts = `${p.date}T${p.time}Z`;
+          }
+          // Handle temp_f vs current_temp
+          let temp = p.temp_f;
+          if (temp === null || temp === undefined) {
+            temp = p.current_temp;
+          }
+          
+          // Convert UTC timestamp to local time for display
+          // The timestamps in the data are in UTC format (ending with Z)
+          // We need to convert them to local time for the chart to display correctly
+          let localTimestamp = ts;
+          if (ts) {
+            try {
+              const date = new Date(ts);
+              if (!isNaN(date.getTime())) {
+                // Convert to local time by using the Date object directly
+                // This will automatically use the browser's timezone
+                localTimestamp = date;
+              }
+            } catch (e) {
+              // If conversion fails, keep the original timestamp
+              console.warn('Failed to convert timestamp:', ts, e);
+            }
+          }
+          
+          return {
+            ...p,
+            timestamp: localTimestamp,
+            temp_f: temp
+          };
+        });
+        
+        // Check if this is temperature control data
+        const isTempControl = (tiltColor === 'TempControl');
+        
+        const traces = [];
+        
+        // Keep a reference to original data points for temp control event markers
+        const allDataPoints = dataPoints;
+        
+        // Temperature trace - for temp control, show only the active tilt
+        if (isTempControl) {
+          // For temperature control, we only want to show the active tilt
+          // Filter out data points with empty or null tilt_color (these are noise)
+          const validDataPoints = dataPoints.filter(p => p.tilt_color && p.tilt_color.trim() !== '');
+          
+          // Find the most recent tilt_color to determine the active tilt
+          let activeTiltColor = null;
+          if (validDataPoints.length > 0) {
+            // Get the most recent data point's tilt color
+            activeTiltColor = validDataPoints[validDataPoints.length - 1].tilt_color;
+          }
+          
+          // Determine which data to display
+          let displayData = [];
+          let displayLabel = 'Temperature';
+          let displayColor = '#808080';
+          
+          if (activeTiltColor) {
+            // NORMAL PATH: We have tilt_color data, show only the active tilt
+            // This is the expected path when temperature control is properly configured
+            displayData = validDataPoints.filter(p => p.tilt_color === activeTiltColor);
+            displayLabel = `${activeTiltColor} Tilt`;
+            
+            // Define color mapping for traces
+            const colorMap = {
+              'Black': '#000000',
+              'Blue': '#0000FF',
+              'Green': '#008000',
+              'Orange': '#FFA500',
+              'Pink': '#FFC0CB',
+              'Purple': '#800080',
+              'Red': '#FF0000',
+              'Yellow': '#FFFF00',
+            };
+            displayColor = colorMap[activeTiltColor] || '#808080';
+          } else {
+            // DEFENSIVE PATH: No tilt_color data available
+            // This handles edge cases where tilt_color is missing:
+            // - Legacy data from older system versions
+            // - System events without tilt association (startup_plug_sync, etc.)
+            // - Configuration states where no tilt has been assigned
+            // Instead of failing, we show ALL temperature data with a generic label
+            // See DEFENSIVE_CODE_EXPLANATION.md for details
+            displayData = allDataPoints;
+            displayLabel = 'Temperature';
+            displayColor = '#0066CC';  // Blue for generic temperature
+          }
+          
+          // Create temperature trace if we have data
+          if (displayData.length > 0) {
+            const validPoints = displayData.filter(p => p.temp_f != null && !isNaN(p.temp_f));
+            if (validPoints.length > 0) {
+              traces.push({
+                type: 'scatter',  // Explicitly set type to scatter for line chart
+                x: displayData.map(p => p.timestamp),
+                y: displayData.map(p => p.temp_f),
+                mode: 'lines',
+                name: displayLabel,
+                line: { color: displayColor, shape: 'linear', width: 1.5 },
+                yaxis: 'y1',
+                connectgaps: false,
+              });
+            }
+          }
+          
+          // Update dataPoints to only include display data for subsequent processing
+          dataPoints = displayData;
+        } else {
+          // Original single temperature trace for regular tilt data
+          const tempTrace = {
+            type: 'scatter',  // Explicitly set type to scatter for line chart
+            x: dataPoints.map((p) => p.timestamp),
+            y: dataPoints.map((p) => p.temp_f),
+            mode: 'lines',
+            name: 'Temperature (°F)',
+            line: { color: 'blue', shape: 'linear', width: 1.5 },
+            yaxis: 'y1',
+            connectgaps: false,
+          };
+          traces.push(tempTrace);
+        }
+        
+        // Calculate temperature range with margin
+        const temps = dataPoints.map(p => p.temp_f).filter(t => t != null && !isNaN(t));
+        let tempMin = Math.min(...temps);
+        let tempMax = Math.max(...temps);
+        let tempRange = null;
+        if (temps.length > 0 && isFinite(tempMin) && isFinite(tempMax)) {
+          // Use data-driven range with 10% margin or minimum of 5°F margin for all charts
+          const dataRange = tempMax - tempMin;
+          const margin = Math.max(dataRange * 0.1, 5);  // 10% of range or 5°F minimum
+          tempMin = tempMin - margin;
+          tempMax = tempMax + margin;
+          tempRange = [tempMin, tempMax];
+        } else if (isTempControl) {
+          // Default to a reasonable range if no data points for temp control
+          tempRange = [50, 80];
+        }
+        
+        // Calculate x-axis range
+        // For completed/archived fermentations: use actual data range
+        // For active fermentations: use actual data range with small padding
+        let xAxisRange = null;
+        if (dataPoints.length > 0) {
+          // Timestamps are already Date objects from normalization above
+          const timestamps = dataPoints.map(p => {
+            if (p.timestamp instanceof Date) {
+              return p.timestamp;
+            }
+            return new Date(p.timestamp);
+          }).filter(d => !isNaN(d.getTime()));
+          if (timestamps.length > 0) {
+            const minDate = new Date(Math.min(...timestamps));
+            const maxDate = new Date(Math.max(...timestamps));
+            
+            // Start from the first data point
+            const rangeStart = minDate;
+            
+            // For active fermentations, add 5% padding to the end
+            // For completed fermentations, use actual end date
+            let rangeEnd;
+            if (fermentationComplete) {
+              rangeEnd = maxDate;
+            } else {
+              // Add 5% time padding or 1 hour minimum, whichever is larger
+              const paddingMs = Math.max(
+                (maxDate - minDate) * 0.05,  // 5% of data range
+                60 * 60 * 1000  // 1 hour minimum
+              );
+              rangeEnd = new Date(maxDate.getTime() + paddingMs);
+            }
+            
+            // Use Date objects directly for xAxisRange - Plotly will handle them correctly
+            xAxisRange = [rangeStart, rangeEnd];
+            
+            // Update date range display (show the extended x-axis range, not just data range)
+            const dateRangeEl = document.getElementById('date-range');
+            if (dateRangeEl) {
+              const options = { year: 'numeric', month: 'long', day: 'numeric' };
+              const startStr = rangeStart.toLocaleDateString('en-US', options);
+              const endStr = rangeEnd.toLocaleDateString('en-US', options);
+              dateRangeEl.textContent = `${startStr} - ${endStr}`;
+            }
+          }
+        }
+        
+        let layout;
+        
+        if (isTempControl) {
+          // For temperature control, add heating/cooling state lines instead of gravity
+          
+          // Filter events for state tracking - use all data points, not just active tilt
+          const heatingOnEvents = allDataPoints.filter(p => p.event === 'HEATING-PLUG TURNED ON');
+          const heatingOffEvents = allDataPoints.filter(p => p.event === 'HEATING-PLUG TURNED OFF');
+          const coolingOnEvents = allDataPoints.filter(p => p.event === 'COOLING-PLUG TURNED ON');
+          const coolingOffEvents = allDataPoints.filter(p => p.event === 'COOLING-PLUG TURNED OFF');
+          
+          // Combine heating events and sort by timestamp for line chart
+          const heatingEvents = [...heatingOnEvents, ...heatingOffEvents].sort((a, b) => {
+            const aTime = a.timestamp instanceof Date ? a.timestamp.getTime() : new Date(a.timestamp).getTime();
+            const bTime = b.timestamp instanceof Date ? b.timestamp.getTime() : new Date(b.timestamp).getTime();
+            return aTime - bTime;
+          });
+          
+          // Combine cooling events and sort by timestamp for line chart
+          const coolingEvents = [...coolingOnEvents, ...coolingOffEvents].sort((a, b) => {
+            const aTime = a.timestamp instanceof Date ? a.timestamp.getTime() : new Date(a.timestamp).getTime();
+            const bTime = b.timestamp instanceof Date ? b.timestamp.getTime() : new Date(b.timestamp).getTime();
+            return aTime - bTime;
+          });
+          
+          // Create heating state markers (show events without connecting lines for clarity)
+          if (heatingEvents.length > 0) {
+            traces.push({
+              type: 'scatter',
+              x: heatingEvents.map(p => p.timestamp),
+              y: heatingEvents.map(p => p.temp_f),
+              mode: 'markers',
+              name: 'Heating Control',
+              marker: { 
+                color: heatingEvents.map(p => p.event === 'HEATING-PLUG TURNED ON' ? 'red' : 'pink'),
+                size: 12,
+                symbol: heatingEvents.map(p => p.event === 'HEATING-PLUG TURNED ON' ? 'triangle-up' : 'triangle-down'),
+                line: { color: 'darkred', width: 1 }
+              },
+              yaxis: 'y1',
+              showlegend: true,
+              hovertemplate: '%{y:.1f}°F<br>%{x}<br>%{text}<extra></extra>',
+              text: heatingEvents.map(p => p.event === 'HEATING-PLUG TURNED ON' ? 'Heating ON' : 'Heating OFF'),
+            });
+          }
+          
+          // Create cooling state markers (show events without connecting lines for clarity)
+          if (coolingEvents.length > 0) {
+            traces.push({
+              type: 'scatter',
+              x: coolingEvents.map(p => p.timestamp),
+              y: coolingEvents.map(p => p.temp_f),
+              mode: 'markers',
+              name: 'Cooling Control',
+              marker: { 
+                color: coolingEvents.map(p => p.event === 'COOLING-PLUG TURNED ON' ? 'blue' : 'lightblue'),
+                size: 12,
+                symbol: 'square',
+                line: { color: 'darkblue', width: 1 }
+              },
+              yaxis: 'y1',
+              showlegend: true,
+              hovertemplate: '%{y:.1f}°F<br>%{x}<br>%{text}<extra></extra>',
+              text: coolingEvents.map(p => p.event === 'COOLING-PLUG TURNED ON' ? 'Cooling ON' : 'Cooling OFF'),
+            });
+          }
+          
+          // Add horizontal lines for low and high temperature limits
+          // Extract limit values from data points (use most recent values)
+          let lowLimit = null;
+          let highLimit = null;
+          
+          // Find the most recent limits from data points (iterate backwards)
+          for (let i = allDataPoints.length - 1; i >= 0; i--) {
+            const p = allDataPoints[i];
+            // Get low limit if not yet found
+            if (lowLimit === null && p.low_limit !== null && p.low_limit !== undefined && !isNaN(parseFloat(p.low_limit))) {
+              lowLimit = parseFloat(p.low_limit);
+            }
+            // Get high limit if not yet found
+            if (highLimit === null && p.high_limit !== null && p.high_limit !== undefined && !isNaN(parseFloat(p.high_limit))) {
+              highLimit = parseFloat(p.high_limit);
+            }
+            // Break early if we have both limits
+            if (lowLimit !== null && highLimit !== null) {
+              break;
+            }
+          }
+          
+          // Calculate limit line boundaries based on actual data points
+          // This prevents the line from extending from the left axis border to the first data point
+          let limitLineStart = null;
+          let limitLineEnd = null;
+          if (dataPoints.length > 0) {
+            // Use first and last data point timestamps
+            limitLineStart = dataPoints[0].timestamp;
+            limitLineEnd = dataPoints[dataPoints.length - 1].timestamp;
+          }
+          
+          // Add low limit line (thin red horizontal line)
+          if (lowLimit !== null && limitLineStart && limitLineEnd) {
+            traces.push({
+              type: 'scatter',
+              x: [limitLineStart, limitLineEnd],
+              y: [lowLimit, lowLimit],
+              mode: 'lines',
+              name: 'Low Limit',
+              line: { color: 'red', width: 1, dash: 'solid' },
+              yaxis: 'y1',
+              showlegend: true,
+              hoverinfo: 'y',
+            });
+          }
+          
+          // Add high limit line (thin red horizontal line)
+          if (highLimit !== null && limitLineStart && limitLineEnd) {
+            traces.push({
+              type: 'scatter',
+              x: [limitLineStart, limitLineEnd],
+              y: [highLimit, highLimit],
+              mode: 'lines',
+              name: 'High Limit',
+              line: { color: 'red', width: 1, dash: 'solid' },
+              yaxis: 'y1',
+              showlegend: true,
+              hoverinfo: 'y',
+            });
+          }
+          
+          // Layout without gravity axis
+          // Determine what controls are in use
+          const heatingInUse = heatingEvents.length > 0;
+          const coolingInUse = coolingEvents.length > 0;
+          let controlsInUse = '';
+          if (heatingInUse && coolingInUse) {
+            controlsInUse = 'Heating and Cooling In Use';
+          } else if (heatingInUse) {
+            controlsInUse = 'Heating In Use';
+          } else if (coolingInUse) {
+            controlsInUse = 'Cooling In Use';
+          }
+          
+          // Build subtitle with date range
+          const dateRangeEl = document.getElementById('date-range');
+          let dateRangeText = '';
+          if (dateRangeEl && dateRangeEl.textContent) {
+            dateRangeText = dateRangeEl.textContent;
+          }
+          
+          let titleText = '<b style="font-size: 24px;">TEMPERATURE CONTROL ACTIVITY</b>';
+          if (dateRangeText) {
+            titleText += `<br><span style="font-size: 14px;">${dateRangeText}</span>`;
+          }
+          if (controlsInUse) {
+            titleText += `<br><span style="font-size: 12px; font-weight: normal;">${controlsInUse}</span>`;
+          }
+          
+          layout = {
+            title: {
+              text: titleText,
+              font: { size: 20 },
+            },
+            xaxis: {
+              title: 'Timestamp',
+              titlefont: { size: 12 },
+              gridcolor: '#eaf2f5',
+              range: xAxisRange,
+              autorange: false,
+              rangemode: 'normal',
+            },
+            yaxis: {
+              title: 'Temperature (°F)',
+              titlefont: { color: 'blue', size: 12 },
+              tickfont: { color: 'blue', size: 10 },
+              gridcolor: '#eaf2f5',
+              range: tempRange || [50, 80],
+            },
+            showlegend: true,
+            legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: -0.2 },
+            margin: { l: 50, r: 50, t: 70, b: 80 },
+          };
+        } else {
+          // For regular tilt data, include gravity
+          const gravityTrace = {
+            type: 'scatter',
+            x: dataPoints.map((p) => p.timestamp),
+            y: dataPoints.map((p) => parseFloat(p.gravity)),
+            mode: 'lines',
+            name: 'Gravity',
+            line: { color: '#E69D00', shape: 'linear', width: 3 },
+            yaxis: 'y2',
+            connectgaps: false,
+          };
+          traces.push(gravityTrace);
+          
+          // Calculate gravity range with new logic:
+          // Upper limit: max(recipe_og, actual_og) + 0.002
+          // Lower limit: min(recipe_fg, minimum_historical_gravity) - 0.002
+          const gravities = dataPoints.map(p => parseFloat(p.gravity)).filter(g => g != null && !isNaN(g));
+          let gravityMin = gravities.length > 0 ? Math.min(...gravities) : 0.990;
+          let gravityMax = gravities.length > 0 ? Math.max(...gravities) : 1.100;
+          
+          // Calculate upper limit
+          let upperLimit = gravityMax;
+          if (recipeOg !== null && !isNaN(parseFloat(recipeOg))) {
+            upperLimit = Math.max(upperLimit, parseFloat(recipeOg));
+          }
+          if (actualOg !== null && !isNaN(parseFloat(actualOg))) {
+            upperLimit = Math.max(upperLimit, parseFloat(actualOg));
+          }
+          upperLimit += 0.002;
+          
+          // Calculate lower limit
+          let lowerLimit = gravityMin;
+          if (recipeFg !== null && !isNaN(parseFloat(recipeFg))) {
+            lowerLimit = Math.min(lowerLimit, parseFloat(recipeFg));
+          }
+          lowerLimit -= 0.002;
+          
+          let gravityRange = [lowerLimit, upperLimit];
+          
+          layout = {
+            title: {
+              text: `${tiltColor} Tilt Readings | ${beerName} | Batch: ${batchName} | BrewId: ${brewId}`,
+              font: { size: 16 },
+            },
+            xaxis: {
+              title: 'Timestamp',
+              titlefont: { size: 12 },
+              gridcolor: '#eaf2f5',
+              range: xAxisRange,
+              autorange: false,
+              rangemode: 'normal',
+            },
+            yaxis: {
+              title: 'Temperature (°F)',
+              titlefont: { color: 'blue', size: 12 },
+              tickfont: { color: 'blue', size: 10 },
+              gridcolor: '#eaf2f5',
+              range: tempRange || [32, 120],
+            },
+            yaxis2: {
+              title: 'Gravity',
+              titlefont: { color: '#E69D00', size: 12 },
+              tickfont: { color: '#E69D00', size: 10 },
+              overlaying: 'y',
+              side: 'right',
+              gridcolor: '#ffffff',
+              range: gravityRange,
+            },
+            showlegend: true,
+            legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: -0.2 },
+            margin: { l: 50, r: 50, t: 50, b: 50 },
+          };
+        }
+
+        // Plotly configuration to show the modebar (chart tools)
+        const config = {
+          displayModeBar: true,
+          modeBarButtonsToRemove: [],
+          displaylogo: false,
+          responsive: true
+        };
+
+        Plotly.newPlot('tempChart', traces, layout, config);
+        
+        document.getElementById('status').textContent = '';
+      } catch (err) {
+        console.error(err);
+        document.getElementById('status').textContent = 'Failed to load data.';
+      }
+    }
+
+    // Add print button functionality
+    document.getElementById('print').addEventListener('click', () => {
+      window.print();
+    });
+    
+    // Add dashboard button functionality
+    document.getElementById('dashboard').addEventListener('click', () => {
+      window.location.href = '/';
+    });
+    
+    // Add export functionality for temperature control
+    {% if tilt_color == "TempControl" %}
+    document.getElementById('export').addEventListener('click', async () => {
+      try {
+        document.getElementById('status').textContent = 'Exporting data...';
+        const response = await fetch('/export_temp_control_csv', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!response.ok) throw new Error('Export failed');
+        const result = await response.json();
+        if (result.success) {
+          document.getElementById('status').textContent = `Exported to ${result.filename}`;
+        } else {
+          document.getElementById('status').textContent = 'Export failed: ' + (result.error || 'Unknown error');
+        }
+      } catch (err) {
+        console.error(err);
+        document.getElementById('status').textContent = 'Export failed';
+      }
+    });
+    {% endif %}
+
+    loadData();
+  </script>
+</body>
+</html>

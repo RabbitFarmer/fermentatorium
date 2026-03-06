@@ -1,501 +1,229 @@
-/* =========================================================
-   Fermentatorium – Global Stylesheet
-   Serves: maindisplay.html and all sub-pages
-   ========================================================= */
+/* Combined stylesheet — uniform styles for all pages */
 
-/* ---- Reset / Base ---------------------------------------- */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-body {
-  font-family: Arial, Helvetica, sans-serif;
-  background: #f0ebe3;
-  color: #222;
-  min-height: 100vh;
+:root{
+  --page-max-width: 1340px;
+  --card-width: 320px;
+  --card-gap: 24px;
+  --metric-number-size: 20px;
+  --temp-number-size: 36px;
+  --ribbon-green: #0b8a2e;
+  --btn-brown: #8B4513;
+  --btn-green: #4CAF50;
+  --panel-bg: #e2e6ea;
+  --panel-border: #cfdbe0;
 }
 
-a { color: inherit; text-decoration: none; }
-
-/* ---- CSS variables --------------------------------------- */
-:root {
-  --panel-brown:  #8B4513;
-  --panel-brown2: #654321;
-  --card-width:   320px;
-  --card-radius:  8px;
-  --status-red:   #c91f1f;
-  --now-cool-blue:#1e90ff;
-  --error-orange: #FF8C00;
-  --kasa-yellow:  #B8860B;
+/* 3-across display mode variables */
+.display-mode-3 {
+  --card-width: 400px;
+  --metric-number-size: 32px;
+  --temp-number-size: 48px;
+  --card-gap: 32px;
 }
 
-/* ---- Page wrapper ---------------------------------------- */
-.page-container {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
+/* Shared body background */
+body, body.page-bg {
+  background: #f0f4f8;
+  margin: 0;
+  padding: 0;
 }
 
-/* ---- Site header ----------------------------------------- */
-.site-header {
-  background: var(--panel-brown);
+/* Shared site header wrapper */
+.site-header { margin: 0 0 12px; }
+
+/* Uniform action buttons used across all pages */
+.btn-action {
+  padding: 10px 20px;
+  background-color: var(--btn-brown);
   color: white;
-  padding: 14px 20px 14px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
-  position: sticky;
-  top: 0;
-  z-index: 1000;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: bold;
+  border-radius: 5px;
+  text-decoration: none;
+  display: inline-block;
 }
+.btn-action:hover { opacity: 0.9; }
 
-.dashboard-title {
-  font-size: 28px;
-  font-weight: 900;
-  letter-spacing: 1px;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.3);
-}
-
-/* ---- Communication failure banner ------------------------ */
-.notification-failure {
-  background: var(--status-red);
+.btn-primary {
+  padding: 10px 20px;
+  background-color: var(--btn-green);
   color: white;
-  font-weight: 900;
-  font-size: 14px;
-  text-align: center;
-  padding: 6px 12px;
-  border-radius: 4px;
-  margin-top: 4px;
-  animation: blink 1.2s ease-in-out infinite;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: bold;
+  border-radius: 5px;
+  text-decoration: none;
+  display: inline-block;
 }
+.btn-primary:hover { background-color: #45a049; }
 
-/* ---- Tilt cards wrapper ---------------------------------- */
-.tiltcards-wrapper {
-  padding: 24px 20px;
-  flex: 1 1 auto;
+.btn-secondary {
+  padding: 10px 20px;
+  background-color: #ddd;
+  color: #333;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: bold;
+  border-radius: 5px;
+  text-decoration: none;
+  display: inline-block;
 }
+.btn-secondary:hover { background-color: #ccc; }
 
-.tiltcard-container {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 20px;
-  justify-content: flex-start;
-  align-items: flex-start;
-}
-
-/* ---- Individual Tilt card -------------------------------- */
-.tilt-card {
-  width: var(--card-width);
-  border-radius: var(--card-radius);
-  overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-  background: #fff;
-  display: flex;
-  flex-direction: column;
-  transition: box-shadow 0.2s;
-}
-
-.tilt-card:hover {
-  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
-}
-
-/* ---- Card banner (colored top) --------------------------- */
-.tilt-banner {
-  padding: 12px 14px 10px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.beer-name {
-  font-size: 18px;
-  font-weight: 900;
-  letter-spacing: 0.3px;
-  line-height: 1.15;
-}
-
-.tilt-batch-name {
-  font-size: 13px;
+/* Tilt color badge pill used in batch history */
+.tilt-color-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.85em;
   font-weight: 700;
-  opacity: 0.92;
-  margin-top: 2px;
-}
-
-.tilt-brewid-line {
-  font-size: 12px;
-  font-weight: 600;
-  opacity: 0.88;
-  margin-top: 1px;
-  font-family: monospace;
-}
-
-.tilt-banner-meta {
-  margin-top: 4px;
-}
-
-.tilt-banner-meta-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 500;
-  opacity: 0.85;
-}
-
-/* ---- Card body / metrics table --------------------------- */
-.tilt-body {
-  padding: 12px 14px 10px 14px;
-  flex: 1 1 auto;
-}
-
-.tilt-metrics {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.tilt-metrics th,
-.tilt-metrics td {
-  padding: 5px 4px;
-  font-size: 13px;
+  margin-right: 6px;
   vertical-align: middle;
 }
 
-.tilt-metrics th {
-  font-weight: 700;
-  font-size: 12px;
-  color: #555;
-  border-bottom: 1px solid #e0d8ce;
-  padding-bottom: 4px;
-}
-
-.right-header {
-  text-align: right;
-}
-
-.label {
-  font-weight: 700;
-  color: #444;
-  white-space: nowrap;
-  width: 40%;
-}
-
-.value {
-  text-align: right;
-  font-size: 14px;
-  min-width: 80px;
-}
-
-.metric-number {
-  font-family: 'Courier New', monospace;
-  font-size: 15px;
-  font-weight: 700;
-  color: #111;
-}
-
-/* ---- Tilt card footer (thin colored strip) --------------- */
-.tilt-footer-colored {
-  flex-shrink: 0;
-}
-
-/* ---- Display mode overrides (3-across larger fonts) ------ */
-.display-mode-3 .tilt-card        { width: calc(33.33% - 14px); min-width: 280px; }
-.display-mode-3 .beer-name        { font-size: 22px; }
-.display-mode-3 .metric-number    { font-size: 18px; }
-.display-mode-3 .tilt-metrics th,
-.display-mode-3 .tilt-metrics td  { font-size: 16px; }
-
-.display-mode-4 .tilt-card        { width: var(--card-width); }
-
-/* ---- Gear icon dropdown ---------------------------------- */
-.gear-menu {
-  position: fixed;
-  top: 14px;
-  right: 18px;
-  z-index: 2000;
-}
-
-.gear-btn {
-  background: rgba(139,69,19,0.92);
+/* Batch history action buttons */
+.btn-close {
+  padding: 6px 12px;
+  background-color: #dc3545;
   color: white;
   border: none;
-  border-radius: 50%;
-  width: 44px;
-  height: 44px;
-  font-size: 24px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
-  transition: background 0.2s;
-  line-height: 1;
-}
-
-.gear-btn:hover { background: rgba(101,67,33,0.98); }
-
-.gear-dropdown {
-  display: none;
-  position: absolute;
-  top: 50px;
-  right: 0;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
-  min-width: 200px;
-  overflow: hidden;
-}
-
-.gear-dropdown.open { display: block; }
-
-.gear-dropdown a {
-  display: block;
-  padding: 12px 20px;
-  color: #333;
-  text-decoration: none;
-  font-weight: 600;
-  font-size: 15px;
-  border-bottom: 1px solid #f0f0f0;
-  transition: background 0.15s;
-}
-
-.gear-dropdown a:last-child { border-bottom: none; }
-.gear-dropdown a:hover { background: #f5f0e8; color: var(--panel-brown); }
-.gear-dropdown a.exit-link { color: var(--status-red); }
-.gear-dropdown a.exit-link:hover { background: #fff0f0; }
-
-/* ---- Sub-page shared layout ------------------------------ */
-.subpage-wrapper {
-  max-width: 860px;
-  margin: 32px auto;
-  padding: 0 20px 40px 20px;
-}
-
-.subpage-header {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 28px;
-}
-
-.subpage-header h1 {
-  font-size: 26px;
-  font-weight: 900;
-  color: var(--panel-brown);
-}
-
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  background: var(--panel-brown);
-  color: white;
-  border-radius: 5px;
-  font-size: 14px;
-  font-weight: 700;
-  text-decoration: none;
-  transition: background 0.15s;
-}
-
-.back-link:hover { background: var(--panel-brown2); }
-
-/* ---- Config form card ------------------------------------ */
-.config-card {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  margin-bottom: 24px;
-  overflow: hidden;
-}
-
-.config-card-header {
-  background: var(--panel-brown);
-  color: white;
-  font-size: 16px;
-  font-weight: 800;
-  padding: 12px 18px;
-}
-
-.config-card-body {
-  padding: 18px;
-}
-
-.form-row {
-  display: grid;
-  grid-template-columns: 200px 1fr;
-  align-items: center;
-  gap: 10px 16px;
-  margin-bottom: 12px;
-}
-
-.form-row label {
-  font-weight: 700;
-  font-size: 14px;
-  color: #333;
-}
-
-.form-row input[type="text"],
-.form-row input[type="number"],
-.form-row input[type="email"],
-.form-row select,
-.form-row textarea {
-  width: 100%;
-  padding: 7px 10px;
-  border: 1px solid #ccc;
+  font-size: 13px;
+  font-weight: bold;
   border-radius: 4px;
-  font-size: 14px;
-  font-family: inherit;
-  transition: border-color 0.15s;
 }
+.btn-close:hover { background-color: #c82333; }
 
-.form-row input:focus,
-.form-row select:focus,
-.form-row textarea:focus {
-  outline: none;
-  border-color: var(--panel-brown);
-  box-shadow: 0 0 0 2px rgba(139,69,19,0.12);
-}
-
-.form-row input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
-}
-
-.form-actions {
-  padding: 14px 18px;
-  border-top: 1px solid #eee;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.btn {
-  padding: 9px 22px;
-  border: none;
-  border-radius: 5px;
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.btn-primary   { background: var(--panel-brown); color: white; }
-.btn-primary:hover { background: var(--panel-brown2); }
-.btn-secondary { background: #ddd; color: #333; }
-.btn-secondary:hover { background: #ccc; }
-.btn-danger    { background: var(--status-red); color: white; }
-.btn-danger:hover { background: #a01515; }
-
-.flash-success {
-  background: #d4edda;
-  color: #155724;
-  border: 1px solid #c3e6cb;
-  border-radius: 5px;
-  padding: 10px 16px;
-  margin-bottom: 18px;
-  font-weight: 600;
-}
-
-.flash-error {
-  background: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
-  border-radius: 5px;
-  padding: 10px 16px;
-  margin-bottom: 18px;
-  font-weight: 600;
-}
-
-/* ---- Batch history / log tables -------------------------- */
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-
-.data-table th {
-  background: var(--panel-brown);
+.btn-reopen {
+  padding: 6px 12px;
+  background-color: var(--btn-green);
   color: white;
-  font-weight: 700;
-  padding: 10px 12px;
-  text-align: left;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: bold;
+  border-radius: 4px;
 }
+.btn-reopen:hover { background-color: #45a049; }
 
-.data-table td {
-  padding: 9px 12px;
-  border-bottom: 1px solid #e8e0d6;
+/* Config page layout wrapper (system settings, external logging) */
+.temp-config-setup-ribbon {
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  padding: 18px 14px 40px;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  color: #111;
 }
+.temp-config-form { width: 100%; }
 
-.data-table tr:last-child td { border-bottom: none; }
-.data-table tr:nth-child(even) td { background: #faf7f3; }
-.data-table tr:hover td { background: #f5ede0; }
-
-.data-table a { color: var(--panel-brown); font-weight: 600; }
-.data-table a:hover { text-decoration: underline; }
-
-.empty-state {
-  text-align: center;
-  color: #888;
-  font-style: italic;
-  padding: 32px;
-}
-
-/* ---- Chart page ------------------------------------------ */
-.chart-container {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  padding: 18px;
-  margin-bottom: 24px;
-}
-
-/* ---- Temp summary page ----------------------------------- */
-.controller-info-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 14px;
-  margin-bottom: 18px;
-}
-
-.info-box {
-  background: #f9f5f0;
-  border: 1px solid #e0d4c4;
-  border-radius: 6px;
-  padding: 12px 14px;
-}
-
-.info-box-label {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #888;
-  margin-bottom: 4px;
-}
-
-.info-box-value {
-  font-size: 22px;
-  font-weight: 900;
-  font-family: monospace;
+/* Page container */
+.page-container {
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  padding: 18px 14px 40px;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
   color: #111;
 }
 
-.info-box-value.status-ok   { color: #1a7a1a; }
-.info-box-value.status-warn { color: var(--error-orange); }
-.info-box-value.status-bad  { color: var(--status-red); }
+/* Top nav: centered green links */
+.config-ribbon {
+  display:flex;
+  justify-content:center;
+  gap:22px;
+  align-items:center;
+  padding:8px 0;
+}
+.config-ribbon a {
+  color: var(--ribbon-green);
+  text-decoration: none;
+  font-weight: 800;
+  padding:6px 8px;
+}
+.config-ribbon a:hover { text-decoration: underline; }
 
-/* ---- Blink animation ------------------------------------- */
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.25; }
+/* Brewery title: centered and larger */
+.dashboard-title {
+  text-align:center;
+  font-size:36px;
+  font-weight:900;
+  margin: 10px 0 18px;
 }
 
-/* ---- Responsive ------------------------------------------ */
-@media (max-width: 720px) {
-  .tilt-card { width: 100%; }
-  .display-mode-3 .tilt-card { width: 100%; }
-  .subpage-wrapper { padding: 0 12px 32px 12px; }
-  .form-row { grid-template-columns: 1fr; }
-  .dashboard-title { font-size: 20px; }
+/* Tiltcards wrapper and grid */
+.tiltcards-wrapper { display:flex; justify-content:center; margin-bottom:18px; }
+.tiltcard-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--card-width), var(--card-width)));
+  gap: var(--card-gap);
+  justify-content: center;
+  justify-items: center;
+  align-items: start;
+  width: 100%;
+  max-width: var(--page-max-width);
+  padding: 0 8px;
+}
+
+/* Tilt card appearance */
+.tilt-card { width: var(--card-width); border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.06); background:#fff; overflow:hidden; display:flex; flex-direction:column; }
+.tilt-banner { padding:14px; text-align:center; font-weight:900; font-size:18px; }
+.tilt-body { padding:12px; }
+.tilt-metrics.restore { width:100%; border-collapse:collapse; }
+.tilt-metrics.restore th.right-header { text-align:right; font-weight:700; padding:6px; font-size:14px; }
+.tilt-metrics.restore .label { color:#444; font-size:16px; padding:6px; text-align:left; vertical-align:middle; }
+
+/* Numeric values styling (uniform, bold) */
+.tilt-metrics.restore .value,
+.tilt-metrics.restore .value .metric-number {
+  font-family: monospace;
+  font-weight: 900;
+  font-size: var(--metric-number-size);
+  padding:6px;
+  text-align:right;
+  vertical-align:middle;
+}
+.metric-number { display:inline-block; }
+
+/* 3-across display mode enhancements */
+.display-mode-3 .tilt-banner { font-size: 24px; padding: 18px; }
+.display-mode-3 .tilt-metrics.restore .label { font-size: 20px; font-weight: 800; }
+.display-mode-3 .tilt-metrics.restore th.right-header { font-size: 16px; }
+/* Recipe column numbers remain smaller in 3-across mode */
+.display-mode-3 .tilt-metrics.restore td:nth-child(2) .metric-number { font-size: 18px; }
+/* Actual numbers use the larger metric-number-size defined in CSS variables */
+
+/* Footer and chart pill */
+.tilt-footer-colored { padding:12px; font-size:14px; position:relative; overflow:visible; }
+
+/* Temp control section headings (used by system_config, external_logging_config) */
+.temp-header .temp-title { font-size:20px; font-weight:900; text-align:center; margin-bottom:4px; }
+.temp-header .temp-subtitle { font-size:13px; text-align:center; color:#444; margin-bottom:8px; }
+
+/* Status colors — status-above/status-below applied dynamically by JS in maindisplay */
+.status-inrange { color:#007b00; }
+.status-above { color:#c00; }
+.status-below { color:#007bff; }
+
+/* Responsive tweaks */
+@media (max-width:920px) {
+  :root { --temp-number-size:32px; --metric-number-size:18px; }
+  .tilt-card { width:92%; }
+}
+
+/* Notification failure banner */
+.notification-failure {
+  background: #ffc107;
+  color: #000;
+  padding: 10px 16px;
+  text-align: center;
+  font-weight: 800;
+  font-size: 14px;
+  margin: 8px 0;
+  border-radius: 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Temperature Chart</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; margin: 16px; }
+    #chart-container { width: 100%; max-width: 1200px; margin: 0 auto; }
+    canvas { background: #ffffff; border: 1px solid #ddd; }
+    .controls { margin: 12px 0; display:flex; gap:8px; align-items:center; }
+  </style>
+</head>
+<body>
+  <h2>Temperature Chart</h2>
+  <div class="controls">
+    <label for="limit">Points (max 2000):</label>
+    <input id="limit" type="number" min="10" max="2000" value="1500" style="width:100px" />
+    <button id="reload">Reload</button>
+    <span id="status"></span>
+  </div>
+  <div id="chart-container">
+    <canvas id="tempChart" width="1200" height="400"></canvas>
+  </div>
+
+  <script>
+    const tiltColor = "{{ tilt_color or '' }}";
+    const maxLimit = 2000;
+
+    const ctx = document.getElementById('tempChart').getContext('2d');
+
+    const chartConfig = {
+      type: 'line',
+      data: {
+        datasets: [{
+          label: 'Temperature (°F)',
+          data: [],
+          parsing: false,
+          borderColor: 'rgba(75, 192, 192, 0.6)',
+          backgroundColor: 'rgba(75, 192, 192, 0.12)',
+          pointRadius: 2,
+          hitRadius: 8,
+          hoverRadius: 6,
+          tension: 0.15,
+          showLine: true
+        }]
+      },
+      options: {
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: 'nearest', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            enabled: true,
+            callbacks: {
+              title: function(items) {
+                const it = items[0];
+                const p = it.raw;
+                let ts = p.x || p.timestamp || '';
+                try {
+                  const d = new Date(ts);
+                  if (!Number.isNaN(d.getTime())) { ts = d.toLocaleString(); }
+                } catch(e){}
+                return ts;
+              },
+              label: function(context) {
+                const p = context.raw;
+                const lines = [];
+                if (p.y !== undefined) { lines.push(`Temp: ${p.y !== null ? p.y + ' °F' : 'N/A'}`); }
+                if (p.gravity !== undefined) { lines.push(`Gravity: ${p.gravity !== null ? p.gravity : 'N/A'}`); }
+                return lines;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            type: 'time',
+            time: {
+              tooltipFormat: 'yyyy-MM-dd HH:mm:ss',
+              displayFormats: { millisecond: 'HH:mm', second: 'HH:mm', minute: 'HH:mm', hour: 'HH:mm' }
+            },
+            ticks: { display: false },
+            grid: { display: false }
+          },
+          y: { title: { display: true, text: 'Temperature (°F)' }, beginAtZero: false }
+        },
+        elements: { point: { radius: 2 } }
+      }
+    };
+
+    const tempChart = new Chart(ctx, chartConfig);
+
+    async function loadData(limit) {
+      document.getElementById('status').textContent = 'Loading...';
+      let url = '/chart_data/' + encodeURIComponent(tiltColor) + '?limit=' + encodeURIComponent(limit);
+      try {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error('Network response not ok');
+        const json = await r.json();
+        const pts = json.points || [];
+        const data = pts.map(p => ({ x: p.timestamp, y: p.temp_f, gravity: p.gravity }));
+        tempChart.data.datasets[0].data = data;
+        tempChart.update();
+        document.getElementById('status').textContent = `Loaded ${data.length} points (matched ${json.matched || '?'}).`;
+      } catch (e) {
+        console.error(e);
+        document.getElementById('status').textContent = 'Failed to load data';
+      }
+    }
+
+    document.getElementById('reload').addEventListener('click', () => {
+      let limit = parseInt(document.getElementById('limit').value) || 1500;
+      limit = Math.max(10, Math.min(limit, maxLimit));
+      loadData(limit);
+    });
+
+    window.addEventListener('load', () => {
+      let initial = parseInt(document.getElementById('limit').value) || 1500;
+      initial = Math.max(10, Math.min(initial, maxLimit));
+      loadData(initial);
+    });
+  </script>
+</body>
+</html>
