@@ -72,7 +72,7 @@ def main():
     print("Demo data is ready for chart visualization!")
     print()
     print("To view the chart:")
-    print("  1. Start the Flask app: python3 app3.py")
+    print("  1. Start the Flask app: python3 app.py")
     print(f"  2. Navigate to: http://localhost:5001/chart_plotly/{TILT_COLOR}")
     print()
     

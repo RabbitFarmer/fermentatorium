@@ -9,7 +9,7 @@ import json
 import sys
 import os
 
-# Add the current directory to path so we can import from app3
+# Add the current directory to path so we can import from app
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 def test_trace_output():
@@ -110,7 +110,7 @@ def test_trace_output():
     print("  3. Which controllers are active and have tilts assigned")
     print("  4. What data is being passed to templates")
     print("\nTo see actual traces:")
-    print("  1. Start the application: python3 app3.py")
+    print("  1. Start the application: python3 app.py")
     print("  2. Watch console for [TRACE] messages")
     print("  3. Open browser to http://localhost:5001")
     print("  4. Press F12 and check Console tab")

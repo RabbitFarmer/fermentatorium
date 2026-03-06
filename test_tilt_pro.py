@@ -12,7 +12,7 @@ This validates:
 
 import sys
 
-# --- Constants matching app3.py -----------------------------------------------
+# --- Constants matching app.py -----------------------------------------------
 TILT_PRO_GRAVITY_THRESHOLD = 5000
 TILT_PRO_GRAVITY_DIVISOR = 10000.0
 TILT_PRO_TEMP_DIVISOR = 10.0
@@ -20,7 +20,7 @@ TILT_STANDARD_GRAVITY_DIVISOR = 1000.0
 
 
 def decode_tilt(raw_temp, raw_gravity):
-    """Replicate detection_callback decoding logic from app3.py."""
+    """Replicate detection_callback decoding logic from app.py."""
     is_pro = raw_gravity > TILT_PRO_GRAVITY_THRESHOLD
     if is_pro:
         temp_f = round(raw_temp / TILT_PRO_TEMP_DIVISOR, 1)

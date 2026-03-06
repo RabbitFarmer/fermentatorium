@@ -2,7 +2,7 @@
 """
 kasa_worker.py - worker process for controlling Kasa plugs.
 
-This worker is intended to be started as a separate Process from app3.py:
+This worker is intended to be started as a separate Process from app.py:
     proc = Process(target=kasa_worker, args=(kasa_queue, kasa_result_queue))
 
 Behavior:

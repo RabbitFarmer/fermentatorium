@@ -1,7 +1,9 @@
 import logging
 import os
 import json
+import smtplib
 from datetime import datetime
+from email.mime.text import MIMEText
 
 # --- Legacy Kasa error logging ---
 logging.basicConfig(
@@ -9,6 +11,16 @@ logging.basicConfig(
     level=logging.ERROR,
     format='%(asctime)s %(levelname)s %(message)s'
 )
+
+_SYSTEM_CFG_PATH = 'config/system_config.json'
+
+def _load_system_cfg():
+    """Read system_config.json from disk. Returns empty dict on any error."""
+    try:
+        with open(_SYSTEM_CFG_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
 def log_error(msg):
     """
@@ -37,11 +49,8 @@ def log_kasa_command(mode, url, action, success=None, error=None):
     """
     is_error = (success is False)
     if not is_error:
-        try:
-            from app3 import system_cfg as _sys_cfg
-            if not _sys_cfg.get('enable_kasa_activity_log', False):
-                return
-        except ImportError:
+        sys_cfg = _load_system_cfg()
+        if not sys_cfg.get('enable_kasa_activity_log', False):
             return
 
     try:
@@ -216,20 +225,20 @@ def send_notification(event_type, message, tilt_color=None):
     Send notifications (email/PUSH/both) according to system_cfg["warning_mode"].
     Only sends if the specific notification type is enabled in system_cfg.
     """
-    try:
-        from app3 import system_cfg, attempt_send_notifications
-    except ImportError:
+    sys_cfg = _load_system_cfg()
+    mode = sys_cfg.get("warning_mode", "none").upper()
+    if mode not in ("EMAIL", "PUSH", "BOTH"):
         return
 
     enabled = False
     
     if event_type in TEMP_CONTROL_EVENTS:
-        temp_notif = system_cfg.get('temp_control_notifications', {})
+        temp_notif = sys_cfg.get('temp_control_notifications', {})
         notif_key = f'enable_{event_type}'
         enabled = temp_notif.get(notif_key, True)
     
     elif event_type in BATCH_EVENTS:
-        batch_notif = system_cfg.get('batch_notifications', {})
+        batch_notif = sys_cfg.get('batch_notifications', {})
         notif_key = f'enable_{event_type}'
         enabled = batch_notif.get(notif_key, True)
     
@@ -239,10 +248,159 @@ def send_notification(event_type, message, tilt_color=None):
     if not enabled:
         return
     
-    mode = system_cfg.get("warning_mode", "none").upper()
-    if mode in ("EMAIL", "PUSH", "BOTH"):
-        subject = f"{event_type.replace('_', ' ').title()} Notification"
-        body = message
-        if tilt_color:
-            body = f"Tilt: {tilt_color}\n{body}"
-        attempt_send_notifications(subject, body)
+    subject = f"{event_type.replace('_', ' ').title()} Notification"
+    body = message
+    if tilt_color:
+        body = f"Tilt: {tilt_color}\n{body}"
+    attempt_send_notifications(subject, body, sys_cfg)
+
+
+def _smtp_send(recipient, subject, body, cfg):
+    """Send an email via SMTP using the provided config dict."""
+    sending_email = cfg.get("sending_email") or cfg.get("email")
+    if not (isinstance(cfg, dict) and sending_email):
+        error_msg = "SMTP configuration incomplete: sender email not configured"
+        print(f"[LOG] {error_msg}")
+        return False, error_msg
+    try:
+        msg = MIMEText(body)
+        msg["Subject"] = subject
+        msg["From"] = sending_email
+        msg["To"] = recipient
+        server = smtplib.SMTP(cfg.get("smtp_host", "localhost"),
+                              int(cfg.get("smtp_port", 25)), timeout=10)
+        if cfg.get("smtp_starttls"):
+            server.starttls()
+        smtp_password = cfg.get("smtp_password") or cfg.get("sending_email_password")
+        if sending_email and smtp_password:
+            server.login(sending_email, smtp_password)
+        server.sendmail(sending_email, [recipient], msg.as_string())
+        server.quit()
+        return True, "Success"
+    except Exception as e:
+        original_error = str(e)
+        print(f"[LOG] SMTP send failed: {original_error}")
+        if ("BadCredentials" in original_error or
+                ("535" in original_error and "gmail" in cfg.get("smtp_host", "").lower())):
+            error_msg = (
+                "Gmail authentication failed. Gmail requires an App Password when "
+                "2-Factor Authentication is enabled. To fix: 1) Enable 2FA on your "
+                "Google account, 2) Generate an App Password at "
+                "https://myaccount.google.com/apppasswords, 3) Use that App Password "
+                f"in the Fermenter Email Password field. Original error: {original_error}"
+            )
+        else:
+            error_msg = original_error
+        return False, error_msg
+
+
+def send_email(subject, body, cfg=None):
+    """Send an email notification."""
+    if cfg is None:
+        cfg = _load_system_cfg()
+    recipient = cfg.get("email")
+    if not recipient:
+        print("[LOG] No recipient email configured")
+        return False, "No recipient email configured"
+    return _smtp_send(recipient, subject, body, cfg)
+
+
+def _send_push_pushover(body, subject, cfg):
+    """Send push notification via Pushover."""
+    try:
+        import requests as _req
+    except ImportError:
+        _req = None
+    if not _req:
+        return False, "requests library not installed"
+    user_key = cfg.get("pushover_user_key", "").strip()
+    api_token = cfg.get("pushover_api_token", "").strip()
+    if not user_key or not api_token:
+        return False, "Pushover User Key and API Token must be configured"
+    try:
+        url = "https://api.pushover.net/1/messages.json"
+        payload = {"token": api_token, "user": user_key, "title": subject,
+                   "message": body, "priority": 0}
+        device = cfg.get("pushover_device", "").strip()
+        if device:
+            payload["device"] = device
+        resp = _req.post(url, data=payload, timeout=10)
+        if resp.status_code == 200:
+            return True, "Success"
+        return False, f"Pushover returned status {resp.status_code}"
+    except Exception as e:
+        return False, f"Pushover push failed: {e}"
+
+
+def _send_push_ntfy(body, subject, cfg):
+    """Send push notification via ntfy."""
+    try:
+        import requests as _req
+    except ImportError:
+        _req = None
+    if not _req:
+        return False, "requests library not installed"
+    ntfy_server = cfg.get("ntfy_server", "https://ntfy.sh").strip()
+    ntfy_topic = cfg.get("ntfy_topic", "").strip()
+    if not ntfy_topic:
+        return False, "ntfy Topic must be configured"
+    try:
+        url = f"{ntfy_server}/{ntfy_topic}"
+        headers = {"Title": subject, "Priority": "default", "Tags": "beer,fermentation"}
+        auth_token = cfg.get("ntfy_auth_token", "").strip()
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
+        resp = _req.post(url, data=body.encode('utf-8'), headers=headers, timeout=10)
+        if resp.status_code == 200:
+            return True, "Success"
+        return False, f"ntfy returned status {resp.status_code}"
+    except Exception as e:
+        return False, f"ntfy push failed: {e}"
+
+
+def send_push(body, subject="Fermenter Notification", cfg=None):
+    """Send a push notification using the configured provider (Pushover or ntfy)."""
+    if cfg is None:
+        cfg = _load_system_cfg()
+    push_provider = cfg.get("push_provider", "pushover").lower()
+    if push_provider == "ntfy":
+        return _send_push_ntfy(body, subject, cfg)
+    return _send_push_pushover(body, subject, cfg)
+
+
+def attempt_send_notifications(subject, body, cfg=None):
+    """
+    Attempt to send email/push notifications according to system_cfg["warning_mode"].
+    Returns True if at least one notification succeeded.
+    """
+    if cfg is None:
+        cfg = _load_system_cfg()
+    mode = (cfg.get('warning_mode') or 'NONE').upper()
+    success_any = False
+    error_msg = None
+
+    try:
+        if mode == 'EMAIL':
+            success_any, error_msg = send_email(subject, body, cfg)
+            if not success_any:
+                print(f"[LOG] Email notification failed: {error_msg}")
+            log_notification('email', subject, body, success_any,
+                             error=error_msg if not success_any else None)
+        elif mode == 'PUSH':
+            success_any, error_msg = send_push(body, subject, cfg)
+            if not success_any:
+                print(f"[LOG] Push notification failed: {error_msg}")
+            log_notification('push', subject, body, success_any,
+                             error=error_msg if not success_any else None)
+        elif mode == 'BOTH':
+            email_ok, email_err = send_email(subject, body, cfg)
+            push_ok, push_err = send_push(body, subject, cfg)
+            success_any = email_ok or push_ok
+            log_notification('email', subject, body, email_ok,
+                             error=email_err if not email_ok else None)
+            log_notification('push', subject, body, push_ok,
+                             error=push_err if not push_ok else None)
+    except Exception as e:
+        print(f"[LOG] Unexpected error in attempt_send_notifications: {e}")
+
+    return success_any
