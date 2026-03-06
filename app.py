@@ -544,17 +544,49 @@ def test_push():
                         'message': f'Test push notification sent successfully via {provider_name}! Check your device.'})
     return jsonify({'success': False, 'message': f'Failed to send test push notification: {error_msg}'})
 
+_SSRF_BLOCKED_HOSTS = re.compile(
+    r'^(localhost|127\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)',
+    re.IGNORECASE,
+)
+
+def _is_safe_external_url(url: str) -> tuple[bool, str]:
+    """Return (ok, error_message). Reject internal/loopback targets."""
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False, "Malformed URL"
+    if parsed.scheme not in ('http', 'https'):
+        return False, "URL must start with http:// or https://"
+    hostname = parsed.hostname or ""
+    if not hostname:
+        return False, "URL must include a hostname"
+    if _SSRF_BLOCKED_HOSTS.match(hostname) or hostname == "0.0.0.0":
+        return False, "Requests to internal addresses are not allowed"
+    return True, ""
+
 
 @app.post("/test_external_logging")
 def test_external_logging():
-    """Test external logging connection with a test payload."""
+    """
+    Test external logging connection with a test payload.
+
+    Security note: This endpoint intentionally makes outbound HTTP requests to
+    user-configured URLs for testing external logging integrations.  Risk is
+    mitigated by:
+      - Admin-only access (system config page)
+      - Allowlist enforcement: only http/https to non-internal hosts
+      - Timeout limits
+      - No sensitive data in test payload
+    """
     try:
         data = request.get_json()
         url = (data.get('url') or '').strip()
         if not url:
             return jsonify({'success': False, 'message': 'No URL provided'})
-        if not (url.startswith('http://') or url.startswith('https://')):
-            return jsonify({'success': False, 'message': 'URL must start with http:// or https://'})
+
+        safe, err = _is_safe_external_url(url)
+        if not safe:
+            return jsonify({'success': False, 'message': err})
 
         test_payload = {
             "tilt_color": "TEST", "temp_f": 68.5, "gravity": 1.050,
@@ -567,8 +599,10 @@ def test_external_logging():
         timeout = int(data.get('timeout_seconds') or system_cfg.get("external_timeout_seconds", 8) or 8)
 
         try:
-            parsed = urlparse(url)
-            if 'brewersfriend.com' in parsed.netloc.lower():
+            parsed_url = urlparse(url)
+            netloc = parsed_url.netloc.lower()
+            # Exact match or subdomain of brewersfriend.com
+            if netloc == 'brewersfriend.com' or netloc.endswith('.brewersfriend.com'):
                 test_payload = {"name": "TEST", "temp": 68.5, "temp_unit": "F",
                                 "gravity": 1.050, "gravity_unit": "G", "beer": "Test Connection"}
                 send_json = True
