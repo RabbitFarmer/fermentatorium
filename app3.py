@@ -4517,6 +4517,24 @@ def test_external_logging():
                 'message': 'URL must start with http:// or https://'
             })
         
+        # SSRF protection: reject URLs that resolve to private/loopback addresses
+        try:
+            _parsed_target = urlparse(url)
+            _target_host = _parsed_target.hostname or ''
+            import ipaddress
+            try:
+                _addr = ipaddress.ip_address(_target_host)
+                if _addr.is_loopback or _addr.is_private or _addr.is_link_local or _addr.is_reserved:
+                    return jsonify({
+                        'success': False,
+                        'message': 'URL must point to an external (non-private) address'
+                    })
+            except ValueError:
+                # Not a raw IP address (hostname), accept it
+                pass
+        except Exception:
+            pass
+
         # Create a test payload
         test_payload = {
             "tilt_color": "TEST",
