@@ -588,6 +588,10 @@ def test_external_logging():
         if not safe:
             return jsonify({'success': False, 'message': err})
 
+        # Reconstruct URL from validated parsed components to avoid using raw user input directly
+        _parsed_safe = urlparse(url)
+        validated_url = _parsed_safe.geturl()
+
         test_payload = {
             "tilt_color": "TEST", "temp_f": 68.5, "gravity": 1.050,
             "brewid": "test_batch", "beer_name": "Test Beer",
@@ -599,7 +603,7 @@ def test_external_logging():
         timeout = int(data.get('timeout_seconds') or system_cfg.get("external_timeout_seconds", 8) or 8)
 
         try:
-            parsed_url = urlparse(url)
+            parsed_url = urlparse(validated_url)
             netloc = parsed_url.netloc.lower()
             # Exact match or subdomain of brewersfriend.com
             if netloc == 'brewersfriend.com' or netloc.endswith('.brewersfriend.com'):
@@ -614,10 +618,10 @@ def test_external_logging():
 
         try:
             if send_json:
-                resp = _requests.request(method, url, json=test_payload,
+                resp = _requests.request(method, validated_url, json=test_payload,
                                          headers={"Content-Type": "application/json"}, timeout=timeout)
             else:
-                resp = _requests.request(method, url, data=test_payload,
+                resp = _requests.request(method, validated_url, data=test_payload,
                                          headers={"Content-Type": "application/x-www-form-urlencoded"},
                                          timeout=timeout)
             if 200 <= resp.status_code < 300:
