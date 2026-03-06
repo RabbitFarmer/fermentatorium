@@ -8,7 +8,53 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, redirect, request, render_template, url_for
+import asyncio
+import csv
+import hashlib
+import itertools
+import re
+import shutil
+import smtplib
+import socket
+import subprocess
+import sys
+import webbrowser
+from collections import deque, defaultdict
+from email.mime.text import MIMEText
+from glob import glob as glob_func
+from math import ceil
+from multiprocessing import Process, Queue as MPQueue
+from urllib.parse import urlparse
+import urllib.request
+import urllib.error
+
+from flask import Flask, abort, jsonify, make_response, redirect, request, render_template, send_file, url_for
+
+try:
+    import requests as _requests
+except Exception:
+    _requests = None
+
+try:
+    import psutil
+except Exception:
+    psutil = None
+
+try:
+    from kasa_worker import kasa_worker as _kasa_worker_fn, kasa_query_state as _kasa_query_state_fn
+except Exception:
+    _kasa_worker_fn = None
+    _kasa_query_state_fn = None
+
+try:
+    from logger import log_kasa_command, log_notification, log_event
+except Exception:
+    def log_kasa_command(mode, url, action, success=None, error=None):
+        pass
+    def log_notification(notification_type, subject, body, success, tilt_color=None, error=None):
+        pass
+    def log_event(event_type, message, tilt_color=None):
+        pass
 
 from brewid import make_brewid
 from storage_jsonl import ensure_dirs, append_sample, read_jsonl, batch_jsonl_path
