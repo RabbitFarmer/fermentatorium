@@ -366,8 +366,72 @@ def index():
         controllers=[],
     )
 
+def free_port(port: int) -> None:
+    """Terminate any process currently listening on *port* so Flask can bind to it."""
+    killed = False
+
+    if psutil is not None:
+        for proc in psutil.process_iter(["pid", "name"]):
+            try:
+                for conn in proc.net_connections(kind="inet"):
+                    if conn.laddr.port == port and conn.status == "LISTEN":
+                        pid = proc.pid
+                        print(f"[startup] Port {port} is in use by PID {pid} ({proc.info['name']}). Terminating…")
+                        try:
+                            proc.terminate()
+                            proc.wait(timeout=5)
+                        except psutil.TimeoutExpired:
+                            proc.kill()
+                        except psutil.AccessDenied:
+                            print(f"[startup] Access denied when terminating PID {pid}. Try running with sudo.")
+                            return
+                        killed = True
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    else:
+        # Fallback: use lsof to find and kill the occupying process
+        try:
+            result = subprocess.run(
+                ["lsof", "-ti", f":{port}"],
+                capture_output=True, text=True, timeout=5
+            )
+            pids = result.stdout.strip().splitlines()
+            for pid_str in pids:
+                pid = int(pid_str.strip())
+                print(f"[startup] Port {port} is in use by PID {pid}. Terminating…")
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                    time.sleep(2)
+                    # If still alive after SIGTERM, escalate to SIGKILL
+                    try:
+                        os.kill(pid, 0)  # Raises ProcessLookupError if already gone
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass  # Already terminated by SIGTERM
+                except ProcessLookupError:
+                    pass  # Process was gone before we could signal it
+                except PermissionError:
+                    print(f"[startup] Permission denied when terminating PID {pid}. Try running with sudo.")
+                    return
+                killed = True
+        except FileNotFoundError:
+            # lsof not available; check with socket and warn
+            for host in ("0.0.0.0", "127.0.0.1"):
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    if s.connect_ex((host, port)) == 0:
+                        print(
+                            f"[startup] Port {port} is in use and neither psutil nor lsof is available. "
+                            "Install psutil (`pip install psutil`) or free the port manually."
+                        )
+                        break
+
+    if killed:
+        time.sleep(1)  # Brief pause to let the OS reclaim the port
+
+
 def main():
     port = int(os.environ.get("FLASK_PORT", system_cfg.get("flask_port", APP_PORT_DEFAULT)))
+    free_port(port)
     app.run(host="0.0.0.0", port=port, debug=bool(int(os.environ.get("FLASK_DEBUG", "0"))))
 
 if __name__ == "__main__":
