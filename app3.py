@@ -1624,7 +1624,12 @@ def forward_to_third_party_if_configured(payload):
         field_map = config.get("field_map")
         
         # Transform payload for Brewers Friend if needed (uses original payload)
-        if "brewersfriend.com" in url.lower():
+        try:
+            _parsed_url = urlparse(url)
+            _is_bf = _parsed_url.netloc.lower() == 'brewersfriend.com' or _parsed_url.netloc.lower().endswith('.brewersfriend.com')
+        except Exception:
+            _is_bf = False
+        if _is_bf:
             # Brewers Friend expects a specific format with numeric values
             transformed_payload = {
                 "name": payload.get("tilt_color", "Tilt"),
@@ -4549,11 +4554,12 @@ def test_external_logging():
         # to ensure compatibility with their API requirements
         try:
             parsed = urlparse(url)
-            is_brewersfriend = 'brewersfriend.com' in parsed.netloc.lower()
+            netloc_lower = parsed.netloc.lower()
+            is_brewersfriend = netloc_lower == 'brewersfriend.com' or netloc_lower.endswith('.brewersfriend.com')
         except Exception:
             # Fallback to simple string check if urlparse fails
             url_lower = url.lower()
-            is_brewersfriend = url_lower.startswith('https://brewersfriend.com') or url_lower.startswith('http://brewersfriend.com')
+            is_brewersfriend = url_lower.startswith('https://brewersfriend.com/') or url_lower.startswith('http://brewersfriend.com/')
         
         if is_brewersfriend:
             test_payload = {
