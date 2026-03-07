@@ -115,7 +115,7 @@ if curl -s --max-time 2 "http://127.0.0.1:$FLASK_PORT/" > /dev/null 2>&1; then
     echo "Fermentatorium is already running on port $FLASK_PORT."
     show_notification "Fermentatorium" "Already running — opening dashboard." "normal"
     if [ -n "$DISPLAY" ] && command -v xdg-open > /dev/null 2>&1; then
-        xdg-open "http://127.0.0.1:$FLASK_PORT/startup" &
+        xdg-open "http://127.0.0.1:$FLASK_PORT/" &
     fi
     exit 0
 fi
