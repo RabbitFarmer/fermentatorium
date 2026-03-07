@@ -5,7 +5,7 @@ import os
 import signal
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import asyncio
@@ -353,13 +353,46 @@ def api_tilt_table():
 
 # ---- endpoints expected by template JS ---------------------------------
 
+def _build_controllers_snapshot() -> list[dict]:
+    """Return controller state dicts from temp_cfg for the live_snapshot response."""
+    controllers_data = []
+    for controller in temp_cfg.get("controllers", []):
+        tilt_color = controller.get("tilt_color", "")
+        controllers_data.append({
+            "controller_id": controller.get("controller_id", 0),
+            "current_temp": controller.get("current_temp"),
+            "low_limit": controller.get("low_limit"),
+            "high_limit": controller.get("high_limit"),
+            "tilt_color": tilt_color,
+            "tilt_color_code": COLOR_MAP.get(tilt_color, ""),
+            "heater_on": controller.get("heater_on", False),
+            "cooler_on": controller.get("cooler_on", False),
+            "heater_pending": controller.get("heater_pending", False),
+            "cooler_pending": controller.get("cooler_pending", False),
+            "enable_heating": controller.get("enable_heating", False),
+            "enable_cooling": controller.get("enable_cooling", False),
+            "status": controller.get("status", ""),
+            "mode": controller.get("mode", "Off"),
+            "temp_control_active": controller.get("temp_control_active", False),
+            "heating_error": controller.get("heating_error", False),
+            "cooling_error": controller.get("cooling_error", False),
+            "push_error": controller.get("push_error", False),
+            "email_error": controller.get("email_error", False),
+            "swapped_plugs_detected": controller.get("swapped_plugs_detected", False),
+            "swapped_plug_type": controller.get("swapped_plug_type", ""),
+            "notifications_trigger": controller.get("notifications_trigger"),
+            "notification_comm_failure": controller.get("notification_comm_failure", False),
+            "last_reading_time": controller.get("last_reading_time"),
+        })
+    return controllers_data
+
 @app.get("/live_snapshot")
 def live_snapshot():
-    # controllers are not wired yet; keep empty list for now
     return jsonify(
         {
             "live_tilts": _build_live_tilts_by_color(),
-            "controllers": [],
+            "controllers": _build_controllers_snapshot(),
+            "warning_mode": system_cfg.get("warning_mode", ""),
         }
     )
 
@@ -385,7 +418,7 @@ def index():
         "maindisplay.html",
         system_settings=system_settings,
         live_tilts=_build_live_tilts_by_color(),
-        controllers=[],
+        controllers=temp_cfg.get("controllers", []),
     )
 
 # ---- helper utilities for settings routes ------------------------------
@@ -717,8 +750,10 @@ def cleanup_batch_duplicates():
     return jsonify({"success": True, "message": "No duplicates found.", "duplicates_removed": 0})
 
 @app.get("/batch_review")
-def batch_review():
-    brewid = request.args.get("brewid", "").strip()
+@app.get("/batch_review/<brewid>")
+def batch_review(brewid: str = ""):
+    if not brewid:
+        brewid = request.args.get("brewid", "").strip()
     if not brewid:
         return redirect(url_for("batch_history"))
     # Find color from JSONL
@@ -1026,6 +1061,380 @@ def exit_system():
             return render_template("goodbye.html")
         return redirect(url_for("index"))
     return render_template("exit_system.html")
+
+# ---- chart / fermentation charts -----------------------------------------
+
+@app.get("/chart_plotly")
+def chart_plotly_index():
+    colors = list(tilt_cfg.keys())
+    if colors:
+        return redirect(url_for("chart_plotly_for", tilt_color=colors[0]))
+    return render_template("chart_plotly.html", tilt_color=None, system_settings=system_cfg)
+
+@app.get("/chart_plotly/<tilt_color>")
+def chart_plotly_for(tilt_color: str):
+    if tilt_color and tilt_color != "TempControl" and tilt_color not in tilt_cfg:
+        abort(404)
+    return render_template(
+        "chart_plotly.html",
+        tilt_color=tilt_color,
+        tilt_cfg=tilt_cfg,
+        system_settings=system_cfg,
+    )
+
+@app.get("/chart_data/<tilt_color>")
+def chart_data_for(tilt_color: str):
+    """Return chart data points for a given tilt color from the active batch JSONL."""
+    all_flag = str(request.args.get("all", "")).lower() in ("1", "true", "yes", "on")
+    limit = 500 if not all_flag else None
+    batches_dir = Path(__file__).resolve().parent / "batches"
+    points: list[dict] = []
+    # Find the most recent JSONL file for this color
+    matching: list[Path] = []
+    for p in sorted(batches_dir.glob("*.jsonl")):
+        try:
+            with p.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    payload = obj.get("payload") or obj
+                    if payload.get("tilt_color") == tilt_color:
+                        matching.append(p)
+                    break
+        except OSError:
+            pass
+    if matching:
+        src = matching[-1]
+        try:
+            with src.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    payload = obj.get("payload") or obj
+                    points.append({
+                        "timestamp": payload.get("timestamp") or payload.get("captured_at", ""),
+                        "temp_f": payload.get("temp_f"),
+                        "gravity": payload.get("gravity"),
+                    })
+        except OSError:
+            pass
+    truncated = False
+    if limit and len(points) > limit:
+        points = points[-limit:]
+        truncated = True
+    return jsonify({"points": points, "truncated": truncated, "matched": len(points)})
+
+# ---- temperature control toggle ------------------------------------------
+
+@app.post("/toggle_temp_control")
+def toggle_temp_control():
+    """Toggle temp_control_active state for a controller."""
+    try:
+        data = request.get_json(silent=True) or request.form
+        try:
+            controller_id = int(data.get("controller_id", 0))
+        except (ValueError, TypeError):
+            controller_id = 0
+        controllers = temp_cfg.get("controllers", [])
+        if controller_id >= len(controllers):
+            return jsonify({"success": False, "error": f"Controller {controller_id} not found"}), 400
+        controller = controllers[controller_id]
+        active_value = data.get("active")
+        if isinstance(active_value, bool):
+            new_state = active_value
+        elif isinstance(active_value, str):
+            new_state = active_value.lower() in ("true", "1")
+        else:
+            new_state = bool(active_value)
+        new_session = data.get("new_session", False)
+        if isinstance(new_session, str):
+            new_session = new_session.lower() in ("true", "1")
+        controller["temp_control_active"] = new_state
+        _save_temp_cfg()
+        redirect_url = f"/temp_config?controller_id={controller_id}" if (new_state and new_session) else None
+        return jsonify({"success": True, "active": new_state, "redirect": redirect_url})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# ---- temperature summary -------------------------------------------------
+
+@app.get("/temp_summary/<int:controller_id>")
+def temp_summary(controller_id: int):
+    if controller_id < 0:
+        controller_id = 0
+    controllers = temp_cfg.get("controllers", [])
+    if controller_id < len(controllers):
+        controller = controllers[controller_id]
+    else:
+        controller = {"controller_id": controller_id, "mode": "Off", "status": "Not Configured"}
+    tilt_color = controller.get("tilt_color", "")
+    color_code = COLOR_MAP.get(tilt_color, "#8B4513") if tilt_color else "#8B4513"
+    return render_template(
+        "temp_summary.html",
+        controller=controller,
+        controller_id=controller_id,
+        tilt_color=tilt_color,
+        color_code=color_code,
+        system_settings=system_cfg,
+    )
+
+# ---- notification test routes --------------------------------------------
+
+def _smtp_send(recipient: str, subject: str, body: str):
+    """Send an email via SMTP. Returns (success, error_msg)."""
+    cfg = system_cfg
+    sending_email = cfg.get("sending_email") or cfg.get("email")
+    if not sending_email:
+        return False, "SMTP configuration incomplete: sender email not configured"
+    try:
+        msg = MIMEText(body)
+        msg["Subject"] = subject
+        msg["From"] = sending_email
+        msg["To"] = recipient
+        server = smtplib.SMTP(cfg.get("smtp_host", "localhost"), int(cfg.get("smtp_port", 25)), timeout=10)
+        if cfg.get("smtp_starttls"):
+            server.starttls()
+        smtp_password = cfg.get("smtp_password") or cfg.get("sending_email_password")
+        if sending_email and smtp_password:
+            server.login(sending_email, smtp_password)
+        server.sendmail(sending_email, [recipient], msg.as_string())
+        server.quit()
+        return True, "Success"
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[LOG] SMTP send failed: {error_msg}")
+        return False, error_msg
+
+@app.post("/test_email")
+def test_email():
+    """Test email notification with current settings."""
+    recipient = system_cfg.get("email", "").strip()
+    if not recipient:
+        return jsonify({"success": False, "message": "No recipient email configured in System Settings."})
+    subject = "TEST - Fermentatorium"
+    body = (
+        "*** TEST MESSAGE ***\n\n"
+        "This is a TEST email from your Fermentatorium system.\n\n"
+        "If you received this, your email settings are configured correctly!\n\n"
+        "*** TEST MESSAGE ***"
+    )
+    success, error_msg = _smtp_send(recipient, subject, body)
+    if success:
+        return jsonify({"success": True, "message": "Test email sent successfully! Check your inbox."})
+    return jsonify({"success": False, "message": f"Failed to send test email: {error_msg}"})
+
+@app.post("/test_push")
+def test_push():
+    """Test push notification with current settings."""
+    if _requests is None:
+        return jsonify({"success": False, "message": "requests library not installed. Run: pip install requests"})
+    push_provider = system_cfg.get("push_provider", "pushover").lower()
+    subject = "TEST - Fermentatorium"
+    body = "*** TEST MESSAGE *** This is a TEST push notification from your Fermentatorium system. *** TEST MESSAGE ***"
+    try:
+        if push_provider == "ntfy":
+            ntfy_server = system_cfg.get("ntfy_server", "https://ntfy.sh").strip()
+            ntfy_topic = system_cfg.get("ntfy_topic", "").strip()
+            if not ntfy_topic:
+                return jsonify({"success": False, "message": "ntfy Topic not configured in System Settings."})
+            url = f"{ntfy_server}/{ntfy_topic}"
+            headers = {"Title": subject, "Priority": "default"}
+            resp = _requests.post(url, data=body.encode("utf-8"), headers=headers, timeout=10)
+            if resp.status_code in range(200, 300):
+                return jsonify({"success": True, "message": "Test push notification sent via ntfy! Check your device."})
+            return jsonify({"success": False, "message": f"ntfy returned status {resp.status_code}"})
+        else:  # Pushover
+            user_key = system_cfg.get("pushover_user_key", "").strip()
+            api_token = system_cfg.get("pushover_api_token", "").strip()
+            if not user_key or not api_token:
+                return jsonify({"success": False, "message": "Pushover User Key and API Token not configured in System Settings."})
+            payload = {"token": api_token, "user": user_key, "title": subject, "message": body}
+            device = system_cfg.get("pushover_device", "").strip()
+            if device:
+                payload["device"] = device
+            resp = _requests.post("https://api.pushover.net/1/messages.json", data=payload, timeout=10)
+            if resp.status_code == 200:
+                return jsonify({"success": True, "message": "Test push notification sent via Pushover! Check your device."})
+            return jsonify({"success": False, "message": f"Pushover returned status {resp.status_code}: {resp.text[:200]}"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Push notification failed: {e}"})
+
+@app.post("/test_external_logging")
+def test_external_logging():
+    """Test external logging connection with a test payload.
+
+    Security note: This endpoint intentionally sends a request to a user-supplied
+    URL so that the admin can verify their external-logging integration.  Risk is
+    mitigated by: admin-only access, hostname/IP validation that blocks loopback
+    and link-local addresses, timeout enforcement, and a fixed test payload that
+    contains no sensitive data.  The Raspberry Pi environment is not a multi-tenant
+    server, so the residual SSRF risk is accepted for this admin-only feature.
+    """
+    if _requests is None:
+        return jsonify({"success": False, "message": "requests library not installed. Run: pip install requests"})
+    try:
+        data = request.get_json(silent=True) or {}
+        url = (data.get("url") or "").strip()
+        if not url:
+            return jsonify({"success": False, "message": "No URL provided"})
+        if not (url.startswith("http://") or url.startswith("https://")):
+            return jsonify({"success": False, "message": "URL must start with http:// or https://"})
+        # Block loopback and private network addresses to reduce SSRF exposure.
+        try:
+            import ipaddress
+            parsed_host = urlparse(url).hostname or ""
+            try:
+                addr = ipaddress.ip_address(parsed_host)
+                if addr.is_loopback or addr.is_private or addr.is_link_local:
+                    return jsonify({"success": False, "message": "Requests to private or loopback addresses are not permitted."})
+            except ValueError:
+                # hostname is not a bare IP address — allow it through
+                if parsed_host.lower() in ("localhost",):
+                    return jsonify({"success": False, "message": "Requests to localhost are not permitted."})
+        except Exception:
+            pass  # If validation fails for an unexpected reason, proceed
+        method = (data.get("method") or "POST").upper()
+        content_type = data.get("content_type") or "form"
+        timeout = int(data.get("timeout_seconds") or 8)
+        test_payload = {
+            "tilt_color": "TEST",
+            "temp_f": 68.5,
+            "gravity": 1.050,
+            "brewid": "test_batch",
+            "batch_name": "Test Connection",
+            "beer_name": "Test Beer",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "test": True,
+        }
+        try:
+            if content_type == "json":
+                resp = _requests.request(method, url, json=test_payload, timeout=timeout)
+            else:
+                form_data = {
+                    k: ("" if v is None else v)
+                    for k, v in test_payload.items()
+                    if isinstance(v, (str, int, float, bool, type(None)))
+                }
+                resp = _requests.request(method, url, data=form_data, timeout=timeout)
+            if 200 <= resp.status_code < 300:
+                return jsonify({"success": True, "message": f"Connection successful! Status: {resp.status_code}"})
+            return jsonify({"success": False, "message": f"Connection failed with HTTP status {resp.status_code}"})
+        except Exception as e:
+            return jsonify({"success": False, "message": f"Request failed: {e}"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"An error occurred: {e}"})
+
+# ---- backup / restore ----------------------------------------------------
+
+@app.post("/backup_system")
+def backup_system():
+    """Create a tar.gz backup of system files to the specified path."""
+    import tarfile
+    backup_path = request.form.get("backup_path", "/media/usb")
+    if not os.path.exists(backup_path):
+        return jsonify({"success": False, "message": f"Backup path does not exist: {backup_path}. Please ensure USB device is mounted."})
+    if not os.access(backup_path, os.W_OK):
+        return jsonify({"success": False, "message": f"Backup path is not writable: {backup_path}. Check permissions."})
+    try:
+        app_dir = Path(__file__).resolve().parent
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_filename = f"fermenter_backup_{ts}.tar.gz"
+        backup_full_path = os.path.join(backup_path, backup_filename)
+        items_to_backup = ["app.py", "config/", "batches/", "templates/", "static/", "requirements.txt"]
+        with tarfile.open(backup_full_path, "w:gz") as tar:
+            for item in items_to_backup:
+                p = app_dir / item
+                if p.exists():
+                    tar.add(str(p), arcname=item)
+        size_mb = os.path.getsize(backup_full_path) / (1024 * 1024)
+        return jsonify({"success": True, "message": f"Backup created: {backup_filename}", "filename": backup_filename, "size_mb": f"{size_mb:.2f}"})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Backup failed: {e}"})
+
+@app.post("/list_backups")
+def list_backups():
+    """List available backup files in the specified directory."""
+    backup_path = request.form.get("backup_path", "/media/usb")
+    if not os.path.exists(backup_path):
+        return jsonify({"success": False, "message": f"Backup path does not exist: {backup_path}", "backups": []})
+    try:
+        backups = []
+        if os.path.isdir(backup_path):
+            for filename in os.listdir(backup_path):
+                if filename.startswith("fermenter_backup_") and filename.endswith(".tar.gz"):
+                    full_path = os.path.join(backup_path, filename)
+                    stat = os.stat(full_path)
+                    backups.append({
+                        "filename": filename,
+                        "size_mb": f"{stat.st_size / (1024 * 1024):.2f}",
+                        "modified": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                    })
+        backups.sort(key=lambda x: x["filename"], reverse=True)
+        return jsonify({"success": True, "backups": backups, "path": backup_path})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Failed to list backups: {e}", "backups": []})
+
+@app.post("/restore_system")
+def restore_system():
+    """Restore system from a backup file."""
+    import tarfile
+    backup_path = request.form.get("backup_path", "/media/usb")
+    backup_filename = request.form.get("backup_filename", "")
+    if not backup_filename:
+        return jsonify({"success": False, "message": "No backup file specified."})
+    # Security: normalise and verify the filename contains no directory components
+    norm_name = os.path.normpath(backup_filename)
+    if norm_name != os.path.basename(norm_name):
+        return jsonify({"success": False, "message": "Invalid backup filename."})
+    if not norm_name.startswith("fermenter_backup_") or not norm_name.endswith(".tar.gz"):
+        return jsonify({"success": False, "message": "Invalid backup file format."})
+    # Resolve the final path and confirm it remains inside backup_path
+    backup_dir_real = os.path.realpath(backup_path)
+    backup_full_path = os.path.realpath(os.path.join(backup_dir_real, norm_name))
+    if not backup_full_path.startswith(backup_dir_real + os.sep) and backup_full_path != backup_dir_real:
+        return jsonify({"success": False, "message": "Invalid backup path."})
+    if not os.path.exists(backup_full_path):
+        return jsonify({"success": False, "message": f"Backup file not found: {backup_full_path}"})
+    try:
+        import tempfile
+        app_dir = Path(__file__).resolve().parent
+        temp_dir = tempfile.mkdtemp(prefix="fermenter_restore_")
+        try:
+            with tarfile.open(backup_full_path, "r:gz") as tar:
+                safe_members = []
+                temp_dir_real = os.path.realpath(temp_dir)
+                for member in tar.getmembers():
+                    # Resolve what the final extraction path would be and confirm
+                    # it stays within temp_dir (guards against path traversal attacks)
+                    member_path = os.path.realpath(os.path.join(temp_dir_real, member.name))
+                    if not member_path.startswith(temp_dir_real + os.sep) and member_path != temp_dir_real:
+                        return jsonify({"success": False, "message": "Invalid backup: contains unsafe paths."})
+                    safe_members.append(member)
+                tar.extractall(temp_dir, members=safe_members)
+            for item in os.listdir(temp_dir):
+                src = os.path.join(temp_dir, item)
+                dst = str(app_dir / item)
+                if os.path.isdir(src):
+                    if os.path.exists(dst):
+                        shutil.rmtree(dst)
+                    shutil.copytree(src, dst)
+                else:
+                    shutil.copy2(src, dst)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        return jsonify({"success": True, "message": f"System restored from {backup_filename}. Please restart the application.", "restart_required": True})
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Restore failed: {e}"})
 
 def free_port(port: int) -> None:
     """Terminate any process currently listening on *port* so Flask can bind to it."""
