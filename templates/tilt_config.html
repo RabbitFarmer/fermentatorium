@@ -41,7 +41,7 @@
           <form method="get" action="/tilt_config" style="display:inline;">
             <input type="hidden" name="tilt_color" value="{{ color }}">
             <button type="submit" class="color-btn"
-              style="background-color: {{ COLOR_MAP.get(color, '#333') }}; color: {% if COLOR_MAP.get(color,'#333') in ['#ffff00','#ffc0cb','#00ff00'] %}black{% else %}white{% endif %};">
+              style="background-color: {{ color_map.get(color, '#333') }}; color: {% if color_map.get(color,'#333') in ['#ffff00','#ffc0cb','#00ff00'] %}black{% else %}white{% endif %};">
               {{ color }}
             </button>
           </form>

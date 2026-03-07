@@ -21,6 +21,11 @@
   --card-gap: 32px;
 }
 
+/* 4-across display mode: widen the page so 4 × 320px cards fit */
+.display-mode-4 {
+  --page-max-width: 1420px;
+}
+
 /* Shared body background */
 body, body.page-bg {
   background: #f0f4f8;

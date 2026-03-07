@@ -690,6 +690,64 @@ def batch_settings_save():
         _save_tilt_cfg()
     return redirect(url_for("batch_settings") + f"?tilt_color={color}")
 
+# ---- tilt config (quick-edit per-tilt: OG, new batch) --------------------
+
+@app.get("/tilt_config")
+def tilt_config_page():
+    selected = request.args.get("tilt_color", "")
+    config = tilt_cfg.get(selected, {}) if selected else {}
+    batch_history_list: list[dict] = []
+    if selected:
+        batches_dir = Path(__file__).resolve().parent / "batches"
+        for p in sorted(batches_dir.glob("*.jsonl")):
+            brewid = p.stem
+            color = ""
+            try:
+                with p.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            obj = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        payload = obj.get("payload") or obj
+                        color = payload.get("tilt_color") or ""
+                        break
+            except OSError:
+                pass
+            if color == selected:
+                cfg = tilt_cfg.get(color) or {}
+                batch_history_list.append({
+                    "brewid": brewid,
+                    "beer_name": cfg.get("beer_name") or "",
+                    "batch_name": cfg.get("batch_name") or "",
+                    "ferm_start_date": cfg.get("ferm_start_date") or "",
+                })
+    return render_template(
+        "tilt_config.html",
+        tilt_colors=_TILT_COLORS,
+        color_map=COLOR_MAP,
+        selected_tilt=selected,
+        selected_config=config,
+        batch_history=batch_history_list,
+    )
+
+@app.post("/tilt_config")
+def tilt_config_save():
+    color = request.form.get("tilt_color", "").strip()
+    action = request.form.get("action", "")
+    if color and action == "new_batch":
+        if color not in tilt_cfg:
+            tilt_cfg[color] = {}
+        for key in ("beer_name", "batch_name", "ferm_start_date"):
+            val = request.form.get(key)
+            if val is not None:
+                tilt_cfg[color][key] = val
+        _save_tilt_cfg()
+    return redirect(url_for("batch_settings") + f"?tilt_color={color}")
+
 # ---- batch history --------------------------------------------------------
 
 @app.get("/batch_history")
@@ -1165,6 +1223,104 @@ def toggle_temp_control():
         return jsonify({"success": True, "active": new_state, "redirect": redirect_url})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+# ---- kasa plug scanning / testing ----------------------------------------
+
+@app.get("/scan_kasa_plugs")
+def scan_kasa_plugs():
+    try:
+        controller_id = int(request.args.get("controller_id", 0))
+        if controller_id < 0:
+            controller_id = 0
+    except (ValueError, TypeError):
+        controller_id = 0
+    devices: dict = {}
+    error = None
+    try:
+        from kasa import Discover
+        found = asyncio.run(Discover.discover())
+        devices = {str(addr): dev.alias for addr, dev in found.items()}
+    except Exception as e:
+        error = str(e)
+    assignments: dict = {}
+    for ctrl in temp_cfg.get("controllers", []):
+        for role, key in (("Heating", "heating_plug"), ("Cooling", "cooling_plug")):
+            plug = ctrl.get(key, "").strip()
+            if plug:
+                tilt_color = ctrl.get("tilt_color", "")
+                assignments.setdefault(plug, []).append({
+                    "controller_id": ctrl.get("controller_id", 0),
+                    "role": role,
+                    "tilt_color": tilt_color,
+                    "color_code": COLOR_MAP.get(tilt_color, "#888") if tilt_color else "#888",
+                })
+    return render_template(
+        "kasa_scan_results.html",
+        devices=devices,
+        error=error,
+        controller_id=controller_id,
+        assignments=assignments,
+    )
+
+@app.post("/test_kasa_plugs")
+def test_kasa_plugs():
+    try:
+        data = request.get_json(silent=True) or {}
+        heating_url = data.get("heating_url", "").strip()
+        cooling_url = data.get("cooling_url", "").strip()
+        results: dict = {}
+        try:
+            from kasa.iot import IotPlug
+        except ImportError:
+            return jsonify({"error": "Kasa library not available on this system"}), 500
+
+        async def _test_one(role: str, url: str):
+            try:
+                plug = IotPlug(url)
+                await asyncio.wait_for(plug.update(), timeout=6)
+                results[role] = {"success": True, "error": None}
+            except Exception as e:
+                results[role] = {"success": False, "error": str(e)}
+
+        async def _run_all():
+            tasks = []
+            if heating_url:
+                tasks.append(_test_one("heating", heating_url))
+            if cooling_url:
+                tasks.append(_test_one("cooling", cooling_url))
+            if tasks:
+                await asyncio.gather(*tasks)
+
+        asyncio.run(_run_all())
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ---- external logging config (standalone page) ----------------------------
+
+@app.get("/external_logging_config")
+def external_logging_config_page():
+    return redirect(url_for("system_config_page") + "?tab=logging-integrations")
+
+@app.post("/update_external_logging_config")
+def update_external_logging_config():
+    external_refresh_rate = request.form.get("external_refresh_rate", "").strip()
+    if external_refresh_rate:
+        system_cfg["external_refresh_rate"] = external_refresh_rate
+    urls = system_cfg.get("external_urls", [])
+    while len(urls) < 2:
+        urls.append({"name": "", "url": ""})
+    for i in range(2):
+        name = request.form.get(f"external_name_{i}", "").strip()
+        url = request.form.get(f"external_url_{i}", "").strip()
+        if i < len(urls):
+            urls[i]["name"] = name
+            urls[i]["url"] = url
+        else:
+            urls.append({"name": name, "url": url})
+    system_cfg["external_urls"] = urls
+    _save_system_cfg()
+    return redirect(url_for("system_config_page") + "?tab=logging-integrations")
 
 # ---- temperature summary -------------------------------------------------
 
