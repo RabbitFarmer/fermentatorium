@@ -234,14 +234,15 @@ body, body.page-bg {
   }
 }
 
-/* 3-across mode: drop to 2 columns when viewport can't fit 3 (~1340px) */
+/* 3-across mode: 3×420 + 2×32 = 1324px — drop to 2 columns below 1340px */
 @media (max-width:1339px) {
   .display-mode-3 .tiltcard-container {
     grid-template-columns: repeat(2, var(--card-width));
   }
 }
 
-/* Both modes: drop to 2 columns when viewport is narrow (~1000px) */
+/* 4-across mode: 3×313 + 2×24 = 987px — drop to 2 columns below 1000px
+   (3-across already at 2 columns from the rule above) */
 @media (max-width:999px) {
   .display-mode-4 .tiltcard-container {
     grid-template-columns: repeat(2, var(--card-width));
