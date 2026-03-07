@@ -13,12 +13,17 @@
   --panel-border: #cfdbe0;
 }
 
-/* 3-across display mode variables */
+/* 3-across display mode variables — 3×420 + 2×32 + 16px padding = 1340px */
 .display-mode-3 {
-  --card-width: 400px;
+  --card-width: 420px;
   --metric-number-size: 32px;
   --temp-number-size: 48px;
   --card-gap: 32px;
+}
+
+/* 4-across display mode — 4×313 + 3×24 + 16px padding = 1340px */
+.display-mode-4 {
+  --card-width: 313px;
 }
 
 /* Shared body background */
