@@ -53,6 +53,41 @@ kill_port() {
     fi
 }
 
+# ── Resolve FLASK_PORT early so we can do the "already running" check ─────────
+if [ -z "$FLASK_PORT" ]; then
+    if [ -f "config/system_config.json" ]; then
+        CONFIG_PORT=$(grep -o '"flask_port" *: *[0-9]*' config/system_config.json 2>/dev/null | sed 's/.*: *//')
+        if [ -n "$CONFIG_PORT" ]; then
+            FLASK_PORT=$CONFIG_PORT
+            echo "Using port $FLASK_PORT from config/system_config.json"
+        else
+            FLASK_PORT=5001
+            echo "Using default port $FLASK_PORT"
+        fi
+    else
+        FLASK_PORT=5001
+        echo "Using default port $FLASK_PORT"
+    fi
+else
+    echo "Using port $FLASK_PORT from environment variable"
+fi
+export FLASK_PORT
+
+# ── Already running? ──────────────────────────────────────────────────────────
+# If a Fermentatorium instance is already responding on the configured port
+# (e.g. the systemd service started it at boot), skip the full start sequence,
+# show a notification and open the browser instead of trying to re-launch.
+if curl -s --max-time 2 "http://127.0.0.1:$FLASK_PORT/" > /dev/null 2>&1; then
+    echo "Fermentatorium is already running on port $FLASK_PORT."
+    show_notification "Fermentatorium" "Already running — opening dashboard." "normal"
+    if [ -n "$DISPLAY" ] && command -v xdg-open > /dev/null 2>&1; then
+        xdg-open "http://127.0.0.1:$FLASK_PORT/startup" &
+    fi
+    exit 0
+fi
+
+show_notification "Fermentatorium" "Starting up — please wait…" "normal"
+
 echo "Checking for virtual environment..."
 VENV_DIR=""
 
@@ -100,25 +135,6 @@ echo "Cleaning Python cache..."
 find "$SCRIPT_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 find "$SCRIPT_DIR" -type f -name "*.pyc" -delete 2>/dev/null || true
 
-if [ -z "$FLASK_PORT" ]; then
-    if [ -f "config/system_config.json" ]; then
-        CONFIG_PORT=$(grep -o '"'"'flask_port'"'" *: *[0-9]*' config/system_config.json 2>/dev/null | sed 's/.*: *//')
-        if [ -n "$CONFIG_PORT" ]; then
-            FLASK_PORT=$CONFIG_PORT
-            echo "Using port $FLASK_PORT from config/system_config.json"
-        else
-            FLASK_PORT=5001
-            echo "Using default port $FLASK_PORT"
-        fi
-    else
-        FLASK_PORT=5001
-        echo "Using default port $FLASK_PORT"
-    fi
-else
-    echo "Using port $FLASK_PORT from environment variable"
-fi
-export FLASK_PORT
-
 # Free any processes already occupying port 5000 (Flask's built-in default, used by
 # older installations from the previous repo) and the configured port before starting
 # Python. app.py also calls free_port() internally, but doing it here at the shell
@@ -134,9 +150,6 @@ echo "Starting the application..."
 PYTHON_PATH="$(which python3)"
 APP_PATH="$SCRIPT_DIR/app.py"
 
-if [ -z "$DISPLAY" ]; then
-    export SKIP_BROWSER_OPEN=1
-fi
 nohup "$PYTHON_PATH" "$APP_PATH" > app.log 2>&1 &
 APP_PID=$!
 
@@ -150,7 +163,7 @@ if ! ps -p $APP_PID > /dev/null 2>&1; then
     echo "ERROR: Application process died immediately after launch!"
     echo "Last 30 lines of app.log:"
     tail -30 app.log 2>/dev/null || echo "  (no log file yet)"
-    show_notification "Fermentatorium Failed" "Application failed to start." "critical"
+    show_notification "Fermentatorium" "Process died on launch — check app.log for details." "critical"
     exit 1
 fi
 
@@ -158,27 +171,41 @@ echo "Waiting for application to respond on http://127.0.0.1:$FLASK_PORT..."
 
 RETRIES=30
 RETRY_DELAY=2
+APP_STARTED=false
 
 for i in $(seq 1 $RETRIES); do
-    if curl -s http://127.0.0.1:$FLASK_PORT > /dev/null 2>&1; then
+    if curl -s --max-time 2 "http://127.0.0.1:$FLASK_PORT/" > /dev/null 2>&1; then
         echo "Application is responding!"
-        show_notification "Fermentatorium Ready" "Application is ready!" "normal"
+        APP_STARTED=true
         break
+    fi
+    echo "  Still waiting… ($i/$RETRIES)"
+    # Send a desktop notification every ~10 s so the user can see progress.
+    if [ $((i % 5)) -eq 0 ]; then
+        show_notification "Fermentatorium" "Still starting up… ($i/$RETRIES)" "normal"
     fi
     sleep $RETRY_DELAY
 done
 
-if [ -n "$DISPLAY" ]; then
-    echo "Display detected - app.py will open browser automatically"
-    show_notification "Fermentatorium Ready" "Dashboard will open in browser shortly" "normal"
+if [ "$APP_STARTED" = true ]; then
+    show_notification "Fermentatorium" "Ready! Opening dashboard…" "normal"
+    if [ -n "$DISPLAY" ] && command -v xdg-open > /dev/null 2>&1; then
+        echo "Opening browser at http://127.0.0.1:$FLASK_PORT/startup ..."
+        xdg-open "http://127.0.0.1:$FLASK_PORT/startup" &
+    else
+        echo "No display detected - running in headless mode"
+    fi
 else
-    echo "No display detected - running in headless mode"
+    echo "======================================================================="
+    echo "WARNING: Application did not respond after $((RETRIES * RETRY_DELAY)) seconds."
+    echo "Last 30 lines of app.log:"
+    tail -30 app.log 2>/dev/null || echo "  (no log file yet)"
+    echo "======================================================================="
+    show_notification "Fermentatorium" "Timed out waiting for server — check app.log for details." "critical"
 fi
 
 echo "======================================================================="
-echo "Startup completed successfully!"
-echo "======================================================================="
 echo "  Application PID: $APP_PID"
 echo "  Access dashboard: http://127.0.0.1:$FLASK_PORT"
-echo "  Application log: app.log"
+echo "  Application log:  app.log"
 echo "======================================================================="
