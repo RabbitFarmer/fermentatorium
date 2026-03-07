@@ -21,9 +21,9 @@
   --card-gap: 32px;
 }
 
-/* 4-across display mode: widen the page so 4 × 320px cards fit */
+/* 4-across display mode: reduce cards to 92% (294px) so 4 fit on a standard page */
 .display-mode-4 {
-  --page-max-width: 1420px;
+  --card-width: 294px;
 }
 
 /* Shared body background */
