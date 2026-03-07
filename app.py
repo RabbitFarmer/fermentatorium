@@ -18,7 +18,6 @@ import smtplib
 import socket
 import subprocess
 import sys
-import webbrowser
 from collections import deque, defaultdict
 from email.mime.text import MIMEText
 from glob import glob as glob_func
@@ -61,7 +60,17 @@ from storage_jsonl import ensure_dirs, append_sample, read_jsonl, batch_jsonl_pa
 from logger import log_error
 from tilt_static import COLOR_MAP
 from tilt_scan_sim import build_sim_fleet, scan_simulated
-from tilt_scan_bleak import scan_bleak
+try:
+    from tilt_scan_bleak import scan_bleak as _scan_bleak_impl
+    _BLEAK_AVAILABLE = True
+except Exception as _bleak_import_err:
+    print(
+        f"[startup] WARNING: bleak unavailable ({_bleak_import_err}). "
+        "BLE scanning is disabled; the app will still serve the dashboard.",
+        flush=True,
+    )
+    _scan_bleak_impl = None
+    _BLEAK_AVAILABLE = False
 from tilt_table import load_tilt_table, save_tilt_table, upsert_device_from_reading
 
 APP_PORT_DEFAULT = 5001
@@ -210,7 +219,9 @@ def scan_once() -> list[dict]:
     mode = choose_scan_mode()
     if mode == "sim":
         return scan_simulated(sim_fleet)
-    return scan_bleak(scan_seconds=float(system_cfg.get("bleak_scan_seconds", 4.0)))
+    if not _BLEAK_AVAILABLE:
+        return []
+    return _scan_bleak_impl(scan_seconds=float(system_cfg.get("bleak_scan_seconds", 4.0)))
 
 def _build_live_tilts_by_color() -> dict[str, dict]:
     """
@@ -351,6 +362,16 @@ def live_snapshot():
         }
     )
 
+# ---- startup / loading page ---------------------------------------------
+
+@app.get("/startup")
+def startup_page():
+    """Animated loading page shown while the app is warming up.
+    The page's JavaScript polls '/' every two seconds and redirects
+    automatically once the main dashboard is serving normally.
+    """
+    return render_template("startup.html")
+
 # ---- main dashboard -----------------------------------------------------
 
 @app.get("/")
@@ -434,13 +455,25 @@ def free_port(port: int) -> None:
 
 def main():
     port = int(os.environ.get("FLASK_PORT", system_cfg.get("flask_port", APP_PORT_DEFAULT)))
+    print(f"[startup] Fermentatorium starting on http://0.0.0.0:{port}/", flush=True)
+
     # Free port 5000 (Flask's built-in default) so that any legacy installation
     # auto-started from the old repo on that port does not block this application.
     # When the configured port IS 5000, free_port(port) below covers it already.
     if port != 5000:
         free_port(5000)
     free_port(port)
-    app.run(host="0.0.0.0", port=port, debug=bool(int(os.environ.get("FLASK_DEBUG", "0"))))
+
+    try:
+        app.run(host="0.0.0.0", port=port, debug=bool(int(os.environ.get("FLASK_DEBUG", "0"))))
+    except OSError as exc:
+        print(
+            f"[startup] ERROR: Cannot bind to port {port}: {exc}\n"
+            f"[startup] TIP: Run 'sudo lsof -i :{port}' to see what process is using it,\n"
+            f"[startup]      or set a different port in config/system_config.json.",
+            flush=True,
+        )
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
