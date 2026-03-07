@@ -174,6 +174,17 @@ body, body.page-bg {
   padding: 0 8px;
 }
 
+/* Explicit column counts per display mode so the user's 3/4-across
+   setting is always honoured regardless of viewport width.
+   The auto-fit fallback above is kept for any page that uses the
+   container without a display-mode class. */
+.display-mode-4 .tiltcard-container {
+  grid-template-columns: repeat(4, var(--card-width));
+}
+.display-mode-3 .tiltcard-container {
+  grid-template-columns: repeat(3, var(--card-width));
+}
+
 /* Tilt card appearance */
 .tilt-card { width: var(--card-width); border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.06); background:#fff; overflow:hidden; display:flex; flex-direction:column; }
 .tilt-banner { padding:14px; text-align:center; font-weight:900; font-size:18px; }
@@ -214,9 +225,38 @@ body, body.page-bg {
 .status-above { color:#c00; }
 .status-below { color:#007bff; }
 
-/* Responsive tweaks */
-@media (max-width:920px) {
+/* Responsive tweaks — gracefully reduce columns on narrower screens */
+
+/* 4-across mode: drop to 3 columns when viewport can't fit 4 (~1340px) */
+@media (max-width:1339px) {
+  .display-mode-4 .tiltcard-container {
+    grid-template-columns: repeat(3, var(--card-width));
+  }
+}
+
+/* 3-across mode: 3×420 + 2×32 = 1324px — drop to 2 columns below 1340px */
+@media (max-width:1339px) {
+  .display-mode-3 .tiltcard-container {
+    grid-template-columns: repeat(2, var(--card-width));
+  }
+}
+
+/* 4-across mode: 3×313 + 2×24 = 987px — drop to 2 columns below 1000px
+   (3-across already at 2 columns from the rule above) */
+@media (max-width:999px) {
+  .display-mode-4 .tiltcard-container {
+    grid-template-columns: repeat(2, var(--card-width));
+  }
+}
+
+/* Small screens: single column, cards fill available width */
+@media (max-width:699px) {
   :root { --temp-number-size:32px; --metric-number-size:18px; }
+  .display-mode-4 .tiltcard-container,
+  .display-mode-3 .tiltcard-container,
+  .tiltcard-container {
+    grid-template-columns: 1fr;
+  }
   .tilt-card { width:92%; }
 }
 
