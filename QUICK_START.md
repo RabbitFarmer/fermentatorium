@@ -1,4 +1,4 @@
-# Quick Start - Temperature Controller Tracing
+# Quick Start - Fermentatorium
 
 ## Problem
 - Brown temp card showing incorrectly on main display
@@ -12,7 +12,7 @@ Added comprehensive tracing to help you find the problem quickly!
 ### Step 1: Start the App and Check Server Console
 
 ```bash
-python3 app3.py
+./start.sh
 ```
 
 **Look for these traces**:
@@ -49,25 +49,62 @@ python3 app3.py
 
 See TRACING_GUIDE.md for complete troubleshooting information.
 
-## Cheat Sheet: start.sh and Boot-to-Program Setup
+## Cheat Sheet: Startup Scripts
+
+There are **two** startup scripts in this repository with different roles:
+
+| Script | Who uses it | What it does |
+|--------|-------------|--------------|
+| **`start.sh`** | **You** (manual runs, desktop autostart) | Creates/activates virtualenv, installs deps, frees ports 5000 + 5001, starts `app.py` in the **background**, then monitors startup health. |
+| **`run.sh`** | **systemd** (boot service, installed by `install.sh`) | Minimal: finds the venv Python and `exec`s `app.py` in the **foreground** (required for `systemd Type=simple`). Do not call this directly. |
 
 ### What start.sh does
-`start.sh` automatically navigates to its own directory, activates or creates a Python virtual environment, installs dependencies if needed, and starts `app3.py` in the background.
+`start.sh` automatically navigates to its own directory, activates or creates a Python virtual environment, installs dependencies if needed, **frees any process running on port 5000 (Flask's legacy default) and on port 5001**, then starts `app.py` in the background.
 
 ### Installing start.sh to boot at login (Raspberry Pi Desktop)
 
 ```bash
-chmod +x ~/threecontrol-/start.sh
+chmod +x ~/fermentatorium/start.sh
 mkdir -p ~/.config/autostart
-cat > ~/.config/autostart/threecontrol.desktop << 'EOF'
+
+# Remove any old autostart entry from a previous installation
+rm -f ~/.config/autostart/threecontrol.desktop
+
+cat > ~/.config/autostart/fermentatorium.desktop << 'EOF'
 [Desktop Entry]
 Type=Application
-Name=Three Controller
-Exec=bash /home/pi/threecontrol-/start.sh
+Name=Fermentatorium
+Exec=bash /home/pi/fermentatorium/start.sh
 Hidden=false
 NoDisplay=false
 X-GNOME-Autostart-enabled=true
 EOF
+```
+
+> **Note:** If you previously set up an autostart entry for the old `threecontrol-` repo
+> (`~/.config/autostart/threecontrol.desktop`), remove it — it starts an old program on
+> the same port and will conflict with this application.
+
+### Headless / server autostart (systemd — recommended for Pi without a desktop)
+
+Run the one-command installer which creates and enables a systemd service automatically:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/RabbitFarmer/fermentatorium/main/installer/automated-install.sh | sudo bash
+```
+
+Or, if you have already cloned the repo:
+
+```bash
+sudo ./install.sh
+```
+
+Manage the service with:
+
+```bash
+sudo systemctl status fermentatorium.service
+sudo systemctl restart fermentatorium.service
+journalctl -u fermentatorium.service -n 100 --no-pager
 ```
 
 ## Cheat Sheet: Full Fresh Installation
@@ -93,8 +130,8 @@ sudo apt install -y python3 python3-pip python3-venv git bluetooth bluez libblue
 ### Step 4 - Clone the repository
 ```bash
 cd ~
-git clone https://github.com/RabbitFarmer/threecontrol-.git
-cd threecontrol-
+git clone https://github.com/RabbitFarmer/fermentatorium.git
+cd fermentatorium
 ```
 
 ### Step 5 - Run the startup script
