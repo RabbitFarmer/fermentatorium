@@ -155,18 +155,18 @@ body, body.page-bg {
   margin: 10px 0 18px;
 }
 
-/* Tiltcards wrapper and grid */
+/* Tiltcards wrapper and flex card row */
 .tiltcards-wrapper { display:flex; justify-content:center; margin-bottom:18px; }
 .tiltcard-container {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(var(--card-width), var(--card-width)));
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--card-gap);
   justify-content: center;
-  justify-items: center;
-  align-items: start;
+  align-items: flex-start;
   width: 100%;
   max-width: var(--page-max-width);
   padding: 0 8px;
+  box-sizing: border-box;
 }
 
 /* Tilt card appearance */

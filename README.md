@@ -295,7 +295,7 @@ Access your Fermenter Temperature Controller from anywhere using **Raspberry Pi 
 
 5. **Open the Fermenter Dashboard** from the remote browser:
    ```
-   http://localhost:5000
+   http://localhost:5001
    ```
    (Use the local address since you're accessing it through the Pi's own browser via Connect.)
 
@@ -304,7 +304,7 @@ Access your Fermenter Temperature Controller from anywhere using **Raspberry Pi 
 ## File Structure
 
 ### Core Application Files
-- `app3.py` — Main web server and controller
+- `app.py` — Main web server and controller
 - `start.sh` — Convenience script to start the app and open browser
 - `tilt_static.py` — Tilt UUIDs and color maps
 - `kasa_worker.py` — Kasa plug interface
