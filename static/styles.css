@@ -167,7 +167,6 @@ body, body.page-bg {
   width: 100%;
   max-width: var(--page-max-width);
   padding: 0 8px;
-  box-sizing: border-box;
 }
 
 /* Tilt card appearance */
