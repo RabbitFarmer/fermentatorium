@@ -434,6 +434,11 @@ def free_port(port: int) -> None:
 
 def main():
     port = int(os.environ.get("FLASK_PORT", system_cfg.get("flask_port", APP_PORT_DEFAULT)))
+    # Free port 5000 (Flask's built-in default) so that any legacy installation
+    # auto-started from the old repo on that port does not block this application.
+    # When the configured port IS 5000, free_port(port) below covers it already.
+    if port != 5000:
+        free_port(5000)
     free_port(port)
     app.run(host="0.0.0.0", port=port, debug=bool(int(os.environ.get("FLASK_DEBUG", "0"))))
 

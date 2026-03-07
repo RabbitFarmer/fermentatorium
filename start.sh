@@ -1,6 +1,19 @@
 #!/bin/bash
+# start.sh — user-facing launcher for the Fermentatorium application.
+#
+# Role: creates/activates the Python virtual environment, installs dependencies
+# if needed, frees any conflicting ports, then starts app.py in the background
+# with health-check monitoring.
+#
+# This is the script to run manually or configure for desktop autostart:
+#   chmod +x ~/fermentatorium/start.sh
+#   ./start.sh
+#
+# For headless/server autostart at boot, the systemd service installed by
+# install.sh uses run.sh instead (which is intentionally minimal and runs
+# app.py in the foreground as required by systemd Type=simple).
 
-echo "=== Three Controller Startup ==="
+echo "=== Fermentatorium Startup ==="
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
@@ -11,6 +24,32 @@ show_notification() {
     local urgency="${3:-normal}"
     if [ -n "$DISPLAY" ] && command -v notify-send > /dev/null 2>&1; then
         notify-send -u "$urgency" "$title" "$message" 2>/dev/null || true
+    fi
+}
+
+# Kill any process listening on the given TCP port.
+# Uses lsof (preferred) or fuser (fallback) — both available on Raspberry Pi OS.
+kill_port() {
+    local p="$1"
+    local pids=""
+    if command -v lsof > /dev/null 2>&1; then
+        pids=$(lsof -ti ":${p}" 2>/dev/null || true)
+        if [ -n "$pids" ]; then
+            echo "[startup] Freeing port ${p} (PIDs: $pids)..."
+            echo "$pids" | xargs -r kill -TERM 2>/dev/null || true
+            sleep 1
+            pids=$(lsof -ti ":${p}" 2>/dev/null || true)
+            if [ -n "$pids" ]; then
+                echo "$pids" | xargs -r kill -KILL 2>/dev/null || true
+                sleep 1
+            fi
+        fi
+    elif command -v fuser > /dev/null 2>&1; then
+        if fuser "${p}/tcp" > /dev/null 2>&1; then
+            echo "[startup] Freeing port ${p} via fuser..."
+            fuser -k "${p}/tcp" > /dev/null 2>/dev/null || true
+            sleep 1
+        fi
     fi
 }
 
@@ -80,6 +119,17 @@ else
 fi
 export FLASK_PORT
 
+# Free any processes already occupying port 5000 (Flask's built-in default, used by
+# older installations from the previous repo) and the configured port before starting
+# Python. app.py also calls free_port() internally, but doing it here at the shell
+# level means Python starts up against a clean network state from the very first line.
+echo "Freeing port 5000 (legacy Flask default) before start..."
+kill_port 5000
+if [ "$FLASK_PORT" != "5000" ]; then
+    echo "Freeing port $FLASK_PORT before start..."
+    kill_port "$FLASK_PORT"
+fi
+
 echo "Starting the application..."
 PYTHON_PATH="$(which python3)"
 APP_PATH="$SCRIPT_DIR/app.py"
@@ -87,7 +137,7 @@ APP_PATH="$SCRIPT_DIR/app.py"
 if [ -z "$DISPLAY" ]; then
     export SKIP_BROWSER_OPEN=1
 fi
-nohup "$PYTHON_PATH" "$APP_PATH" > app3.log 2>&1 &
+nohup "$PYTHON_PATH" "$APP_PATH" > app.log 2>&1 &
 APP_PID=$!
 
 disown -h $APP_PID 2>/dev/null || true
@@ -98,9 +148,9 @@ sleep 2
 
 if ! ps -p $APP_PID > /dev/null 2>&1; then
     echo "ERROR: Application process died immediately after launch!"
-    echo "Last 30 lines of app3.log:"
-    tail -30 app3.log 2>/dev/null || echo "  (no log file yet)"
-    show_notification "Three Controller Failed" "Application failed to start." "critical"
+    echo "Last 30 lines of app.log:"
+    tail -30 app.log 2>/dev/null || echo "  (no log file yet)"
+    show_notification "Fermentatorium Failed" "Application failed to start." "critical"
     exit 1
 fi
 
@@ -112,15 +162,15 @@ RETRY_DELAY=2
 for i in $(seq 1 $RETRIES); do
     if curl -s http://127.0.0.1:$FLASK_PORT > /dev/null 2>&1; then
         echo "Application is responding!"
-        show_notification "Three Controller Ready" "Application is ready!" "normal"
+        show_notification "Fermentatorium Ready" "Application is ready!" "normal"
         break
     fi
     sleep $RETRY_DELAY
 done
 
 if [ -n "$DISPLAY" ]; then
-    echo "Display detected - app3.py will open browser automatically"
-    show_notification "Three Controller Ready" "Dashboard will open in browser shortly" "normal"
+    echo "Display detected - app.py will open browser automatically"
+    show_notification "Fermentatorium Ready" "Dashboard will open in browser shortly" "normal"
 else
     echo "No display detected - running in headless mode"
 fi
@@ -130,5 +180,5 @@ echo "Startup completed successfully!"
 echo "======================================================================="
 echo "  Application PID: $APP_PID"
 echo "  Access dashboard: http://127.0.0.1:$FLASK_PORT"
-echo "  Application log: app3.log"
+echo "  Application log: app.log"
 echo "======================================================================="
