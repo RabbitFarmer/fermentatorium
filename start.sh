@@ -73,6 +73,40 @@ else
 fi
 export FLASK_PORT
 
+# ── Clean up old autostart entries that open the browser to port 5000 ─────────
+# Previous installations may have left LXDE autostart lines or .desktop files
+# that tell Chromium to open http://127.0.0.1:5000 at login.  When the app now
+# runs on port 5001, those stale entries cause "cannot connect to :5000" and
+# prevent the startup page from appearing.  Remove them once and for all.
+_cleanup_stale_port5000_entries() {
+    # 1. LXDE native autostart (Raspberry Pi OS LXDE-pi desktop)
+    local lxde_as="$HOME/.config/lxsession/LXDE-pi/autostart"
+    if [ -f "$lxde_as" ] && grep -qE ':5000' "$lxde_as" 2>/dev/null; then
+        echo "Removing stale port-5000 browser entry from LXDE autostart..."
+        # The sed below removes the offending line, so this backup is created only
+        # once — the grep will find nothing on the next start.sh run.
+        cp "$lxde_as" "${lxde_as}.bak.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
+        sed -i -E '/:5000/d' "$lxde_as"
+        echo "  Done. Backup saved alongside the original file."
+    fi
+
+    # 2. XDG/GNOME-style .desktop autostart files in ~/.config/autostart/
+    #    Look for any file that launches a browser (chromium, firefox, etc.) to :5000
+    #    but is NOT the fermentatorium launcher itself.
+    if [ -d "$HOME/.config/autostart" ]; then
+        for _df in "$HOME/.config/autostart/"*.desktop; do
+            [ -f "$_df" ] || continue
+            # Skip the fermentatorium desktop entry
+            case "$_df" in *fermentatorium*) continue ;; esac
+            if grep -qE 'Exec=.*(chromium|firefox|epiphany|midori|xdg-open).*:5000' "$_df" 2>/dev/null; then
+                echo "Removing stale port-5000 browser autostart: $_df"
+                rm -f "$_df"
+            fi
+        done
+    fi
+}
+_cleanup_stale_port5000_entries
+
 # ── Already running? ──────────────────────────────────────────────────────────
 # If a Fermentatorium instance is already responding on the configured port
 # (e.g. the systemd service started it at boot), skip the full start sequence,
@@ -147,7 +181,7 @@ if [ "$FLASK_PORT" != "5000" ]; then
 fi
 
 echo "Starting the application..."
-PYTHON_PATH="$(which python3)"
+PYTHON_PATH="$VENV_DIR/bin/python3"
 APP_PATH="$SCRIPT_DIR/app.py"
 
 nohup "$PYTHON_PATH" "$APP_PATH" > app.log 2>&1 &
