@@ -268,28 +268,20 @@
   </style>
 </head>
 <body>
-<<<<<<< Updated upstream
   <div class="page-container display-mode-{{ system_settings.get('display_mode', '4') }}">
 
-    <!-- ══ Header ══ -->
-=======
-  <div class="page-container display-mode-{{ system_settings.get('display_mode', '3') }}">
->>>>>>> Stashed changes
     <header class="site-header">
       <h1 class="dashboard-title">{{ system_settings.brewery_name }}</h1>
 
-      <!-- Gear settings menu — native <details> toggle, no JavaScript needed -->
-      <details class="gear-menu" id="gearMenu">
-        <summary aria-label="Settings menu">&#9881;</summary>
-        <nav class="gear-dropdown" role="navigation" aria-label="Settings navigation">
-          <a href="{{ url_for('system_config') }}">System Settings</a>
-          <a href="{{ url_for('temp_config') }}">Temperature Control</a>
-          <a href="{{ url_for('batch_settings') }}">Batch Settings</a>
-          <a href="{{ url_for('batch_history') }}">Batch History</a>
-          <a href="{{ url_for('log_management') }}">Log Management</a>
-          <a href="{{ url_for('exit_system') }}" class="exit-link">Exit System</a>
-        </nav>
-      </details>
+      <!-- Navigation buttons across the top -->
+      <nav class="top-nav-bar" role="navigation" aria-label="Settings navigation">
+        <a class="nav-btn" href="{{ url_for('system_config') }}">System Settings</a>
+        <a class="nav-btn" href="{{ url_for('temp_config') }}">Temperature Control</a>
+        <a class="nav-btn" href="{{ url_for('batch_settings') }}">Batch Settings</a>
+        <a class="nav-btn" href="{{ url_for('batch_history') }}">Batch History</a>
+        <a class="nav-btn" href="{{ url_for('log_management') }}">Log Management</a>
+        <a class="nav-btn nav-btn-exit" href="{{ url_for('exit_system') }}">Exit System</a>
+      </nav>
 
       {# Notification comm-failure banner #}
       {% set has_comm_failure = namespace(value=false) %}
@@ -572,14 +564,6 @@
        Polls /live_snapshot every 3 s and updates all card values.
     ════════════════════════════════════════════════════════════════ */
     const REFRESH_MS = 3000;
-
-    /* Gear-menu: close <details> when user clicks outside it */
-    document.addEventListener('click', function(e) {
-      const menu = document.getElementById('gearMenu');
-      if (menu && menu.open && !menu.contains(e.target)) {
-        menu.open = false;
-      }
-    });
 
     /* Convert tilt colour name to safe DOM id fragment */
     function safeIdColor(color) { return color.replace(/\s+/g, '_'); }

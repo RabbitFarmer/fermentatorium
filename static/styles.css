@@ -238,62 +238,33 @@ body, body.page-bg {
   .tilt-card { width: 92%; }
 }
 
-/* ── Gear icon settings menu (fixed top-right on main display) ──
-   Uses a native <details>/<summary> element — no JavaScript required
-   to open/close. The browser handles toggle behaviour natively.       */
-.gear-menu {
-  position: fixed;
-  top: 14px;
-  right: 18px;
-  z-index: 2000;
-}
-/* Style the <summary> to look like the old round gear button */
-.gear-menu > summary {
-  list-style: none;
-  background: rgba(139,69,19,0.92);
-  color: white;
-  border-radius: 50%;
-  width: 44px;
-  height: 44px;
-  font-size: 24px;
-  cursor: pointer;
+/* ── Top navigation bar (main display) ── */
+.top-nav-bar {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
   justify-content: center;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
-  transition: background 0.2s;
-  line-height: 1;
-  user-select: none;
+  gap: 10px;
+  padding: 8px 0 14px;
 }
-.gear-menu > summary::-webkit-details-marker { display: none; }
-.gear-menu > summary::marker              { display: none; }
-.gear-menu > summary:hover { background: rgba(101,67,33,0.98); }
-/* Fallback: hide dropdown when <details> is closed (for older browsers) */
-.gear-menu:not([open]) > .gear-dropdown { display: none; }
-.gear-dropdown {
-  position: absolute;
-  top: 50px;
-  right: 0;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
-  min-width: 200px;
-  overflow: hidden;
-}
-.gear-dropdown a {
-  display: block;
-  padding: 12px 20px;
-  color: #333;
+.nav-btn {
+  display: inline-block;
+  padding: 8px 16px;
+  background: var(--btn-brown);
+  color: white;
+  border-radius: 6px;
   text-decoration: none;
-  font-weight: 600;
-  font-size: 15px;
-  border-bottom: 1px solid #f0f0f0;
-  transition: background 0.15s;
+  font-weight: 700;
+  font-size: 14px;
+  transition: background 0.2s, opacity 0.2s;
+  white-space: nowrap;
 }
-.gear-dropdown a:last-child  { border-bottom: none; }
-.gear-dropdown a:hover       { background: #f5f0e8; color: var(--btn-brown); }
-.gear-dropdown a.exit-link   { color: #c91f1f; }
-.gear-dropdown a.exit-link:hover { background: #fff0f0; }
+.nav-btn:hover            { background: rgba(101,67,33,0.98); }
+.nav-btn.nav-btn-exit     { background: #c91f1f; }
+.nav-btn.nav-btn-exit:hover { background: #a01818; }
+
+@media (max-width: 699px) {
+  .nav-btn { font-size: 13px; padding: 7px 12px; }
+}
 
 /* Notification failure banner */
 .notification-failure {
