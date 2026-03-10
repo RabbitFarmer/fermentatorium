@@ -10,13 +10,9 @@
       --panel-brown: #8B4513;
       --status-red: #c91f1f;
       --now-cool-blue: #1e90ff;
-      --card-width: 320px;
       --error-orange: #FF8C00;
       --kasa-yellow: #B8860B;
     }
-
-    /* Temp card same width as tilt cards */
-    .tilt-card.temp-control { width: var(--card-width); border-radius:8px; overflow:hidden; box-shadow:0 2px 6px rgba(0,0,0,0.06); background:#fff; display:flex; flex-direction:column; }
 
     /* Banner - uniform title font size */
     .temp-card-banner {
@@ -288,61 +284,10 @@
 
     /* Small responsive tweaks */
     @media (max-width:720px) {
-      .tilt-card.temp-control { width:92%; }
       .tc-grid { grid-template-columns: 1fr 110px; }
     }
 
     /* Gear icon menu */
-    .gear-menu {
-      position: fixed;
-      top: 14px;
-      right: 18px;
-      z-index: 2000;
-    }
-    .gear-btn {
-      background: rgba(139,69,19,0.92);
-      color: white;
-      border: none;
-      border-radius: 50%;
-      width: 44px;
-      height: 44px;
-      font-size: 24px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
-      transition: background 0.2s;
-      line-height: 1;
-    }
-    .gear-btn:hover { background: rgba(101,67,33,0.98); }
-    .gear-dropdown {
-      display: none;
-      position: absolute;
-      top: 50px;
-      right: 0;
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
-      min-width: 200px;
-      overflow: hidden;
-    }
-    .gear-dropdown.open { display: block; }
-    .gear-dropdown a {
-      display: block;
-      padding: 12px 20px;
-      color: #333;
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 15px;
-      border-bottom: 1px solid #f0f0f0;
-      transition: background 0.15s;
-    }
-    .gear-dropdown a:last-child { border-bottom: none; }
-    .gear-dropdown a:hover { background: #f5f0e8; color: var(--panel-brown); }
-    .gear-dropdown a.exit-link { color: #c91f1f; }
-    .gear-dropdown a.exit-link:hover { background: #fff0f0; }
-
     /* Tilt banner sub-elements */
     .tilt-batch-name { font-size: 14px; font-weight: 700; font-family: Arial, sans-serif; opacity: 0.95; margin-top: 3px; }
     .tilt-brewid-line { font-size: 13px; font-weight: 700; font-family: Arial, sans-serif; opacity: 0.95; margin-top: 3px; }
@@ -742,7 +687,7 @@
         
         // Check if card exists; if not, create it
         let existingCard = document.querySelector(`[data-tilt="${color}"]`);
-        if (!existingCard || existingCard.classList.contains('temp-control')) {
+        if (!existingCard) {
           // Create new card and add it to the container
           const newCard = createTiltCard(color, entry);
           container.appendChild(newCard);
@@ -811,19 +756,6 @@
       } catch (err) {
         console.error('pollLiveSnapshot error', err);
       }
-    }
-
-    function matchTempCardHeightToTilts() {
-      try {
-        const tempCard = document.getElementById('temp_control_card');
-        if (!tempCard) return;
-        const tilt = document.querySelector('.tiltcard-container .tilt-card:not(.temp-control)');
-        if (!tilt) return;
-        const h = tilt.offsetHeight;
-        // match the tilt card height exactly
-        tempCard.style.height = Math.max(180, h) + 'px';
-        tempCard.style.overflow = 'hidden';
-      } catch (e) { /* ignore */ }
     }
 
     function updateControllers(controllers, liveTilts) {
@@ -956,12 +888,10 @@
       }
 
       // make sure temp card height matches tilt cards (squeeze)
-      matchTempCardHeightToTilts();
     }
 
     (function startPolling() {
       document.addEventListener('DOMContentLoaded', function() {
-        matchTempCardHeightToTilts();
         
         // Event delegation: clicking a tilt banner opens batch review (with chart) if a brewid
         // is available, otherwise falls back to the fermentation chart directly.
@@ -1096,8 +1026,6 @@
       
       pollLiveSnapshot();
       setInterval(pollLiveSnapshot, typeof refreshInterval === 'number' ? refreshInterval : 5000);
-      // also re-check size on window resize
-      window.addEventListener('resize', function(){ setTimeout(matchTempCardHeightToTilts, 120); });
     })();
   </script>
 </body>
