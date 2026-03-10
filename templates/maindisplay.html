@@ -311,12 +311,12 @@
             {% set tilt   = live_tilts[tilt_color] %}
             {% set safe   = tilt_color.replace(' ', '_') %}
             {% set cid    = controller.controller_id %}
-            {% set dark   = tilt.color_code in ['#ffff00','#ffc0cb','#00ff00'] %}
+            {% set use_dark_text = tilt.color_code in ['#ffff00','#ffc0cb','#00ff00'] %}
             <article class="tilt-card" data-tilt="{{ tilt_color }}" data-controller="{{ cid }}">
 
               <!-- Tilt banner: click → batch review or chart -->
               <div class="tilt-banner"
-                   style="background-color:{{ tilt.color_code }};color:{% if dark %}black{% else %}white{% endif %};"
+                   style="background-color:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};"
                    data-tilt-color="{{ tilt_color | e }}"
                    {% if tilt.brewid %}data-brewid="{{ tilt.brewid | e }}" title="View fermentation chart"{% endif %}>
                 <div class="beer-name">{{ tilt.beer_name or 'Unnamed Beer' }}</div>
@@ -375,7 +375,7 @@
 
                 <!-- Header: clickable → temp summary chart -->
                 <div class="tc-header"
-                     style="color:{% if dark %}black{% else %}white{% endif %};"
+                     style="color:{% if use_dark_text %}black{% else %}white{% endif %};"
                      onclick="window.location='/temp_summary/{{ cid }}'"
                      title="View Temperature Control summary and chart">
                   TEMPERATURE CONTROLLER #{{ cid + 1 }}
@@ -434,7 +434,7 @@
 
               <!-- Footer: toggle switch + last reading + chart link -->
               <footer class="tilt-footer-colored"
-                      style="background:{{ tilt.color_code }};color:{% if dark %}black{% else %}white{% endif %};">
+                      style="background:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};">
 
                 <!-- Toggle switch to enable/disable temperature control -->
                 <div class="footer-toggle-container">
@@ -473,11 +473,11 @@
           {% endfor %}
           {% if not is_assigned.value %}
             {% set safe = color.replace(' ', '_') %}
-            {% set dark = tilt.color_code in ['#ffff00','#ffc0cb','#00ff00'] %}
+            {% set use_dark_text = tilt.color_code in ['#ffff00','#ffc0cb','#00ff00'] %}
             <article class="tilt-card" data-tilt="{{ color }}">
 
               <div class="tilt-banner"
-                   style="background-color:{{ tilt.color_code }};color:{% if dark %}black{% else %}white{% endif %};"
+                   style="background-color:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};"
                    data-tilt-color="{{ color | e }}"
                    {% if tilt.brewid %}data-brewid="{{ tilt.brewid | e }}" title="View fermentation chart"{% endif %}>
                 <div class="beer-name">{{ tilt.beer_name or 'Unnamed Beer' }}</div>
@@ -530,7 +530,7 @@
               </div>
 
               <footer class="tilt-footer-colored"
-                      style="background:{{ tilt.color_code }};color:{% if dark %}black{% else %}white{% endif %};">
+                      style="background:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};">
                 <div class="footer-info">
                   <div class="footer-brewid">Brew ID: <span id="footer-brewid-{{ safe }}">{{ tilt.brewid or '--' }}</span></div>
                   <div class="footer-ts">Last: <span id="footer-ts-{{ safe }}">{{ tilt.timestamp | localtime }}</span></div>
@@ -829,9 +829,10 @@
           }
           if (tc.heating_error) items.push('<div class="tc-notification-item kasa-error">Heating Plug: Kasa Connection Lost</div>');
           if (tc.cooling_error) items.push('<div class="tc-notification-item kasa-error">Cooling Plug: Kasa Connection Lost</div>');
+          const WARN_PUSH = 'PUSH', WARN_EMAIL = 'EMAIL', WARN_BOTH = 'BOTH';
           const wm = (warningMode || '').toUpperCase();
-          if (tc.push_error  && (wm === 'PUSH'  || wm === 'BOTH')) items.push('<div class="tc-notification-item push-error">Push Notifications Error</div>');
-          if (tc.email_error && (wm === 'EMAIL' || wm === 'BOTH')) items.push('<div class="tc-notification-item email-error">eMail Error</div>');
+          if (tc.push_error  && (wm === WARN_PUSH  || wm === WARN_BOTH)) items.push('<div class="tc-notification-item push-error">Push Notifications Error</div>');
+          if (tc.email_error && (wm === WARN_EMAIL || wm === WARN_BOTH)) items.push('<div class="tc-notification-item email-error">eMail Error</div>');
           notifEl.innerHTML = items.join('');
         }
 
