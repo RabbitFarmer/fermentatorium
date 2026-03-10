@@ -260,6 +260,57 @@ body, body.page-bg {
   .tilt-card { width:92%; }
 }
 
+/* Gear icon settings menu (fixed top-right on main display) */
+.gear-menu {
+  position: fixed;
+  top: 14px;
+  right: 18px;
+  z-index: 2000;
+}
+.gear-btn {
+  background: rgba(139,69,19,0.92);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  transition: background 0.2s;
+  line-height: 1;
+}
+.gear-btn:hover { background: rgba(101,67,33,0.98); }
+.gear-dropdown {
+  display: none;
+  position: absolute;
+  top: 50px;
+  right: 0;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  min-width: 200px;
+  overflow: hidden;
+}
+.gear-dropdown.open { display: block; }
+.gear-dropdown a {
+  display: block;
+  padding: 12px 20px;
+  color: #333;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 15px;
+  border-bottom: 1px solid #f0f0f0;
+  transition: background 0.15s;
+}
+.gear-dropdown a:last-child { border-bottom: none; }
+.gear-dropdown a:hover { background: #f5f0e8; color: var(--panel-brown); }
+.gear-dropdown a.exit-link { color: #c91f1f; }
+.gear-dropdown a.exit-link:hover { background: #fff0f0; }
+
 /* Notification failure banner */
 .notification-failure {
   background: #ffc107;
