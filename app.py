@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-app3.py - Three Controller main Flask application.
+app.py - Three Controller main Flask application.
 
 This file provides the full Flask app used in the conversation:
 - BLE scanning (BleakScanner) if available
