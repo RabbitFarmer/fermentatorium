@@ -1,8 +1,11 @@
 /* Combined stylesheet — uniform styles for all pages */
 
-:root{
+:root {
   --page-max-width: 1340px;
-  --card-width: 320px;
+  /* display-mode-4 default card size
+     4 × 305 + 3 × 24 gap = 1292 px, fits inside a 1296 px usable grid
+     (1340 page − 28 page padding − 16 container padding = 1296 px)       */
+  --card-width: 305px;
   --card-gap: 24px;
   --metric-number-size: 20px;
   --temp-number-size: 36px;
@@ -13,20 +16,16 @@
   --panel-border: #cfdbe0;
 }
 
-/* 3-across display mode variables — 3×420 + 2×32 + 16px padding = 1340px */
+/* 3-across display mode
+   3 × 400 + 2 × 24 gap = 1248 px, fits in 1296 px grid.
+   4 × 400 + 3 × 24 = 1672 px — auto-fit won't place a 4th column.       */
 .display-mode-3 {
-  --card-width: 420px;
+  --card-width: 400px;
   --metric-number-size: 32px;
   --temp-number-size: 48px;
-  --card-gap: 32px;
 }
 
-/* 4-across display mode — 4×313 + 3×24 + 16px padding = 1340px */
-.display-mode-4 {
-  --card-width: 313px;
-}
-
-/* Shared body background */
+/* Body background */
 body, body.page-bg {
   background: #f0f4f8;
   margin: 0;
@@ -36,7 +35,7 @@ body, body.page-bg {
 /* Shared site header wrapper */
 .site-header { margin: 0 0 12px; }
 
-/* Uniform action buttons used across all pages */
+/* Uniform action buttons */
 .btn-action {
   padding: 10px 20px;
   background-color: var(--btn-brown);
@@ -79,7 +78,7 @@ body, body.page-bg {
 }
 .btn-secondary:hover { background-color: #ccc; }
 
-/* Tilt color badge pill used in batch history */
+/* Tilt colour badge pill (batch history) */
 .tilt-color-badge {
   display: inline-block;
   padding: 2px 8px;
@@ -115,7 +114,7 @@ body, body.page-bg {
 }
 .btn-reopen:hover { background-color: #45a049; }
 
-/* Config page layout wrapper (system settings, external logging) */
+/* Config page layout wrapper */
 .temp-config-setup-ribbon {
   max-width: var(--page-max-width);
   margin: 0 auto;
@@ -136,32 +135,41 @@ body, body.page-bg {
   color: #111;
 }
 
-/* Top nav: centered green links */
+/* Top nav: centred green links (config pages) */
 .config-ribbon {
-  display:flex;
-  justify-content:center;
-  gap:22px;
-  align-items:center;
-  padding:8px 0;
+  display: flex;
+  justify-content: center;
+  gap: 22px;
+  align-items: center;
+  padding: 8px 0;
 }
 .config-ribbon a {
   color: var(--ribbon-green);
   text-decoration: none;
   font-weight: 800;
-  padding:6px 8px;
+  padding: 6px 8px;
 }
 .config-ribbon a:hover { text-decoration: underline; }
 
-/* Brewery title: centered and larger */
+/* Brewery title */
 .dashboard-title {
-  text-align:center;
-  font-size:36px;
-  font-weight:900;
+  text-align: center;
+  font-size: 36px;
+  font-weight: 900;
   margin: 10px 0 18px;
 }
 
-/* Tiltcards wrapper and grid */
-.tiltcards-wrapper { display:flex; justify-content:center; margin-bottom:18px; }
+/* ── Tilt card grid ─────────────────────────────────────────────────────
+   auto-fit places as many card-width columns as can fit.
+   With the sizes defined above:
+     display-mode-4 (305 px cards) → 4 columns at ≥ 1296 px usable width
+     display-mode-3 (400 px cards) → 3 columns at ≥ 1296 px usable width
+   On narrower screens the number of columns shrinks automatically.        */
+.tiltcards-wrapper {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 18px;
+}
 .tiltcard-container {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(var(--card-width), var(--card-width)));
@@ -171,96 +179,74 @@ body, body.page-bg {
   align-items: start;
   width: 100%;
   max-width: var(--page-max-width);
-  padding: 0 8px;
-}
-
-/* Explicit column counts per display mode so the user's 3/4-across
-   setting is always honoured regardless of viewport width.
-   The auto-fit fallback above is kept for any page that uses the
-   container without a display-mode class. */
-.display-mode-4 .tiltcard-container {
-  grid-template-columns: repeat(4, var(--card-width));
-}
-.display-mode-3 .tiltcard-container {
-  grid-template-columns: repeat(3, var(--card-width));
+  box-sizing: border-box;
 }
 
 /* Tilt card appearance */
-.tilt-card { width: var(--card-width); border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.06); background:#fff; overflow:hidden; display:flex; flex-direction:column; }
-.tilt-banner { padding:14px; text-align:center; font-weight:900; font-size:18px; }
-.tilt-body { padding:12px; }
-.tilt-metrics.restore { width:100%; border-collapse:collapse; }
-.tilt-metrics.restore th.right-header { text-align:right; font-weight:700; padding:6px; font-size:14px; }
-.tilt-metrics.restore .label { color:#444; font-size:16px; padding:6px; text-align:left; vertical-align:middle; }
+.tilt-card {
+  width: var(--card-width);
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  background: #fff;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.tilt-banner { padding: 14px; text-align: center; font-weight: 900; font-size: 18px; }
+.tilt-body   { padding: 12px; }
 
-/* Numeric values styling (uniform, bold) */
+/* Metrics table */
+.tilt-metrics.restore { width: 100%; border-collapse: collapse; }
+.tilt-metrics.restore th.right-header {
+  text-align: right;
+  font-weight: 700;
+  padding: 6px;
+  font-size: 14px;
+}
+.tilt-metrics.restore .label {
+  color: #444;
+  font-size: 16px;
+  padding: 6px;
+  text-align: left;
+  vertical-align: middle;
+}
 .tilt-metrics.restore .value,
 .tilt-metrics.restore .value .metric-number {
   font-family: monospace;
   font-weight: 900;
   font-size: var(--metric-number-size);
-  padding:6px;
-  text-align:right;
-  vertical-align:middle;
+  padding: 6px;
+  text-align: right;
+  vertical-align: middle;
 }
-.metric-number { display:inline-block; }
+.metric-number { display: inline-block; }
 
-/* 3-across display mode enhancements */
-.display-mode-3 .tilt-banner { font-size: 24px; padding: 18px; }
-.display-mode-3 .tilt-metrics.restore .label { font-size: 20px; font-weight: 800; }
-.display-mode-3 .tilt-metrics.restore th.right-header { font-size: 16px; }
-/* Recipe column numbers remain smaller in 3-across mode */
+/* 3-across display mode: larger text */
+.display-mode-3 .tilt-banner                               { font-size: 24px; padding: 18px; }
+.display-mode-3 .tilt-metrics.restore .label              { font-size: 20px; font-weight: 800; }
+.display-mode-3 .tilt-metrics.restore th.right-header     { font-size: 16px; }
 .display-mode-3 .tilt-metrics.restore td:nth-child(2) .metric-number { font-size: 18px; }
-/* Actual numbers use the larger metric-number-size defined in CSS variables */
 
-/* Footer and chart pill */
-.tilt-footer-colored { padding:12px; font-size:14px; position:relative; overflow:visible; }
+/* Card footer */
+.tilt-footer-colored { padding: 10px 12px; font-size: 14px; }
 
-/* Temp control section headings (used by system_config, external_logging_config) */
-.temp-header .temp-title { font-size:20px; font-weight:900; text-align:center; margin-bottom:4px; }
-.temp-header .temp-subtitle { font-size:13px; text-align:center; color:#444; margin-bottom:8px; }
+/* Temp control section headings (config pages) */
+.temp-header .temp-title    { font-size: 20px; font-weight: 900; text-align: center; margin-bottom: 4px; }
+.temp-header .temp-subtitle { font-size: 13px; text-align: center; color: #444; margin-bottom: 8px; }
 
-/* Status colors — status-above/status-below applied dynamically by JS in maindisplay */
-.status-inrange { color:#007b00; }
-.status-above { color:#c00; }
-.status-below { color:#007bff; }
+/* Status colours — applied dynamically by JS */
+.status-inrange { color: #007b00; }
+.status-above   { color: #c00; }
+.status-below   { color: #007bff; }
 
-/* Responsive tweaks — gracefully reduce columns on narrower screens */
-
-/* 4-across mode: drop to 3 columns when viewport can't fit 4 (~1340px) */
-@media (max-width:1339px) {
-  .display-mode-4 .tiltcard-container {
-    grid-template-columns: repeat(3, var(--card-width));
-  }
+/* Mobile: single column, cards fill available width */
+@media (max-width: 699px) {
+  :root { --temp-number-size: 32px; --metric-number-size: 18px; }
+  .tiltcard-container { grid-template-columns: 1fr; }
+  .tilt-card { width: 92%; }
 }
 
-/* 3-across mode: 3×420 + 2×32 = 1324px — drop to 2 columns below 1340px */
-@media (max-width:1339px) {
-  .display-mode-3 .tiltcard-container {
-    grid-template-columns: repeat(2, var(--card-width));
-  }
-}
-
-/* 4-across mode: 3×313 + 2×24 = 987px — drop to 2 columns below 1000px
-   (3-across already at 2 columns from the rule above) */
-@media (max-width:999px) {
-  .display-mode-4 .tiltcard-container {
-    grid-template-columns: repeat(2, var(--card-width));
-  }
-}
-
-/* Small screens: single column, cards fill available width */
-@media (max-width:699px) {
-  :root { --temp-number-size:32px; --metric-number-size:18px; }
-  .display-mode-4 .tiltcard-container,
-  .display-mode-3 .tiltcard-container,
-  .tiltcard-container {
-    grid-template-columns: 1fr;
-  }
-  .tilt-card { width:92%; }
-}
-
-/* Gear icon settings menu (fixed top-right on main display) */
+/* ── Gear icon settings menu (fixed top-right on main display) ── */
 .gear-menu {
   position: fixed;
   top: 14px;
@@ -306,9 +292,9 @@ body, body.page-bg {
   border-bottom: 1px solid #f0f0f0;
   transition: background 0.15s;
 }
-.gear-dropdown a:last-child { border-bottom: none; }
-.gear-dropdown a:hover { background: #f5f0e8; color: var(--panel-brown); }
-.gear-dropdown a.exit-link { color: #c91f1f; }
+.gear-dropdown a:last-child  { border-bottom: none; }
+.gear-dropdown a:hover       { background: #f5f0e8; color: var(--btn-brown); }
+.gear-dropdown a.exit-link   { color: #c91f1f; }
 .gear-dropdown a.exit-link:hover { background: #fff0f0; }
 
 /* Notification failure banner */
@@ -321,5 +307,5 @@ body, body.page-bg {
   font-size: 14px;
   margin: 8px 0;
   border-radius: 6px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
