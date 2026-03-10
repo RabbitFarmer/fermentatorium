@@ -10,13 +10,12 @@
       --panel-brown: #8B4513;
       --status-red: #c91f1f;
       --now-cool-blue: #1e90ff;
-      --card-width: 320px;
       --error-orange: #FF8C00;
       --kasa-yellow: #B8860B;
     }
 
     /* Temp card same width as tilt cards */
-    .tilt-card.temp-control { width: var(--card-width); border-radius:8px; overflow:hidden; box-shadow:0 2px 6px rgba(0,0,0,0.06); background:#fff; display:flex; flex-direction:column; }
+    .tilt-card.temp-control { width: var(--card-width); flex: 0 0 var(--card-width); border-radius:8px; overflow:hidden; box-shadow:0 2px 6px rgba(0,0,0,0.06); background:#fff; display:flex; flex-direction:column; }
 
     /* Banner - uniform title font size */
     .temp-card-banner {
@@ -288,7 +287,7 @@
 
     /* Small responsive tweaks */
     @media (max-width:720px) {
-      .tilt-card.temp-control { width:92%; }
+      .tilt-card.temp-control { width:92%; flex-basis:92%; }
       .tc-grid { grid-template-columns: 1fr 110px; }
     }
 
