@@ -3,19 +3,38 @@
 <head>
   <meta charset="UTF-8">
   <title>{{ system_settings.brewery_name }} - Fermentation Dashboard</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/styles.css?v=2">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
+    /* ── Critical layout CSS (inline for cache-proof reliability) ── */
+    .tiltcard-container {
+      display: -webkit-flex !important;
+      display: flex !important;
+      -webkit-flex-wrap: wrap;
+      flex-wrap: wrap;
+      -webkit-justify-content: center;
+      justify-content: center;
+    }
+    .tilt-card {
+      width: 320px;
+      margin: 0 12px 24px 12px;
+    }
+    .display-mode-4 .tilt-card { width: 306px; margin: 0 9px 18px 9px; }
+    .display-mode-3 .tilt-card { width: 400px; margin: 0 16px 24px 16px; }
+
     :root {
       --panel-brown: #8B4513;
       --status-red: #c91f1f;
       --now-cool-blue: #1e90ff;
+      --card-width: 320px;
       --error-orange: #FF8C00;
       --kasa-yellow: #B8860B;
     }
 
-    /* Temp card same width as tilt cards */
-    .tilt-card.temp-control { width: var(--card-width); flex: 0 0 var(--card-width); border-radius:8px; overflow:hidden; box-shadow:0 2px 6px rgba(0,0,0,0.06); background:#fff; display:flex; flex-direction:column; }
+    /* Temp card same width as tilt cards — hardcoded widths matching .tilt-card */
+    .tilt-card.temp-control { width: 320px; border-radius:8px; overflow:hidden; box-shadow:0 2px 6px rgba(0,0,0,0.06); background:#fff; display:flex; flex-direction:column; margin: 0 12px 24px 12px; }
+    .display-mode-4 .tilt-card.temp-control { width: 306px; margin: 0 9px 18px 9px; }
+    .display-mode-3 .tilt-card.temp-control { width: 400px; margin: 0 16px 24px 16px; }
 
     /* Banner - uniform title font size */
     .temp-card-banner {
@@ -287,7 +306,7 @@
 
     /* Small responsive tweaks */
     @media (max-width:720px) {
-      .tilt-card.temp-control { width:92%; flex-basis:92%; }
+      .tilt-card.temp-control { width: 92% !important; margin: 0 auto 18px auto !important; }
       .tc-grid { grid-template-columns: 1fr 110px; }
     }
 

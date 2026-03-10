@@ -13,17 +13,19 @@
   --panel-border: #cfdbe0;
 }
 
-/* 3-across display mode variables — 3×406 + 2×32 = 1282px (fits in 1296px content area) */
+/* 3-across display mode variables (--card-width kept for compatibility;
+   layout now uses hardcoded widths in .tilt-card rules below) */
 .display-mode-3 {
-  --card-width: 406px;
+  --card-width: 420px;
   --metric-number-size: 32px;
   --temp-number-size: 48px;
   --card-gap: 32px;
 }
 
-/* 4-across display mode — 4×306 + 3×24 = 1296px (fits in 1296px content area) */
+/* 4-across display mode (--card-width kept for compatibility;
+   layout now uses hardcoded widths in .tilt-card rules below) */
 .display-mode-4 {
-  --card-width: 306px;
+  --card-width: 313px;
 }
 
 /* Shared body background */
@@ -160,21 +162,48 @@ body, body.page-bg {
   margin: 10px 0 18px;
 }
 
-/* Tiltcards wrapper and flex layout */
-.tiltcards-wrapper { display:flex; justify-content:center; margin-bottom:18px; }
-.tiltcard-container {
+/* Tiltcards wrapper — uses flexbox with vendor prefixes for max compat */
+.tiltcards-wrapper {
+  display: -webkit-flex;
   display: flex;
-  flex-wrap: wrap;
+  -webkit-justify-content: center;
   justify-content: center;
-  gap: var(--card-gap);
-  width: 100%;
-  max-width: var(--page-max-width);
+  margin-bottom: 18px;
+}
+.tiltcard-container {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-wrap: wrap;
+  flex-wrap: wrap;
+  -webkit-justify-content: center;
+  justify-content: center;
+  -webkit-align-items: flex-start;
+  align-items: flex-start;
+  max-width: 1340px;
+  margin: 0 auto;
   padding: 0 8px;
   box-sizing: border-box;
 }
 
-/* Tilt card appearance */
-.tilt-card { width: var(--card-width); flex: 0 0 var(--card-width); border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.06); background:#fff; overflow:hidden; display:flex; flex-direction:column; }
+/* Tilt card appearance — HARDCODED pixel widths, no var() dependency.
+   Default (no display-mode class): 320px cards.
+   Margins provide spacing between cards (replaces grid gap). */
+.tilt-card {
+  width: 320px;
+  margin: 0 12px 24px 12px;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  background: #fff;
+  overflow: hidden;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+}
+/* 4-across mode: 4×(306+18) = 1296px — fits in ~1312px content area */
+.display-mode-4 .tilt-card { width: 306px; margin: 0 9px 18px 9px; }
+/* 3-across mode: 3×(400+32) = 1296px — fits in ~1312px content area */
+.display-mode-3 .tilt-card { width: 400px; margin: 0 16px 24px 16px; }
 .tilt-banner { padding:14px; text-align:center; font-weight:900; font-size:18px; }
 .tilt-body { padding:12px; }
 .tilt-metrics.restore { width:100%; border-collapse:collapse; }
@@ -213,10 +242,10 @@ body, body.page-bg {
 .status-above { color:#c00; }
 .status-below { color:#007bff; }
 
-/* Responsive tweaks — on small screens, cards fill the available width */
+/* Responsive tweaks — on small screens, cards fill available width */
 @media (max-width:699px) {
   :root { --temp-number-size:32px; --metric-number-size:18px; }
-  .tilt-card { width:92%; flex-basis:92%; }
+  .tilt-card { width: 92% !important; margin: 0 auto 18px auto !important; }
 }
 
 /* Notification failure banner */
