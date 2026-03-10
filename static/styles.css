@@ -159,26 +159,19 @@ body, body.page-bg {
   margin: 10px 0 18px;
 }
 
-/* ── Tilt card grid ─────────────────────────────────────────────────────
-   auto-fit places as many card-width columns as can fit.
-   With the sizes defined above:
-     display-mode-4 (305 px cards) → 4 columns at ≥ 1296 px usable width
-     display-mode-3 (400 px cards) → 3 columns at ≥ 1296 px usable width
-   On narrower screens the number of columns shrinks automatically.        */
+/* ── Tilt card layout ────────────────────────────────────────────────────
+   Flexbox wrapping — cards line up side-by-side and wrap naturally.
+   justify-content: center keeps the row centred on all screen sizes.      */
 .tiltcards-wrapper {
-  display: flex;
-  justify-content: center;
   margin-bottom: 18px;
 }
 .tiltcard-container {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(var(--card-width), var(--card-width)));
-  gap: var(--card-gap);
+  display: flex;
+  flex-wrap: wrap;
   justify-content: center;
-  justify-items: center;
-  align-items: start;
-  width: 100%;
+  gap: var(--card-gap);
   max-width: var(--page-max-width);
+  margin: 0 auto;
   box-sizing: border-box;
 }
 
@@ -239,24 +232,26 @@ body, body.page-bg {
 .status-above   { color: #c00; }
 .status-below   { color: #007bff; }
 
-/* Mobile: single column, cards fill available width */
+/* Mobile: cards fill available width */
 @media (max-width: 699px) {
   :root { --temp-number-size: 32px; --metric-number-size: 18px; }
-  .tiltcard-container { grid-template-columns: 1fr; }
   .tilt-card { width: 92%; }
 }
 
-/* ── Gear icon settings menu (fixed top-right on main display) ── */
+/* ── Gear icon settings menu (fixed top-right on main display) ──
+   Uses a native <details>/<summary> element — no JavaScript required
+   to open/close. The browser handles toggle behaviour natively.       */
 .gear-menu {
   position: fixed;
   top: 14px;
   right: 18px;
   z-index: 2000;
 }
-.gear-btn {
+/* Style the <summary> to look like the old round gear button */
+.gear-menu > summary {
+  list-style: none;
   background: rgba(139,69,19,0.92);
   color: white;
-  border: none;
   border-radius: 50%;
   width: 44px;
   height: 44px;
@@ -268,10 +263,14 @@ body, body.page-bg {
   box-shadow: 0 2px 8px rgba(0,0,0,0.25);
   transition: background 0.2s;
   line-height: 1;
+  user-select: none;
 }
-.gear-btn:hover { background: rgba(101,67,33,0.98); }
+.gear-menu > summary::-webkit-details-marker { display: none; }
+.gear-menu > summary::marker              { display: none; }
+.gear-menu > summary:hover { background: rgba(101,67,33,0.98); }
+/* Fallback: hide dropdown when <details> is closed (for older browsers) */
+.gear-menu:not([open]) > .gear-dropdown { display: none; }
 .gear-dropdown {
-  display: none;
   position: absolute;
   top: 50px;
   right: 0;
@@ -281,7 +280,6 @@ body, body.page-bg {
   min-width: 200px;
   overflow: hidden;
 }
-.gear-dropdown.open { display: block; }
 .gear-dropdown a {
   display: block;
   padding: 12px 20px;

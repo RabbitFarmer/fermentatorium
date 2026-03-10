@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>{{ system_settings.brewery_name }} - Fermentation Dashboard</title>
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
     :root {
@@ -274,21 +274,18 @@
     <header class="site-header">
       <h1 class="dashboard-title">{{ system_settings.brewery_name }}</h1>
 
-      <!-- Gear settings menu -->
-      <div class="gear-menu" id="gearMenu">
-        <button class="gear-btn" id="gearBtn"
-                aria-label="Settings menu" aria-haspopup="true" aria-expanded="false"
-                onclick="toggleGearMenu()">&#9881;</button>
-        <nav class="gear-dropdown" id="gearDropdown"
-             role="navigation" aria-label="Settings navigation">
-          <a href="/system_config">System Settings</a>
-          <a href="/temp_config">Temperature Control</a>
-          <a href="/batch_settings">Batch Settings</a>
-          <a href="/batch_history">Batch History</a>
-          <a href="/log_management">Log Management</a>
-          <a href="/exit_system" class="exit-link">Exit System</a>
+      <!-- Gear settings menu — native <details> toggle, no JavaScript needed -->
+      <details class="gear-menu" id="gearMenu">
+        <summary aria-label="Settings menu">&#9881;</summary>
+        <nav class="gear-dropdown" role="navigation" aria-label="Settings navigation">
+          <a href="{{ url_for('system_config') }}">System Settings</a>
+          <a href="{{ url_for('temp_config') }}">Temperature Control</a>
+          <a href="{{ url_for('batch_settings') }}">Batch Settings</a>
+          <a href="{{ url_for('batch_history') }}">Batch History</a>
+          <a href="{{ url_for('log_management') }}">Log Management</a>
+          <a href="{{ url_for('exit_system') }}" class="exit-link">Exit System</a>
         </nav>
-      </div>
+      </details>
 
       {# Notification comm-failure banner #}
       {% set has_comm_failure = namespace(value=false) %}
@@ -376,7 +373,7 @@
                 <!-- Header: clickable → temp summary chart -->
                 <div class="tc-header"
                      style="color:{% if use_dark_text %}black{% else %}white{% endif %};"
-                     onclick="window.location='/temp_summary/{{ cid }}'"
+                     onclick="window.location='{{ url_for('temp_summary', controller_id=cid) }}'"
                      title="View Temperature Control summary and chart">
                   TEMPERATURE CONTROLLER #{{ cid + 1 }}
                   <div class="tc-header-sub">
@@ -457,7 +454,7 @@
                 </div>
 
                 <a class="chart-pill"
-                   href="/chart_plotly/{{ tilt_color }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
+                   href="{{ url_for('chart_plotly_for', tilt_color=tilt_color) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
                    style="color:{{ tilt.color_code }};">CHART</a>
               </footer>
 
@@ -536,7 +533,7 @@
                   <div class="footer-ts">Last: <span id="footer-ts-{{ safe }}">{{ tilt.timestamp | localtime }}</span></div>
                 </div>
                 <a class="chart-pill"
-                   href="/chart_plotly/{{ color }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
+                   href="{{ url_for('chart_plotly_for', tilt_color=color) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
                    style="color:{{ tilt.color_code }};">CHART</a>
               </footer>
             </article>
@@ -572,14 +569,13 @@
     ════════════════════════════════════════════════════════════════ */
     const REFRESH_MS = 3000;
 
-    /* Gear-menu toggle */
-    function toggleGearMenu() {
-      const dropdown = document.getElementById('gearDropdown');
-      const btn      = document.getElementById('gearBtn');
-      if (!dropdown) return;
-      const isOpen = dropdown.classList.toggle('open');
-      if (btn) btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
-    }
+    /* Gear-menu: close <details> when user clicks outside it */
+    document.addEventListener('click', function(e) {
+      const menu = document.getElementById('gearMenu');
+      if (menu && menu.open && !menu.contains(e.target)) {
+        menu.open = false;
+      }
+    });
 
     /* Convert tilt colour name to safe DOM id fragment */
     function safeIdColor(color) { return color.replace(/\s+/g, '_'); }
@@ -875,17 +871,6 @@
         const tiltColor = banner.getAttribute('data-tilt-color');
         if (brewid)    { window.location.href = '/batch_review/'  + encodeURIComponent(brewid);    return; }
         if (tiltColor) { window.location.href = '/chart_plotly/' + encodeURIComponent(tiltColor); return; }
-      });
-
-      /* Close gear menu on outside click */
-      document.addEventListener('click', function(e) {
-        const menu = document.getElementById('gearMenu');
-        if (menu && !menu.contains(e.target)) {
-          const dropdown = document.getElementById('gearDropdown');
-          const btn      = document.getElementById('gearBtn');
-          if (dropdown) dropdown.classList.remove('open');
-          if (btn)      btn.setAttribute('aria-expanded', 'false');
-        }
       });
 
       /* ── Temp-control toggle switches ── */
