@@ -3,7 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <title>{{ system_settings.brewery_name }} - Fermentation Dashboard</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <!-- Force the browser to discard any cached copy of this page and its assets -->
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <!-- Timestamp query-string busts any cached copy of the stylesheet -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v={{ now_ts }}">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
     :root {
