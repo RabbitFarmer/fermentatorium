@@ -985,6 +985,14 @@ def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=Fals
     cfg = tilt_cfg.get(color, {})
     # Preserve existing MAC address if a new (non-None, non-empty) one is not provided
     existing_mac = live_tilts.get(color, {}).get("mac_address", "")
+
+    # Apply calibration variances if configured
+    temp_variance    = float(cfg.get("temp_variance",    0) or 0)
+    gravity_variance = float(cfg.get("gravity_variance", 0) or 0)
+    raw_gravity = round(gravity, 3) if gravity is not None else None
+    adj_temp_f  = round(temp_f    + temp_variance,    1) if temp_f    is not None else None
+    adj_gravity = round(raw_gravity + gravity_variance, 3) if raw_gravity is not None else None
+
     live_tilts[color] = {
         "gravity": round(gravity, 3) if gravity is not None else None,
         "temp_f": temp_f,
@@ -1002,6 +1010,11 @@ def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=Fals
         "original_gravity": cfg.get("actual_og", 0),
         "mac_address": mac_address if mac_address else existing_mac,
         "is_pro": is_pro,
+        # Calibration
+        "temp_variance":    temp_variance,
+        "gravity_variance": gravity_variance,
+        "adj_temp_f":       adj_temp_f,
+        "adj_gravity":      adj_gravity,
     }
 
 def get_active_tilts():
@@ -4746,6 +4759,21 @@ def batch_settings():
 
         og_confirmed = False  # No longer using og_confirmed checkbox
 
+        # Calibration variances — default to existing values if not submitted
+        def _parse_variance(raw, existing_key, cfg_dict):
+            """Return float variance or preserve existing value if raw is empty."""
+            s = (raw or '').strip()
+            if s == '':
+                return float(cfg_dict.get(existing_key, 0) or 0)
+            try:
+                return float(s)
+            except ValueError:
+                return 0.0
+
+        existing_cfg = tilt_cfg.get(color, {})
+        temp_variance    = _parse_variance(data.get('temp_variance'),    'temp_variance',    existing_cfg)
+        gravity_variance = _parse_variance(data.get('gravity_variance'), 'gravity_variance', existing_cfg)
+
         batch_entry = {
             "beer_name": beer_name,
             "batch_name": batch_name,
@@ -4757,7 +4785,9 @@ def batch_settings():
             "og_confirmed": False,  # Keep field for backward compatibility
             "brewid": brew_id,
             "is_active": True,  # New field to track active vs closed batches
-            "closed_date": None  # Track when batch was closed
+            "closed_date": None,  # Track when batch was closed
+            "temp_variance": temp_variance,
+            "gravity_variance": gravity_variance,
         }
         
         # Preserve existing notification_state when editing a batch
@@ -4820,6 +4850,8 @@ def batch_settings():
     all_colors = list(TILT_UUIDS.values())
     active_tilts = get_active_tilts()
     active_colors = list(active_tilts.keys())
+    # Live reading for the selected tilt (used in calibration section)
+    selected_live = live_tilts.get(selected, {}) if selected else {}
     return render_template('batch_settings.html',
         tilt_cfg=tilt_cfg,
         tilt_colors=all_colors,
@@ -4827,6 +4859,7 @@ def batch_settings():
         live_tilts=active_tilts,
         selected_tilt=selected,
         selected_config=config,
+        selected_live=selected_live,
         system_settings=system_cfg,
         action=action,
         batch_history=batch_history,
@@ -5895,7 +5928,11 @@ def live_snapshot():
             "original_gravity": info.get("original_gravity"),
             "color_code": info.get("color_code"),
             "mac_address": info.get("mac_address", ""),
-            "is_pro": info.get("is_pro", False)
+            "is_pro": info.get("is_pro", False),
+            "temp_variance": info.get("temp_variance", 0),
+            "gravity_variance": info.get("gravity_variance", 0),
+            "adj_temp_f": info.get("adj_temp_f"),
+            "adj_gravity": info.get("adj_gravity"),
         }
     return jsonify(snapshot)
 
