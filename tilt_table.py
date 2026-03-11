@@ -35,6 +35,10 @@ class TiltDeviceRecord:
     last_temp_f: Optional[float] = None
     last_gravity: Optional[float] = None
 
+    # calibration variances — stored per physical device so they survive color changes
+    temp_variance: float = 0.0
+    gravity_variance: float = 0.0
+
 
 def load_tilt_table(path: str = DEFAULT_TILT_TABLE_PATH) -> Dict[str, Dict[str, Any]]:
     if not os.path.exists(path):
@@ -96,5 +100,37 @@ def upsert_device_from_reading(
             rec["last_temp_f"] = temp_f
         if gravity is not None:
             rec["last_gravity"] = gravity
+        rec.setdefault("temp_variance",    0.0)
+        rec.setdefault("gravity_variance", 0.0)
 
     return rec
+
+
+def set_device_variances(
+    table: Dict[str, Dict[str, Any]],
+    *,
+    mac: str,
+    temp_variance: float,
+    gravity_variance: float,
+) -> None:
+    """Persist calibration variances onto the tilt_table record for this MAC."""
+    mac_n = normalize_mac(mac)
+    if mac_n and mac_n in table:
+        table[mac_n]["temp_variance"]    = temp_variance
+        table[mac_n]["gravity_variance"] = gravity_variance
+
+
+def get_device_variances(
+    table: Dict[str, Dict[str, Any]],
+    *,
+    mac: str,
+) -> tuple[float, float]:
+    """Return (temp_variance, gravity_variance) for a MAC, or (0.0, 0.0) if not found."""
+    mac_n = normalize_mac(mac)
+    if mac_n and mac_n in table:
+        rec = table[mac_n]
+        return (
+            float(rec.get("temp_variance",    0) or 0),
+            float(rec.get("gravity_variance", 0) or 0),
+        )
+    return (0.0, 0.0)

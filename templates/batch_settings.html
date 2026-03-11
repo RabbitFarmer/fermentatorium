@@ -8,8 +8,6 @@
   <style>
     .selector-wrap { max-width:1000px; margin:18px auto; padding:18px; background:#fff; border-radius:8px; box-shadow:0 1px 6px rgba(0,0,0,0.04); }
     .heading { font-weight:900; margin-bottom:12px; font-size:1.5em; color:#1a6; }
-    .color-list { display:flex; flex-wrap:wrap; gap:8px; }
-    .color-pill { padding:8px 10px; border-radius:6px; cursor:pointer; text-decoration:none; color:#000; font-weight:700; border:2px solid #ddd; }
     .note { color:#666; font-size:0.95em; margin-top:8px; }
     .form-row { display:flex; gap:8px; }
     .form-col { flex:1; }
@@ -19,21 +17,60 @@
     input[type="date"] { padding:8px; border:1px solid #ddd; border-radius:6px; max-width:200px; }
     .small-note { font-size:0.9em; color:#555; margin-top:6px; }
     .muted { color:#777; font-size:0.9em; }
+
+    /* Active-tilt card grid */
+    .active-tilt-grid { display:flex; flex-wrap:wrap; gap:12px; margin-top:8px; }
+    .active-tilt-card {
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      padding:14px 20px; border-radius:10px; cursor:pointer; text-decoration:none;
+      font-weight:900; font-size:1em; border:3px solid rgba(0,0,0,0.15);
+      min-width:110px; transition:transform 0.1s;
+    }
+    .active-tilt-card:hover { transform:scale(1.05); }
+    .active-tilt-card .atc-label { font-size:0.78em; opacity:0.85; margin-top:4px; font-weight:600; }
+    .inactive-banner {
+      margin-top:14px; padding:10px 14px; background:#fff8e1; border:1px solid #ffe082;
+      border-radius:6px; color:#795548; font-size:0.93em;
+    }
+
+    /* Calibration section */
+    .calib-section { margin-top:16px; padding:14px; background:#f0f6ff; border:1px solid #c5d9f5; border-radius:8px; }
+    .calib-section .heading { font-size:1em; color:#1a55a0; margin-bottom:10px; }
+    .calib-matrix { border-collapse:collapse; width:auto; margin-top:4px; }
+    .calib-matrix th { text-align:center; font-size:0.95em; font-weight:700; color:#1a55a0;
+                       padding:6px 20px; border-bottom:2px solid #c5d9f5; }
+    .calib-matrix th:first-child { text-align:left; min-width:120px; }
+    .calib-matrix td { padding:7px 20px; vertical-align:middle; font-size:0.95em; text-align:center; }
+    .calib-matrix td:first-child { text-align:left; font-weight:700; color:#444; }
+    .calib-matrix input[type="number"] { width:100px; padding:5px 8px; border:1px solid #b0c8ee;
+                                          border-radius:5px; font-size:0.95em; text-align:center; }
+    .calib-adj-val { font-size:1.15em; font-weight:900; color:#1a55a0; }
   </style>
 </head>
 <body>
   <div class="page-container">
     <header class="site-header"><h1 class="dashboard-title">BATCH SETTINGS</h1></header>
     <div class="selector-wrap">
-      <div class="heading">Select Tilt Color</div>
-      <div class="color-list">
-        {% for color in tilt_colors %}
-          <a class="color-pill"
-             style="background-color: {{ color_map.get(color, '#e9eef0') }}; {% if color in ['Black', 'Purple', 'Blue', 'Green', 'Red'] %}color: #fff;{% endif %}"
-             href="{{ url_for('batch_settings') }}?tilt_color={{ color|urlencode }}">{{ color }}</a>
-        {% endfor %}
+      <div class="heading">Active Tilts</div>
+      {% if live_tilts %}
+        <div class="active-tilt-grid">
+          {% for color, tdata in live_tilts.items() %}
+            {% set cc = tdata.color_code or color_map.get(color, '#333') %}
+            {% set dark = cc in ['#ffff00','#ffc0cb','#00ff00'] %}
+            <a class="active-tilt-card"
+               style="background-color:{{ cc }};color:{% if dark %}#222{% else %}#fff{% endif %};"
+               href="{{ url_for('batch_settings') }}?tilt_color={{ color|urlencode }}">
+              {{ color }}
+              <span class="atc-label">{{ tdata.beer_name or 'No batch' }}</span>
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="note">No tilts are currently active.</p>
+      {% endif %}
+      <div class="inactive-banner">
+        ℹ️ If your tilt is not shown above, make sure it is powered on and within Bluetooth range, then refresh.
       </div>
-      <div class="note">Pick any color to configure that Tilt (even if it's not reporting right now).</div>
       <div style="text-align:center; margin-top:20px;">
         <button type="button" onclick="window.location='/'" class="btn-action">Dashboard</button>
       </div>
@@ -84,6 +121,55 @@
               </div>
             </div>
           </div>
+
+          <!-- ── Tilt Calibration ── -->
+          <div class="calib-section">
+            <div class="heading">Tilt Calibration</div>
+            <p class="small-note" style="margin-bottom:10px;">
+              Drop the tilt in a known liquid (e.g. plain water at 60 °F ≈ 1.000 SG).
+              Enter a + or – variance to correct the reading. Variances are saved per device (MAC address).
+            </p>
+            {% set live_temp    = selected_live.temp_f  if selected_live else None %}
+            {% set live_gravity = selected_live.gravity if selected_live else None %}
+            {% set tv = selected_config.temp_variance    | default(0) | float %}
+            {% set gv = selected_config.gravity_variance | default(0) | float %}
+            <table class="calib-matrix">
+              <tr>
+                <th></th>
+                <th>Temperature</th>
+                <th>Gravity</th>
+              </tr>
+              <tr>
+                <td>Actual</td>
+                <td>{% if live_temp is not none %}{{ "%.1f"|format(live_temp) }}°F{% else %}--{% endif %}</td>
+                <td>{% if live_gravity is not none %}{{ "%.3f"|format(live_gravity) }}{% else %}--{% endif %}</td>
+              </tr>
+              <tr>
+                <td>Variance (+/–)</td>
+                <td>
+                  <input type="number" step="0.1" id="temp_variance" name="temp_variance"
+                         value="{{ tv if tv != 0 else '' }}" placeholder="0.0"
+                         oninput="updateCalibAdj()">
+                </td>
+                <td>
+                  <input type="number" step="0.001" id="gravity_variance" name="gravity_variance"
+                         value="{{ gv if gv != 0 else '' }}" placeholder="0.000"
+                         oninput="updateCalibAdj()">
+                </td>
+              </tr>
+              <tr>
+                <td>As Adjusted</td>
+                <td><span class="calib-adj-val" id="adj-temp-display">
+                  {% if live_temp is not none %}{{ "%.1f"|format(live_temp + tv) }}°F{% else %}--{% endif %}
+                </span></td>
+                <td><span class="calib-adj-val" id="adj-grav-display">
+                  {% if live_gravity is not none %}{{ "%.3f"|format(live_gravity + gv) }}{% else %}--{% endif %}
+                </span></td>
+              </tr>
+            </table>
+          </div>
+          <!-- ── End Calibration ── -->
+
           <div style="text-align:center; margin-top:20px;">
             <button type="button" onclick="window.location='/'" class="btn-action" style="margin-right:16px;">Dashboard</button>
             <button type="submit" class="btn-primary" style="margin-right:16px;">Save</button>
@@ -110,5 +196,34 @@
       </div>
     {% endif %}
   </div>
+
+  <script>
+    // Live readings injected at render time
+    var LIVE_TEMP    = {{ (selected_live.temp_f    | default(None)) | tojson }};
+    var LIVE_GRAVITY = {{ (selected_live.gravity   | default(None)) | tojson }};
+
+    function updateCalibAdj() {
+      var tvInput = document.getElementById('temp_variance');
+      var gvInput = document.getElementById('gravity_variance');
+      var adjTempEl = document.getElementById('adj-temp-display');
+      var adjGravEl = document.getElementById('adj-grav-display');
+
+      if (!tvInput || !gvInput) return;
+
+      var tv = parseFloat(tvInput.value) || 0;
+      var gv = parseFloat(gvInput.value) || 0;
+
+      if (adjTempEl) {
+        adjTempEl.textContent = LIVE_TEMP !== null
+          ? (LIVE_TEMP + tv).toFixed(1) + '°F'
+          : '--';
+      }
+      if (adjGravEl) {
+        adjGravEl.textContent = LIVE_GRAVITY !== null
+          ? (LIVE_GRAVITY + gv).toFixed(3)
+          : '--';
+      }
+    }
+  </script>
 </body>
 </html>

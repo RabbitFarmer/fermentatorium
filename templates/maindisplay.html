@@ -402,12 +402,16 @@
                   <tr>
                     <td class="label">Final / Current Gravity</td>
                     <td class="value"><span class="metric-number" id="recipe_fg-{{ safe }}">{{ "%.3f"|format((tilt.recipe_fg|default(0)|float)) }}</span></td>
-                    <td class="value"><b id="gravity-{{ safe }}"><span class="metric-number">{{ "%.3f"|format((tilt.gravity|default(0)|float)) }}</span></b></td>
+                    <td class="value"><b id="gravity-{{ safe }}"><span class="metric-number">
+                      {%- if tilt.gravity_variance and tilt.adj_gravity is not none %}{{ "%.3f"|format(tilt.adj_gravity) }}{%- else %}{{ "%.3f"|format((tilt.gravity|default(0)|float)) }}{%- endif %}
+                    </span></b></td>
                   </tr>
                   <tr>
                     <td class="label">Temperature</td>
                     <td class="value"></td>
-                    <td class="value"><b id="temp-{{ safe }}"><span class="metric-number">{{ "%.1f"|format((tilt.temp_f|default(0)|float)) }}°F</span></b></td>
+                    <td class="value"><b id="temp-{{ safe }}"><span class="metric-number">
+                      {%- if tilt.temp_variance and tilt.adj_temp_f is not none %}{{ "%.1f"|format(tilt.adj_temp_f) }}°F{%- else %}{{ "%.1f"|format((tilt.temp_f|default(0)|float)) }}°F{%- endif %}
+                    </span></b></td>
                   </tr>
                   <tr>
                     <td class="label">A.B.V.</td>
@@ -562,12 +566,16 @@
                   <tr>
                     <td class="label">Final / Current Gravity</td>
                     <td class="value"><span class="metric-number" id="recipe_fg-{{ safe }}">{{ "%.3f"|format((tilt.recipe_fg|default(0)|float)) }}</span></td>
-                    <td class="value"><b id="gravity-{{ safe }}"><span class="metric-number">{{ "%.3f"|format((tilt.gravity|default(0)|float)) }}</span></b></td>
+                    <td class="value"><b id="gravity-{{ safe }}"><span class="metric-number">
+                      {%- if tilt.gravity_variance and tilt.adj_gravity is not none %}{{ "%.3f"|format(tilt.adj_gravity) }}{%- else %}{{ "%.3f"|format((tilt.gravity|default(0)|float)) }}{%- endif %}
+                    </span></b></td>
                   </tr>
                   <tr>
                     <td class="label">Temperature</td>
                     <td class="value"></td>
-                    <td class="value"><b id="temp-{{ safe }}"><span class="metric-number">{{ "%.1f"|format((tilt.temp_f|default(0)|float)) }}°F</span></b></td>
+                    <td class="value"><b id="temp-{{ safe }}"><span class="metric-number">
+                      {%- if tilt.temp_variance and tilt.adj_temp_f is not none %}{{ "%.1f"|format(tilt.adj_temp_f) }}°F{%- else %}{{ "%.1f"|format((tilt.temp_f|default(0)|float)) }}°F{%- endif %}
+                    </span></b></td>
                   </tr>
                   <tr>
                     <td class="label">A.B.V.</td>
@@ -653,6 +661,11 @@
       if (tilt.original_gravity && tilt.gravity) {
         actualAbv = ((Number(tilt.original_gravity) - Number(tilt.gravity)) * 131.25).toFixed(1) + '%';
       }
+      // Calibration: use adjusted values when variance is configured
+      const adjTempF   = (tilt.temp_variance    && tilt.adj_temp_f    != null) ? Number(tilt.adj_temp_f)   : null;
+      const adjGravity = (tilt.gravity_variance && tilt.adj_gravity   != null) ? Number(tilt.adj_gravity)  : null;
+      const displayGravity = adjGravity !== null ? adjGravity : gravity;
+      const displayTempF   = adjTempF   !== null ? adjTempF   : tempF;
 
       let timestamp = '';
       if (tilt.timestamp) {
@@ -695,12 +708,12 @@
             <tr>
               <td class="label">Final / Current Gravity</td>
               <td class="value"><span class="metric-number" id="recipe_fg-${safe}">${recipeFg.toFixed(3)}</span></td>
-              <td class="value"><b id="gravity-${safe}"><span class="metric-number">${gravity.toFixed(3)}</span></b></td>
+              <td class="value"><b id="gravity-${safe}"><span class="metric-number">${displayGravity.toFixed(3)}</span></b></td>
             </tr>
             <tr>
               <td class="label">Temperature</td>
               <td class="value"></td>
-              <td class="value"><b id="temp-${safe}"><span class="metric-number">${tempF.toFixed(1)}°F</span></b></td>
+              <td class="value"><b id="temp-${safe}"><span class="metric-number">${displayTempF.toFixed(1)}°F</span></b></td>
             </tr>
             <tr>
               <td class="label">A.B.V.</td>
@@ -783,13 +796,18 @@
           if (sp) sp.textContent = og.toFixed(3);
         }
         if (gEl && entry.gravity != null) {
-          g = Number(entry.gravity);
+          // Show adjusted gravity when variance is configured, else raw reading
+          const hasGravVar = entry.gravity_variance && entry.adj_gravity != null;
+          g = hasGravVar ? Number(entry.adj_gravity) : Number(entry.gravity);
           const sp = gEl.querySelector('.metric-number');
           if (sp) sp.textContent = g.toFixed(3);
         }
         if (tempEl && entry.temp_f != null) {
+          // Show adjusted temp when variance is configured, else raw reading
+          const hasTempVar = entry.temp_variance && entry.adj_temp_f != null;
+          const dispTemp = hasTempVar ? Number(entry.adj_temp_f) : Number(entry.temp_f);
           const sp = tempEl.querySelector('.metric-number');
-          if (sp) sp.textContent = Number(entry.temp_f).toFixed(1) + '°F';
+          if (sp) sp.textContent = dispTemp.toFixed(1) + '°F';
         }
         if (abvEl) {
           abvEl.textContent = (og !== null && g !== null && isFinite((og - g) * 131.25))
