@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Batch Settings</title>
+  <link rel="stylesheet" href="/static/a4styles.css">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    .selector-wrap { max-width:1000px; margin:18px auto; padding:18px; background:#fff; border-radius:8px; box-shadow:0 1px 6px rgba(0,0,0,0.04); }
+    .heading { font-weight:900; margin-bottom:12px; font-size:1.5em; color:#1a6; }
+    .color-list { display:flex; flex-wrap:wrap; gap:8px; }
+    .color-pill { padding:8px 10px; border-radius:6px; cursor:pointer; text-decoration:none; color:#000; font-weight:700; border:2px solid #ddd; }
+    .note { color:#666; font-size:0.95em; margin-top:8px; }
+    .form-row { display:flex; gap:8px; }
+    .form-col { flex:1; }
+    label { display:block; margin-bottom:6px; font-weight:700; }
+    input[type="text"] { padding:8px; border:1px solid #ddd; border-radius:6px; max-width:400px; }
+    input[type="number"] { padding:8px; border:1px solid #ddd; border-radius:6px; max-width:150px; }
+    input[type="date"] { padding:8px; border:1px solid #ddd; border-radius:6px; max-width:200px; }
+    .small-note { font-size:0.9em; color:#555; margin-top:6px; }
+    .muted { color:#777; font-size:0.9em; }
+  </style>
+</head>
+<body>
+  <div class="page-container">
+    <header class="site-header"><h1 class="dashboard-title">BATCH SETTINGS</h1></header>
+    <div class="selector-wrap">
+      <div class="heading">Select Tilt Color</div>
+      <div class="color-list">
+        {% for color in tilt_colors %}
+          <a class="color-pill"
+             style="background-color: {{ color_map.get(color, '#e9eef0') }}; {% if color in ['Black', 'Purple', 'Blue', 'Green', 'Red'] %}color: #fff;{% endif %}"
+             href="{{ url_for('batch_settings') }}?tilt_color={{ color|urlencode }}">{{ color }}</a>
+        {% endfor %}
+      </div>
+      <div class="note">Pick any color to configure that Tilt (even if it's not reporting right now).</div>
+      <div style="text-align:center; margin-top:20px;">
+        <button type="button" onclick="window.location='/'" class="btn-action">Dashboard</button>
+      </div>
+    </div>
+
+    {% if selected_tilt %}
+      <div class="selector-wrap" style="margin-top:16px;">
+        <div class="heading">Editing: {{ selected_tilt }}</div>
+        <form method="post" action="/batch_settings">
+          <input type="hidden" name="tilt_color" value="{{ selected_tilt }}">
+          <div style="margin-bottom:8px;">
+            <label>Beer Name</label>
+            <input name="beer_name" type="text" value="{{ selected_config.beer_name or '' }}" maxlength="100" placeholder="e.g. Pale Ale">
+          </div>
+          <div style="margin-bottom:8px;">
+            <label>Batch Name</label>
+            <input name="batch_name" type="text" value="{{ selected_config.batch_name or '' }}" maxlength="100" placeholder="e.g. Batch #1">
+          </div>
+          <div class="form-row" style="margin-bottom:8px;">
+            <div class="form-col">
+              <label>Ferm Start Date</label>
+              <input type="date" name="ferm_start_date" value="{{ selected_config.ferm_start_date or '' }}">
+            </div>
+            <div class="form-col">
+              <label>Estimated ABV (Recipe)</label>
+              <input type="number" step="0.1" min="0" name="recipe_abv" value="{{ selected_config.recipe_abv if selected_config.recipe_abv is not none else '' }}" placeholder="e.g. 5.2">
+            </div>
+          </div>
+          <div style="margin-top:10px; padding:12px; background:#f9fbf9; border-radius:8px; border:1px solid #eef6ea;">
+            <div class="heading" style="font-size:1em; margin-bottom:8px;">Recipe Details</div>
+            <div class="form-row" style="margin-bottom:8px;">
+              <div class="form-col">
+                <label>Recipe Original Gravity (OG)</label>
+                <input type="number" step="0.001" min="0" name="recipe_og" value="{{ selected_config.recipe_og if selected_config.recipe_og is not none else '' }}" placeholder="e.g. 1.050">
+              </div>
+              <div class="form-col">
+                <label>Recipe Final Gravity (FG)</label>
+                <input type="number" step="0.001" min="0" name="recipe_fg" value="{{ selected_config.recipe_fg if selected_config.recipe_fg is not none else '' }}" placeholder="e.g. 1.012">
+              </div>
+            </div>
+          </div>
+          <div style="margin-top:12px; padding:12px; border-radius:8px; background:#fff8f8; border:1px solid #f4e1e1;">
+            <div class="heading" style="font-size:1em; margin-bottom:8px;">Original Gravity Measurement</div>
+            <div class="form-row" style="margin-bottom:8px;">
+              <div class="form-col">
+                <label>Measured Original Gravity (from Tilt / hydrometer)</label>
+                <input type="number" step="0.001" min="0" name="actual_og" value="{{ selected_config.actual_og if selected_config.actual_og is not none else '' }}" placeholder="e.g. 1.050">
+              </div>
+            </div>
+          </div>
+          <div style="text-align:center; margin-top:20px;">
+            <button type="button" onclick="window.location='/'" class="btn-action" style="margin-right:16px;">Dashboard</button>
+            <button type="submit" class="btn-primary" style="margin-right:16px;">Save</button>
+            <button type="button" onclick="window.location='/batch_settings'" class="btn-secondary">Cancel</button>
+          </div>
+        </form>
+        {% if batch_history %}
+          <div style="margin-top:12px;">
+            <div class="heading">Batch History for {{ selected_tilt }}</div>
+            <ul>
+              {% for b in batch_history %}
+                <li>
+                  <a href="{{ url_for('batch_review', brewid=b.brewid) }}" style="text-decoration:none; color:#1a6;">
+                    {{ b.ferm_start_date }} — {{ b.beer_name }} / {{ b.batch_name }}
+                  </a>
+                </li>
+              {% endfor %}
+            </ul>
+            <div style="margin-top:12px;">
+              <a href="{{ url_for('batch_history') }}" class="btn-action" style="display:inline-block;">View All Batch History</a>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+</body>
+</html>
