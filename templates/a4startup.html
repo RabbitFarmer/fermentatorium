@@ -73,6 +73,20 @@
     window.addEventListener('DOMContentLoaded', function() {
       statusEl = document.getElementById('status-line');
       setStatus('Connecting to server…');
+
+      // Unregister any stale service workers before polling starts.
+      // A service worker from a previous version can serve old cached HTML
+      // to every page — including this one — even after clearing browser cache.
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          if (registrations.length > 0) {
+            console.warn('[fermentatorium] Startup: unregistering ' +
+              registrations.length + ' stale service worker(s).');
+            registrations.forEach(function(reg) { reg.unregister(); });
+          }
+        });
+      }
+
       // Start polling quickly; the server is usually already up when this page loads.
       setTimeout(checkAppReady, 500);
     });

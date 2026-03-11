@@ -116,11 +116,19 @@ def add_header(response):
     This ensures users always see the latest version of the page,
     preventing issues where old cached versions are displayed.
     Static files (CSS, JS, images) are still cached normally.
+
+    X-Fermentatorium-Server is stamped on every response so the user can
+    confirm in browser DevTools (Network tab → response headers) that the
+    response is coming from this copy of a4app.py and not from an old
+    process, nginx, or another web server on the same machine.
     """
     if response.content_type and 'text/html' in response.content_type:
         response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = 'Thu, 01 Jan 1970 00:00:00 GMT'
+    # Stamp every response (HTML and JSON alike) so network-level inspection
+    # can confirm which server binary is handling the request.
+    response.headers['X-Fermentatorium-Server'] = f'a4app.py pid={os.getpid()} path={_HERE}'
     return response
 
 # --- Files and global constants ---------------------------------------------
@@ -5924,6 +5932,35 @@ def live_snapshot():
             "is_pro": info.get("is_pro", False)
         }
     return jsonify(snapshot)
+
+
+@app.route('/server_info')
+def server_info():
+    """Diagnostic endpoint — returns a JSON object identifying which server
+    binary, directory, and OS process is handling the request.
+
+    Use this from a terminal to confirm the correct server is answering:
+
+        curl -s http://127.0.0.1:5001/server_info | python3 -m json.tool
+
+    Or in the browser console:
+
+        fetch('/server_info').then(r=>r.json()).then(d=>console.table(d))
+    """
+    try:
+        hostname = socket.gethostname()
+    except Exception:
+        hostname = 'unknown'
+    return jsonify({
+        'server_file':    __file__,
+        'server_dir':     _HERE,
+        'template_folder': os.path.join(_HERE, 'templates'),
+        'static_folder':   os.path.join(_HERE, 'static'),
+        'pid':            os.getpid(),
+        'hostname':       hostname,
+        'python':         sys.executable,
+        'flask_port':     request.host,
+    })
 
 
 # --- Chart routes and data endpoint ---------------------------------------

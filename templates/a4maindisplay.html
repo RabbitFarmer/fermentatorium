@@ -938,6 +938,30 @@
     /* Start polling immediately and at interval */
     pollLiveSnapshot();
     setInterval(pollLiveSnapshot, REFRESH_MS);
+
+    /* ── Service-worker cleanup ─────────────────────────────────────────────
+       A service worker registered by a previous version of the site can
+       intercept every HTTP request and return stale cached HTML even after
+       the user clears the browser cache from DevTools.  The snippet below
+       unregisters every service worker registered under this origin so the
+       browser falls through to the network on every request.
+       If any are found a warning is printed to the browser console so the
+       user knows that was the source of the stale content.
+    ──────────────────────────────────────────────────────────────────────── */
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        if (registrations.length > 0) {
+          console.warn('[fermentatorium] Found ' + registrations.length +
+            ' registered service worker(s) — unregistering now.' +
+            ' These were the likely source of stale cached HTML.');
+          registrations.forEach(function(reg) {
+            reg.unregister().then(function(ok) {
+              console.info('[fermentatorium] Service worker unregistered:', reg.scope, ok ? 'OK' : 'failed');
+            });
+          });
+        }
+      });
+    }
   </script>
 </body>
 </html>
