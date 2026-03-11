@@ -54,11 +54,9 @@ curl -sSL https://raw.githubusercontent.com/RabbitFarmer/fermentatorium/main/ins
 This will:
 
 - Install OS dependencies
-- Create the `fermentatorium` system user and group
-- Install the application to `/opt/fermentatorium`
-- Create a Python virtual environment at `/opt/fermentatorium/.venv` (if missing) and install `requirements.txt`
-- Install and enable `fermentatorium.service` (systemd)
-- Start the service listening on port `5001`
+- Add your user to the `bluetooth` group for BLE (Tilt) access
+- Create a Python virtual environment inside the repo and install `requirements.txt`
+- Install and enable `fermentatorium.service` (systemd), running directly from the repo directory
 
 After installation, open:
 
@@ -90,27 +88,19 @@ If you prefer to install manually:
    cd fermentatorium
    ```
 
-2. **Create the system user/group**
+2. **Add your user to the bluetooth group** (for Tilt BLE scanning)
    ```bash
-   sudo groupadd --system fermentatorium || true
-   sudo useradd --system --gid fermentatorium --create-home --home-dir /home/fermentatorium --shell /usr/sbin/nologin fermentatorium || true
-   sudo usermod -aG bluetooth fermentatorium
+   sudo usermod -aG bluetooth "$USER"
    ```
 
-3. **Copy to `/opt` and set ownership**
+3. **Create the virtual environment + install dependencies**
    ```bash
-   sudo mkdir -p /opt/fermentatorium
-   sudo rsync -a --delete --exclude .git ./ /opt/fermentatorium/
-   sudo chown -R fermentatorium:fermentatorium /opt/fermentatorium
+   python3 -m venv venv
+   venv/bin/pip install --upgrade pip
+   venv/bin/pip install -r requirements.txt
    ```
 
-4. **Create the virtual environment + install dependencies**
-   ```bash
-   sudo -u fermentatorium -H python3 -m venv /opt/fermentatorium/.venv
-   sudo -u fermentatorium -H /opt/fermentatorium/.venv/bin/pip install -r /opt/fermentatorium/requirements.txt
-   ```
-
-5. **Install systemd service**
+4. **Install systemd service**
    Create `/etc/systemd/system/fermentatorium.service` (see `install.sh` for the exact unit contents), then:
    ```bash
    sudo systemctl daemon-reload
