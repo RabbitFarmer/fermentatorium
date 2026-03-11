@@ -260,7 +260,6 @@ def find_process_using_port(port):
         )
         if result.returncode == 0 and result.stdout.strip():
             pid = int(result.stdout.strip().split('\n')[0])
-            print(f"[STARTUP] Found process {pid} using port {port} (via lsof)")
             return pid
     except (subprocess.TimeoutExpired, FileNotFoundError, ValueError) as e:
         pass
@@ -272,7 +271,6 @@ def find_process_using_port(port):
                 if conn.laddr.port == port and conn.status == 'LISTEN':
                     pid = conn.pid
                     if pid:
-                        print(f"[STARTUP] Found process {pid} using port {port} (via psutil)")
                         return pid
         except (psutil.AccessDenied, AttributeError) as e:
             pass
@@ -294,7 +292,6 @@ def find_process_using_port(port):
                         if '/' in part:
                             try:
                                 pid = int(part.split('/')[0])
-                                print(f"[STARTUP] Found process {pid} using port {port} (via netstat)")
                                 return pid
                             except ValueError:
                                 continue
@@ -324,7 +321,6 @@ def kill_process_using_port(port):
     
     try:
         # Try graceful termination first (SIGTERM)
-        print(f"[STARTUP] Attempting to terminate process {pid} using port {port}")
         os.kill(pid, signal.SIGTERM)
         
         # Wait briefly for process to exit (up to 1 second: 10 x 100ms)
@@ -335,28 +331,22 @@ def kill_process_using_port(port):
                 os.kill(pid, 0)
             except OSError:
                 # Process no longer exists
-                print(f"[STARTUP] Successfully terminated process {pid}")
                 return {"killed": pid, "error": None}
         
         # If still running, force kill (SIGKILL)
-        print(f"[STARTUP] Process {pid} did not terminate gracefully, forcing kill")
         os.kill(pid, signal.SIGKILL)
         time.sleep(0.5)
         
-        print(f"[STARTUP] Forcefully killed process {pid}")
         return {"killed": pid, "error": None}
         
     except ProcessLookupError:
         # Process already gone
-        print(f"[STARTUP] Process {pid} no longer exists")
         return {"killed": pid, "error": None}
     except PermissionError:
         error_msg = f"Permission denied to kill process {pid} (try running with sudo)"
-        print(f"[STARTUP] {error_msg}")
         return {"killed": None, "error": error_msg}
     except Exception as e:
         error_msg = f"Failed to kill process {pid}: {str(e)}"
-        print(f"[STARTUP] {error_msg}")
         return {"killed": None, "error": error_msg}
 
 def is_port_available(port, host='0.0.0.0'):
@@ -402,11 +392,9 @@ def wait_for_port_release(port, host='0.0.0.0', max_wait_seconds=10):
     while time.time() - start_time < max_wait_seconds:
         if is_port_available(port, host):
             elapsed = time.time() - start_time
-            print(f"[STARTUP] Port {port} became available after {elapsed:.1f}s")
             return True
         time.sleep(wait_interval)
     
-    print(f"[STARTUP] Timeout waiting for port {port} to become available")
     return False
 
 def attempt_to_free_port(port, host='0.0.0.0'):
@@ -420,11 +408,9 @@ def attempt_to_free_port(port, host='0.0.0.0'):
     Returns:
         True if port was freed successfully, False otherwise
     """
-    print(f"[STARTUP] Attempting to free port {port}...")
     kill_result = kill_process_using_port(port)
     
     if kill_result.get('killed'):
-        print(f"[STARTUP] Freed port {port}, waiting for it to be released...")
         if wait_for_port_release(port, host, max_wait_seconds=10):
             return True
         else:
@@ -437,15 +423,12 @@ def attempt_to_free_port(port, host='0.0.0.0'):
 
 try:
     stopped_info = stop_other_app_py()
-    print(f"[STARTUP] stop_other_app_py result: {stopped_info}")
     
     # If we stopped any processes, wait for the port to be released
     if stopped_info.get('stopped'):
-        print(f"[STARTUP] Stopped {len(stopped_info['stopped'])} process(es), waiting for port release...")
         # We'll check the port later after config is loaded
     
 except Exception as e:
-    print(f"[STARTUP] startup housekeeping failed: {e}")
 
 # --- Utilities --------------------------------------------------------------
 def load_json(path, fallback):
@@ -7450,11 +7433,9 @@ if __name__ == '__main__':
     
     # Check if port is available, and if not, attempt to free it
     if not is_port_available(flask_port, flask_host):
-        print(f"[STARTUP] Port {flask_port} is currently in use")
         
         # If we stopped processes earlier, wait for port to be released
         if stopped_info.get('stopped'):
-            print(f"[STARTUP] Waiting for port {flask_port} to be released...")
             if not wait_for_port_release(flask_port, flask_host, max_wait_seconds=10):
                 # Port still in use after waiting, try to free it
                 if not attempt_to_free_port(flask_port, flask_host):
@@ -7472,7 +7453,6 @@ if __name__ == '__main__':
                 print(f"[ERROR]   - Or update 'flask_port' in {SYSTEM_CFG_FILE}")
                 sys.exit(1)
     
-    print(f"[STARTUP] Starting Flask app on {flask_host}:{flask_port}")
 
     # Start a thread to open the browser after Flask starts
     # Only open browser in the main process (not in Werkzeug reloader child process)
