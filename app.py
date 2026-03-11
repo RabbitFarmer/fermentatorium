@@ -4213,19 +4213,27 @@ def ble_loop():
 def dashboard():
     # Only show active tilts on the main display
     active_tilts = get_active_tilts()
-    
+
     # Pass controllers array to template
     controllers = temp_cfg.get('controllers', [])
-    
-    return render_template('maindisplay.html',
+
+    # Build the response and attach no-cache headers so the browser always
+    # fetches a fresh copy of the dashboard instead of serving a stale page
+    # from its local cache (avoids showing old layouts or gear-icon versions).
+    response = make_response(render_template('maindisplay.html',
         system_settings=system_cfg,
         tilt_cfg=tilt_cfg,
         COLOR_MAP=COLOR_MAP,
         tilts=active_tilts,
         tilt_status=tilt_status,
         controllers=controllers,
-        live_tilts=active_tilts
-    )
+        live_tilts=active_tilts,
+        now_ts=int(time.time())
+    ))
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 @app.route('/startup')
 def startup():
