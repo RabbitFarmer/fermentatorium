@@ -139,6 +139,12 @@ LOG_PATH    = os.path.join(_HERE, 'temp_control', 'temp_control_log.jsonl')
 BATCHES_DIR = os.path.join(_HERE, 'batches')
 PER_PAGE = 30
 
+# Browser-warning capture log.  Written by the /client_log route when the JS
+# interceptor in the page templates sends console.warn / console.error entries
+# to the server.  The file lives in logs/ so it appears automatically in the
+# Log Management page alongside other .log files.
+BROWSER_WARN_LOG = os.path.join(_HERE, 'logs', 'browser_warnings.log')
+
 # Config files
 TILT_CONFIG_FILE   = os.path.join(_HERE, 'config', 'tilt_config.json')
 TEMP_CFG_FILE      = os.path.join(_HERE, 'config', 'temp_control_config.json')
@@ -5961,6 +5967,53 @@ def server_info():
         'python':         sys.executable,
         'flask_port':     request.host,
     })
+
+
+@app.route('/client_log', methods=['POST'])
+def client_log():
+    """Receive browser console warnings/errors and persist them to a log file.
+
+    The browser-side JS interceptor (injected into every page template) calls
+    this endpoint with a JSON body like::
+
+        { "entries": [
+            { "ts": "2026-…", "level": "warn", "url": "http://…/",
+              "msg": "…", "src": "file.js", "line": 42, "col": 7,
+              "stack": "Error: …\\n    at …" }
+        ] }
+
+    Each entry is appended as a single JSON line to logs/browser_warnings.log
+    so it appears in the Log Management page and can be viewed/archived there.
+    Input is sanitised and capped so the endpoint cannot be used to flood disk.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        entries = data.get('entries', [])
+        if not isinstance(entries, list):
+            return '', 400
+
+        os.makedirs(os.path.dirname(BROWSER_WARN_LOG), exist_ok=True)
+
+        with open(BROWSER_WARN_LOG, 'a', encoding='utf-8') as f:
+            for entry in entries[:10]:          # accept at most 10 per POST
+                if not isinstance(entry, dict):
+                    continue
+                # Sanitise: keep only known fields and truncate long strings.
+                record = {
+                    'ts':    str(entry.get('ts',    ''))[:32],
+                    'level': str(entry.get('level', 'warn'))[:10],
+                    'url':   str(entry.get('url',   ''))[:300],
+                    'msg':   str(entry.get('msg',   ''))[:2000],
+                }
+                for field in ('src', 'line', 'col', 'stack'):
+                    if field in entry:
+                        record[field] = str(entry[field])[:500]
+                f.write(json.dumps(record) + '\n')
+
+        return '', 204
+    except Exception as e:
+        print(f'[LOG] client_log error: {e}')
+        return '', 500
 
 
 # --- Chart routes and data endpoint ---------------------------------------

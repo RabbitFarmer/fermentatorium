@@ -5,6 +5,63 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Starting Up…</title>
   <link rel="icon" type="image/svg+xml" href="/static/a4beer-stein.svg">
+  <!-- ── Browser-warning capture ────────────────────────────────────────────
+       Intercepts console.warn, console.error, window.onerror, and unhandled
+       Promise rejections and POSTs them to /client_log so they are saved to
+       logs/browser_warnings.log on the server for later inspection.
+  ──────────────────────────────────────────────────────────────────────── -->
+  <script>
+  (function () {
+    var _queue   = [];
+    var _sending = false;
+    var MAX_Q    = 50;
+
+    function flush() {
+      if (_sending || _queue.length === 0) return;
+      var batch = _queue.splice(0, 10);
+      _sending  = true;
+      try {
+        fetch('/client_log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ entries: batch }),
+          keepalive: true
+        }).catch(function () {}).then(function () {
+          _sending = false;
+          if (_queue.length) flush();
+        });
+      } catch (e) { _sending = false; }
+    }
+
+    function enqueue(level, args, extra) {
+      if (_queue.length >= MAX_Q) return;
+      var msg = Array.prototype.slice.call(args).map(function (a) {
+        try { return (typeof a === 'object') ? JSON.stringify(a) : String(a); }
+        catch (e) { return String(a); }
+      }).join(' ');
+      var rec = { ts: new Date().toISOString(), level: level,
+                  url: window.location.href, msg: msg };
+      if (extra) { Object.keys(extra).forEach(function(k){ rec[k] = extra[k]; }); }
+      _queue.push(rec);
+      setTimeout(flush, 0);
+    }
+
+    var _warn  = console.warn.bind(console);
+    var _error = console.error.bind(console);
+    console.warn  = function () { _warn.apply(console, arguments);  enqueue('warn',  arguments); };
+    console.error = function () { _error.apply(console, arguments); enqueue('error', arguments); };
+
+    window.addEventListener('error', function (e) {
+      enqueue('error', [e.message], { src: e.filename, line: e.lineno,
+                                      col: e.colno,
+                                      stack: e.error && e.error.stack });
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      var msg = e.reason ? (e.reason.message || String(e.reason)) : 'Unhandled rejection';
+      enqueue('error', [msg], { stack: e.reason && e.reason.stack });
+    });
+  }());
+  </script>
   <style>
     body {
       margin: 0;
