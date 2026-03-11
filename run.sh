@@ -12,6 +12,10 @@ set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Always run from the app directory so relative paths (e.g. app.log, venv)
+# resolve correctly regardless of how or where this script is invoked.
+cd "$APP_DIR"
+
 # Ensure FLASK_PORT is always set to a known value even when this script is
 # invoked outside of systemd (which injects Environment="FLASK_PORT=5001").
 # Without this, app.py would fall through to Flask's own built-in default of

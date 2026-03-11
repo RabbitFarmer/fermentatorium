@@ -90,7 +90,23 @@ except Exception:
         # Fallback if logger is not available
         pass
 
-app = Flask(__name__)
+# Resolve the directory that contains this file so that templates, static
+# assets, and data files are always loaded from *this* repository — even if
+# multiple copies of the project exist on the machine or the process is
+# started from a different working directory.
+_HERE = os.path.abspath(os.path.dirname(__file__))
+
+app = Flask(
+    __name__,
+    template_folder=os.path.join(_HERE, 'templates'),
+    static_folder=os.path.join(_HERE, 'static'),
+)
+
+# Startup banner — printed once at import time so the Pi console always shows
+# exactly which copy of the program is running.
+print(f"[fermentatorium] app.py  : {os.path.join(_HERE, 'app.py')}")
+print(f"[fermentatorium] templates: {os.path.join(_HERE, 'templates')}")
+print(f"[fermentatorium] static  : {os.path.join(_HERE, 'static')}")
 
 # Add cache control headers to prevent browser caching of HTML pages
 @app.after_request
@@ -108,14 +124,17 @@ def add_header(response):
     return response
 
 # --- Files and global constants ---------------------------------------------
-LOG_PATH = 'temp_control/temp_control_log.jsonl'        # control events only
-BATCHES_DIR = 'batches'                    # per-batch jsonl files live here
+# All paths are absolute and anchored to this file's directory so that
+# running the program from any working directory (or from a different copy
+# of the project) always reads/writes the correct files.
+LOG_PATH    = os.path.join(_HERE, 'temp_control', 'temp_control_log.jsonl')
+BATCHES_DIR = os.path.join(_HERE, 'batches')
 PER_PAGE = 30
 
 # Config files
-TILT_CONFIG_FILE = 'config/tilt_config.json'
-TEMP_CFG_FILE = 'config/temp_control_config.json'
-SYSTEM_CFG_FILE = 'config/system_config.json'
+TILT_CONFIG_FILE   = os.path.join(_HERE, 'config', 'tilt_config.json')
+TEMP_CFG_FILE      = os.path.join(_HERE, 'config', 'temp_control_config.json')
+SYSTEM_CFG_FILE    = os.path.join(_HERE, 'config', 'system_config.json')
 
 # Valid tab names for system config page (using set for O(1) lookup)
 VALID_SYSTEM_CONFIG_TABS = {'main-settings', 'push-email', 'logging-integrations', 'backup-restore'}
@@ -4217,10 +4236,9 @@ def dashboard():
     # Pass controllers array to template
     controllers = temp_cfg.get('controllers', [])
 
-    # Build the response and attach no-cache headers so the browser always
-    # fetches a fresh copy of the dashboard instead of serving a stale page
-    # from its local cache (avoids showing old layouts or gear-icon versions).
-    response = make_response(render_template('maindisplay.html',
+    # now_ts is used in the template to append a cache-busting query string
+    # to the stylesheet URL so the browser always fetches the latest CSS.
+    return render_template('maindisplay.html',
         system_settings=system_cfg,
         tilt_cfg=tilt_cfg,
         COLOR_MAP=COLOR_MAP,
@@ -4229,11 +4247,7 @@ def dashboard():
         controllers=controllers,
         live_tilts=active_tilts,
         now_ts=int(time.time())
-    ))
-    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-    response.headers['Pragma'] = 'no-cache'
-    response.headers['Expires'] = '0'
-    return response
+    )
 
 @app.route('/startup')
 def startup():
