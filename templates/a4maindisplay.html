@@ -10,6 +10,64 @@
   <!-- Timestamp query-string busts any cached copy of the stylesheet -->
   <link rel="stylesheet" href="{{ url_for('static', filename='a4styles.css') }}?v={{ now_ts }}">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <!-- ── Browser-warning capture ────────────────────────────────────────────
+       Intercepts console.warn, console.error, window.onerror, and unhandled
+       Promise rejections, then POSTs them to /client_log so they are saved
+       to logs/browser_warnings.log on the server.  Placed first in <head>
+       so every warning from later scripts is captured.
+  ──────────────────────────────────────────────────────────────────────── -->
+  <script>
+  (function () {
+    var _queue   = [];
+    var _sending = false;
+    var MAX_Q    = 50;   // drop silently once the queue is full
+
+    function flush() {
+      if (_sending || _queue.length === 0) return;
+      var batch = _queue.splice(0, 10);
+      _sending  = true;
+      try {
+        fetch('/client_log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ entries: batch }),
+          keepalive: true
+        }).catch(function () {}).then(function () {
+          _sending = false;
+          if (_queue.length) flush();
+        });
+      } catch (e) { _sending = false; }
+    }
+
+    function enqueue(level, args, extra) {
+      if (_queue.length >= MAX_Q) return;
+      var msg = Array.prototype.slice.call(args).map(function (a) {
+        try { return (typeof a === 'object') ? JSON.stringify(a) : String(a); }
+        catch (e) { return String(a); }
+      }).join(' ');
+      var rec = { ts: new Date().toISOString(), level: level,
+                  url: window.location.href, msg: msg };
+      if (extra) { Object.keys(extra).forEach(function(k){ rec[k] = extra[k]; }); }
+      _queue.push(rec);
+      setTimeout(flush, 0);
+    }
+
+    var _warn  = console.warn.bind(console);
+    var _error = console.error.bind(console);
+    console.warn  = function () { _warn.apply(console, arguments);  enqueue('warn',  arguments); };
+    console.error = function () { _error.apply(console, arguments); enqueue('error', arguments); };
+
+    window.addEventListener('error', function (e) {
+      enqueue('error', [e.message], { src: e.filename, line: e.lineno,
+                                      col: e.colno,
+                                      stack: e.error && e.error.stack });
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      var msg = e.reason ? (e.reason.message || String(e.reason)) : 'Unhandled rejection';
+      enqueue('error', [msg], { stack: e.reason && e.reason.stack });
+    });
+  }());
+  </script>
   <style>
     :root {
       --panel-brown: #8B4513;
@@ -938,6 +996,30 @@
     /* Start polling immediately and at interval */
     pollLiveSnapshot();
     setInterval(pollLiveSnapshot, REFRESH_MS);
+
+    /* ── Service-worker cleanup ─────────────────────────────────────────────
+       A service worker registered by a previous version of the site can
+       intercept every HTTP request and return stale cached HTML even after
+       the user clears the browser cache from DevTools.  The snippet below
+       unregisters every service worker registered under this origin so the
+       browser falls through to the network on every request.
+       If any are found a warning is printed to the browser console so the
+       user knows that was the source of the stale content.
+    ──────────────────────────────────────────────────────────────────────── */
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        if (registrations.length > 0) {
+          console.warn('[fermentatorium] Found ' + registrations.length +
+            ' registered service worker(s) — unregistering now.' +
+            ' These were the likely source of stale cached HTML.');
+          registrations.forEach(function(reg) {
+            reg.unregister().then(function(ok) {
+              console.info('[fermentatorium] Service worker unregistered:', reg.scope, ok ? 'OK' : 'failed');
+            });
+          });
+        }
+      });
+    }
   </script>
 </body>
 </html>

@@ -116,11 +116,19 @@ def add_header(response):
     This ensures users always see the latest version of the page,
     preventing issues where old cached versions are displayed.
     Static files (CSS, JS, images) are still cached normally.
+
+    X-Fermentatorium-Server is stamped on every response so the user can
+    confirm in browser DevTools (Network tab → response headers) that the
+    response is coming from this copy of a4app.py and not from an old
+    process, nginx, or another web server on the same machine.
     """
     if response.content_type and 'text/html' in response.content_type:
         response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = 'Thu, 01 Jan 1970 00:00:00 GMT'
+    # Stamp every response (HTML and JSON alike) so network-level inspection
+    # can confirm which server binary is handling the request.
+    response.headers['X-Fermentatorium-Server'] = f'a4app.py pid={os.getpid()} path={_HERE}'
     return response
 
 # --- Files and global constants ---------------------------------------------
@@ -130,6 +138,12 @@ def add_header(response):
 LOG_PATH    = os.path.join(_HERE, 'temp_control', 'temp_control_log.jsonl')
 BATCHES_DIR = os.path.join(_HERE, 'batches')
 PER_PAGE = 30
+
+# Browser-warning capture log.  Written by the /client_log route when the JS
+# interceptor in the page templates sends console.warn / console.error entries
+# to the server.  The file lives in logs/ so it appears automatically in the
+# Log Management page alongside other .log files.
+BROWSER_WARN_LOG = os.path.join(_HERE, 'logs', 'browser_warnings.log')
 
 # Config files
 TILT_CONFIG_FILE   = os.path.join(_HERE, 'config', 'tilt_config.json')
@@ -4228,6 +4242,26 @@ def ble_loop():
 # NOTE: ble_loop thread is started in if __name__ == '__main__' block
 
 # --- Flask routes ---------------------------------------------------------
+
+# Backward-compatibility redirects for static files that were renamed with
+# the a4 prefix.  Browsers that cached pages from before the rename will
+# request the old URLs; these routes send a permanent (301) redirect so that
+# the browser updates its cache and fetches the correct file going forward.
+# The CSS shims in static/styles.css and static/style.css handle the most
+# common case; these routes cover the SVG logo and JavaScript files.
+
+@app.route('/static/beer-stein.svg')
+def legacy_beer_stein():
+    return redirect(url_for('static', filename='a4beer-stein.svg'), 301)
+
+@app.route('/static/js/chart_page.js')
+def legacy_chart_page_js():
+    return redirect(url_for('static', filename='js/a4chart_page.js'), 301)
+
+@app.route('/static/js/chart_plotly.v2.js')
+def legacy_chart_plotly_js():
+    return redirect(url_for('static', filename='js/a4chart_plotly.v2.js'), 301)
+
 @app.route('/')
 def dashboard():
     # Only show active tilts on the main display
@@ -5904,6 +5938,82 @@ def live_snapshot():
             "is_pro": info.get("is_pro", False)
         }
     return jsonify(snapshot)
+
+
+@app.route('/server_info')
+def server_info():
+    """Diagnostic endpoint — returns a JSON object identifying which server
+    binary, directory, and OS process is handling the request.
+
+    Use this from a terminal to confirm the correct server is answering:
+
+        curl -s http://127.0.0.1:5001/server_info | python3 -m json.tool
+
+    Or in the browser console:
+
+        fetch('/server_info').then(r=>r.json()).then(d=>console.table(d))
+    """
+    try:
+        hostname = socket.gethostname()
+    except Exception:
+        hostname = 'unknown'
+    return jsonify({
+        'server_file':    __file__,
+        'server_dir':     _HERE,
+        'template_folder': os.path.join(_HERE, 'templates'),
+        'static_folder':   os.path.join(_HERE, 'static'),
+        'pid':            os.getpid(),
+        'hostname':       hostname,
+        'python':         sys.executable,
+        'flask_port':     request.host,
+    })
+
+
+@app.route('/client_log', methods=['POST'])
+def client_log():
+    """Receive browser console warnings/errors and persist them to a log file.
+
+    The browser-side JS interceptor (injected into every page template) calls
+    this endpoint with a JSON body like::
+
+        { "entries": [
+            { "ts": "2026-…", "level": "warn", "url": "http://…/",
+              "msg": "…", "src": "file.js", "line": 42, "col": 7,
+              "stack": "Error: …\\n    at …" }
+        ] }
+
+    Each entry is appended as a single JSON line to logs/browser_warnings.log
+    so it appears in the Log Management page and can be viewed/archived there.
+    Input is sanitised and capped so the endpoint cannot be used to flood disk.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        entries = data.get('entries', [])
+        if not isinstance(entries, list):
+            return '', 400
+
+        os.makedirs(os.path.dirname(BROWSER_WARN_LOG), exist_ok=True)
+
+        with open(BROWSER_WARN_LOG, 'a', encoding='utf-8') as f:
+            for entry in entries[:10]:          # accept at most 10 per POST
+                if not isinstance(entry, dict):
+                    continue
+                # Sanitise: keep only known fields and truncate long strings.
+                record = {
+                    'ts':    str(entry.get('ts',    ''))[:32],
+                    'level': str(entry.get('level', 'warn'))[:10],
+                    'url':   str(entry.get('url',   ''))[:300],
+                    'msg':   str(entry.get('msg',   ''))[:2000],
+                }
+                for field in ('src', 'line', 'col', 'stack'):
+                    if field in entry:
+                        record[field] = str(entry[field])[:500]
+                f.write(json.dumps(record) + '\n')
+
+        return '', 204
+    except Exception as e:
+        print(f'[LOG] client_log error: {e}')
+        return '', 500
 
 
 # --- Chart routes and data endpoint ---------------------------------------

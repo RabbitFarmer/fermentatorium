@@ -1,0 +1,8 @@
+/*
+ * Backward-compatibility shim.
+ *
+ * This file handles requests for /static/style.css (without the trailing
+ * 's'), which may appear in browser-cached pages or bookmarks from earlier
+ * versions of the application.  All styling is now in a4styles.css.
+ */
+@import url('/static/a4styles.css');
