@@ -1,0 +1,10 @@
+/*
+ * Backward-compatibility shim.
+ *
+ * The stylesheet was renamed from styles.css to a4styles.css in the
+ * fermentatorium a4-prefix update.  Any browser that cached a page
+ * from before the rename will still request /static/styles.css.
+ * Importing the new file here prevents a 404 and keeps the UI styled
+ * correctly while the browser's cache refreshes.
+ */
+@import url('/static/a4styles.css');

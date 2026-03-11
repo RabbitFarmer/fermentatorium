@@ -4228,6 +4228,26 @@ def ble_loop():
 # NOTE: ble_loop thread is started in if __name__ == '__main__' block
 
 # --- Flask routes ---------------------------------------------------------
+
+# Backward-compatibility redirects for static files that were renamed with
+# the a4 prefix.  Browsers that cached pages from before the rename will
+# request the old URLs; these routes send a permanent (301) redirect so that
+# the browser updates its cache and fetches the correct file going forward.
+# The CSS shims in static/styles.css and static/style.css handle the most
+# common case; these routes cover the SVG logo and JavaScript files.
+
+@app.route('/static/beer-stein.svg')
+def legacy_beer_stein():
+    return redirect(url_for('static', filename='a4beer-stein.svg'), 301)
+
+@app.route('/static/js/chart_page.js')
+def legacy_chart_page_js():
+    return redirect(url_for('static', filename='js/a4chart_page.js'), 301)
+
+@app.route('/static/js/chart_plotly.v2.js')
+def legacy_chart_plotly_js():
+    return redirect(url_for('static', filename='js/a4chart_plotly.v2.js'), 301)
+
 @app.route('/')
 def dashboard():
     # Only show active tilts on the main display
