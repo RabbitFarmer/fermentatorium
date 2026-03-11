@@ -11,7 +11,7 @@ This file provides the full Flask app used in the conversation:
 - Chart Plotly page and /chart_data/<identifier> endpoint
 - UI routes: dashboard, tilt_config, batch_settings, temp_config, update_temp_config, temp_report,
   export_temp_csv, scan_kasa_plugs, live_snapshot, reset_logs, exit_system, system_config
-- Program entry runs Flask on 0.0.0.0:5001 (debug mode can be enabled via FLASK_DEBUG=1 environment variable)
+- Program entry runs Flask on 0.0.0.0:5001
 """
 
 import asyncio
@@ -101,12 +101,6 @@ app = Flask(
     template_folder=os.path.join(_HERE, 'templates'),
     static_folder=os.path.join(_HERE, 'static'),
 )
-
-# Startup banner — printed once at import time so the Pi console always shows
-# exactly which copy of the program is running.
-print(f"[fermentatorium] app.py  : {os.path.join(_HERE, 'app.py')}")
-print(f"[fermentatorium] templates: {os.path.join(_HERE, 'templates')}")
-print(f"[fermentatorium] static  : {os.path.join(_HERE, 'static')}")
 
 # Add cache control headers to prevent browser caching of HTML pages
 @app.after_request
@@ -7487,8 +7481,4 @@ if __name__ == '__main__':
         browser_thread = threading.Thread(target=lambda: open_browser(flask_port), daemon=True)
         browser_thread.start()
 
-    # Run the Flask app
-    # Debug mode can be enabled via FLASK_DEBUG=1 environment variable
-    # Default to False for production to avoid Werkzeug reloader issues
-    debug_mode = os.environ.get('FLASK_DEBUG', '0') == '1'
-    app.run(host=flask_host, port=flask_port, debug=debug_mode)
+    app.run(host=flask_host, port=flask_port, debug=False)

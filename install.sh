@@ -96,7 +96,6 @@ User=${APP_USER}
 WorkingDirectory=${REPO_DIR}
 
 Environment="FLASK_PORT=5001"
-Environment="FLASK_DEBUG=0"
 
 ExecStart=${REPO_DIR}/run.sh
 
