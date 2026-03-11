@@ -36,13 +36,15 @@
     /* Calibration section */
     .calib-section { margin-top:16px; padding:14px; background:#f0f6ff; border:1px solid #c5d9f5; border-radius:8px; }
     .calib-section .heading { font-size:1em; color:#1a55a0; margin-bottom:10px; }
-    .calib-live { display:flex; gap:24px; margin-bottom:12px; flex-wrap:wrap; }
-    .calib-reading { text-align:center; }
-    .calib-reading .val { font-size:1.4em; font-weight:900; color:#1a55a0; }
-    .calib-reading .lbl { font-size:0.8em; color:#555; }
-    .calib-adj-display { font-size:0.95em; color:#1a6; font-weight:700; margin-top:4px; }
-    .calib-inputs { display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start; }
-    .calib-field { display:flex; flex-direction:column; gap:4px; }
+    .calib-matrix { border-collapse:collapse; width:auto; margin-top:4px; }
+    .calib-matrix th { text-align:center; font-size:0.95em; font-weight:700; color:#1a55a0;
+                       padding:6px 20px; border-bottom:2px solid #c5d9f5; }
+    .calib-matrix th:first-child { text-align:left; min-width:120px; }
+    .calib-matrix td { padding:7px 20px; vertical-align:middle; font-size:0.95em; text-align:center; }
+    .calib-matrix td:first-child { text-align:left; font-weight:700; color:#444; }
+    .calib-matrix input[type="number"] { width:100px; padding:5px 8px; border:1px solid #b0c8ee;
+                                          border-radius:5px; font-size:0.95em; text-align:center; }
+    .calib-adj-val { font-size:1.15em; font-weight:900; color:#1a55a0; }
   </style>
 </head>
 <body>
@@ -123,44 +125,48 @@
           <!-- ── Tilt Calibration ── -->
           <div class="calib-section">
             <div class="heading">Tilt Calibration</div>
-            <p class="small-note" style="margin-bottom:12px;">
-              Drop the tilt in a known liquid (e.g. plain water at 60 °F ≈ 1.000 SG) and observe the live readings below.
-              Enter positive or negative variances to correct the displayed values.
+            <p class="small-note" style="margin-bottom:10px;">
+              Drop the tilt in a known liquid (e.g. plain water at 60 °F ≈ 1.000 SG).
+              Enter a + or – variance to correct the reading. Variances are saved per device (MAC address).
             </p>
-            {% set live_temp    = selected_live.temp_f    if selected_live else None %}
-            {% set live_gravity = selected_live.gravity   if selected_live else None %}
+            {% set live_temp    = selected_live.temp_f  if selected_live else None %}
+            {% set live_gravity = selected_live.gravity if selected_live else None %}
             {% set tv = selected_config.temp_variance    | default(0) | float %}
             {% set gv = selected_config.gravity_variance | default(0) | float %}
-            <div class="calib-live">
-              <div class="calib-reading">
-                <div class="lbl">Live Temperature</div>
-                <div class="val" id="calib-live-temp">{% if live_temp is not none %}{{ "%.1f"|format(live_temp) }}°F{% else %}--{% endif %}</div>
-              </div>
-              <div class="calib-reading">
-                <div class="lbl">Live Gravity</div>
-                <div class="val" id="calib-live-grav">{% if live_gravity is not none %}{{ "%.3f"|format(live_gravity) }}{% else %}--{% endif %}</div>
-              </div>
-            </div>
-            <div class="calib-inputs">
-              <div class="calib-field">
-                <label for="temp_variance">Temperature Variance (°F)</label>
-                <input type="number" step="0.1" id="temp_variance" name="temp_variance"
-                       value="{{ tv if tv != 0 else '' }}" placeholder="e.g. -1.5"
-                       oninput="updateCalibAdj()">
-                <div class="calib-adj-display" id="adj-temp-display">
-                  {% if live_temp is not none %}Adjusted: {{ "%.1f"|format(live_temp + tv) }}°F{% endif %}
-                </div>
-              </div>
-              <div class="calib-field">
-                <label for="gravity_variance">Gravity Variance (SG)</label>
-                <input type="number" step="0.001" id="gravity_variance" name="gravity_variance"
-                       value="{{ gv if gv != 0 else '' }}" placeholder="e.g. 0.002"
-                       oninput="updateCalibAdj()">
-                <div class="calib-adj-display" id="adj-grav-display">
-                  {% if live_gravity is not none %}Adjusted: {{ "%.3f"|format(live_gravity + gv) }}{% endif %}
-                </div>
-              </div>
-            </div>
+            <table class="calib-matrix">
+              <tr>
+                <th></th>
+                <th>Temperature</th>
+                <th>Gravity</th>
+              </tr>
+              <tr>
+                <td>Actual</td>
+                <td>{% if live_temp is not none %}{{ "%.1f"|format(live_temp) }}°F{% else %}--{% endif %}</td>
+                <td>{% if live_gravity is not none %}{{ "%.3f"|format(live_gravity) }}{% else %}--{% endif %}</td>
+              </tr>
+              <tr>
+                <td>Variance (+/–)</td>
+                <td>
+                  <input type="number" step="0.1" id="temp_variance" name="temp_variance"
+                         value="{{ tv if tv != 0 else '' }}" placeholder="0.0"
+                         oninput="updateCalibAdj()">
+                </td>
+                <td>
+                  <input type="number" step="0.001" id="gravity_variance" name="gravity_variance"
+                         value="{{ gv if gv != 0 else '' }}" placeholder="0.000"
+                         oninput="updateCalibAdj()">
+                </td>
+              </tr>
+              <tr>
+                <td>As Adjusted</td>
+                <td><span class="calib-adj-val" id="adj-temp-display">
+                  {% if live_temp is not none %}{{ "%.1f"|format(live_temp + tv) }}°F{% else %}--{% endif %}
+                </span></td>
+                <td><span class="calib-adj-val" id="adj-grav-display">
+                  {% if live_gravity is not none %}{{ "%.3f"|format(live_gravity + gv) }}{% else %}--{% endif %}
+                </span></td>
+              </tr>
+            </table>
           </div>
           <!-- ── End Calibration ── -->
 
@@ -209,13 +215,13 @@
 
       if (adjTempEl) {
         adjTempEl.textContent = LIVE_TEMP !== null
-          ? 'Adjusted: ' + (LIVE_TEMP + tv).toFixed(1) + '°F'
-          : '';
+          ? (LIVE_TEMP + tv).toFixed(1) + '°F'
+          : '--';
       }
       if (adjGravEl) {
         adjGravEl.textContent = LIVE_GRAVITY !== null
-          ? 'Adjusted: ' + (LIVE_GRAVITY + gv).toFixed(3)
-          : '';
+          ? (LIVE_GRAVITY + gv).toFixed(3)
+          : '--';
       }
     }
   </script>

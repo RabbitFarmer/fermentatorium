@@ -82,15 +82,6 @@
       border-top: 2px solid rgba(0,0,0,0.15);
     }
 
-    /* Calibration adjusted value rows */
-    .adj-row-label {
-      font-style: italic;
-      color: #666;
-    }
-    .adj-metric-number {
-      color: #1a55a0;
-    }
-
     /* Coloured header bar that matches the tilt banner */
     .tc-header {
       text-align: center;
@@ -411,25 +402,15 @@
                   <tr>
                     <td class="label">Final / Current Gravity</td>
                     <td class="value"><span class="metric-number" id="recipe_fg-{{ safe }}">{{ "%.3f"|format((tilt.recipe_fg|default(0)|float)) }}</span></td>
-                    <td class="value"><b id="gravity-{{ safe }}"><span class="metric-number">{{ "%.3f"|format((tilt.gravity|default(0)|float)) }}</span></b></td>
-                  </tr>
-                  <tr id="adj-gravity-row-{{ safe }}"{% if not tilt.gravity_variance %} style="display:none;"{% endif %}>
-                    <td class="label adj-row-label">↳ Adj. Gravity</td>
-                    <td class="value"></td>
-                    <td class="value"><b id="adj-gravity-{{ safe }}"><span class="metric-number adj-metric-number">
-                      {%- if tilt.gravity_variance and tilt.adj_gravity is not none %}{{ "%.3f"|format(tilt.adj_gravity) }}{%- else %}--{%- endif %}
+                    <td class="value"><b id="gravity-{{ safe }}"><span class="metric-number">
+                      {%- if tilt.gravity_variance and tilt.adj_gravity is not none %}{{ "%.3f"|format(tilt.adj_gravity) }}{%- else %}{{ "%.3f"|format((tilt.gravity|default(0)|float)) }}{%- endif %}
                     </span></b></td>
                   </tr>
                   <tr>
                     <td class="label">Temperature</td>
                     <td class="value"></td>
-                    <td class="value"><b id="temp-{{ safe }}"><span class="metric-number">{{ "%.1f"|format((tilt.temp_f|default(0)|float)) }}°F</span></b></td>
-                  </tr>
-                  <tr id="adj-temp-row-{{ safe }}"{% if not tilt.temp_variance %} style="display:none;"{% endif %}>
-                    <td class="label adj-row-label">↳ Adj. Temp</td>
-                    <td class="value"></td>
-                    <td class="value"><b id="adj-temp-{{ safe }}"><span class="metric-number adj-metric-number">
-                      {%- if tilt.temp_variance and tilt.adj_temp_f is not none %}{{ "%.1f"|format(tilt.adj_temp_f) }}°F{%- else %}--{%- endif %}
+                    <td class="value"><b id="temp-{{ safe }}"><span class="metric-number">
+                      {%- if tilt.temp_variance and tilt.adj_temp_f is not none %}{{ "%.1f"|format(tilt.adj_temp_f) }}°F{%- else %}{{ "%.1f"|format((tilt.temp_f|default(0)|float)) }}°F{%- endif %}
                     </span></b></td>
                   </tr>
                   <tr>
@@ -585,25 +566,15 @@
                   <tr>
                     <td class="label">Final / Current Gravity</td>
                     <td class="value"><span class="metric-number" id="recipe_fg-{{ safe }}">{{ "%.3f"|format((tilt.recipe_fg|default(0)|float)) }}</span></td>
-                    <td class="value"><b id="gravity-{{ safe }}"><span class="metric-number">{{ "%.3f"|format((tilt.gravity|default(0)|float)) }}</span></b></td>
-                  </tr>
-                  <tr id="adj-gravity-row-{{ safe }}"{% if not tilt.gravity_variance %} style="display:none;"{% endif %}>
-                    <td class="label adj-row-label">↳ Adj. Gravity</td>
-                    <td class="value"></td>
-                    <td class="value"><b id="adj-gravity-{{ safe }}"><span class="metric-number adj-metric-number">
-                      {%- if tilt.gravity_variance and tilt.adj_gravity is not none %}{{ "%.3f"|format(tilt.adj_gravity) }}{%- else %}--{%- endif %}
+                    <td class="value"><b id="gravity-{{ safe }}"><span class="metric-number">
+                      {%- if tilt.gravity_variance and tilt.adj_gravity is not none %}{{ "%.3f"|format(tilt.adj_gravity) }}{%- else %}{{ "%.3f"|format((tilt.gravity|default(0)|float)) }}{%- endif %}
                     </span></b></td>
                   </tr>
                   <tr>
                     <td class="label">Temperature</td>
                     <td class="value"></td>
-                    <td class="value"><b id="temp-{{ safe }}"><span class="metric-number">{{ "%.1f"|format((tilt.temp_f|default(0)|float)) }}°F</span></b></td>
-                  </tr>
-                  <tr id="adj-temp-row-{{ safe }}"{% if not tilt.temp_variance %} style="display:none;"{% endif %}>
-                    <td class="label adj-row-label">↳ Adj. Temp</td>
-                    <td class="value"></td>
-                    <td class="value"><b id="adj-temp-{{ safe }}"><span class="metric-number adj-metric-number">
-                      {%- if tilt.temp_variance and tilt.adj_temp_f is not none %}{{ "%.1f"|format(tilt.adj_temp_f) }}°F{%- else %}--{%- endif %}
+                    <td class="value"><b id="temp-{{ safe }}"><span class="metric-number">
+                      {%- if tilt.temp_variance and tilt.adj_temp_f is not none %}{{ "%.1f"|format(tilt.adj_temp_f) }}°F{%- else %}{{ "%.1f"|format((tilt.temp_f|default(0)|float)) }}°F{%- endif %}
                     </span></b></td>
                   </tr>
                   <tr>
@@ -690,9 +661,11 @@
       if (tilt.original_gravity && tilt.gravity) {
         actualAbv = ((Number(tilt.original_gravity) - Number(tilt.gravity)) * 131.25).toFixed(1) + '%';
       }
-      // Calibration adjusted values (null = no variance set, omit row)
+      // Calibration: use adjusted values when variance is configured
       const adjTempF   = (tilt.temp_variance    && tilt.adj_temp_f    != null) ? Number(tilt.adj_temp_f)   : null;
       const adjGravity = (tilt.gravity_variance && tilt.adj_gravity   != null) ? Number(tilt.adj_gravity)  : null;
+      const displayGravity = adjGravity !== null ? adjGravity : gravity;
+      const displayTempF   = adjTempF   !== null ? adjTempF   : tempF;
 
       let timestamp = '';
       if (tilt.timestamp) {
@@ -735,22 +708,12 @@
             <tr>
               <td class="label">Final / Current Gravity</td>
               <td class="value"><span class="metric-number" id="recipe_fg-${safe}">${recipeFg.toFixed(3)}</span></td>
-              <td class="value"><b id="gravity-${safe}"><span class="metric-number">${gravity.toFixed(3)}</span></b></td>
-            </tr>
-            <tr id="adj-gravity-row-${safe}" style="${adjGravity !== null ? '' : 'display:none;'}">
-              <td class="label adj-row-label">↳ Adj. Gravity</td>
-              <td class="value"></td>
-              <td class="value"><b id="adj-gravity-${safe}"><span class="metric-number adj-metric-number">${adjGravity !== null ? adjGravity.toFixed(3) : '--'}</span></b></td>
+              <td class="value"><b id="gravity-${safe}"><span class="metric-number">${displayGravity.toFixed(3)}</span></b></td>
             </tr>
             <tr>
               <td class="label">Temperature</td>
               <td class="value"></td>
-              <td class="value"><b id="temp-${safe}"><span class="metric-number">${tempF.toFixed(1)}°F</span></b></td>
-            </tr>
-            <tr id="adj-temp-row-${safe}" style="${adjTempF !== null ? '' : 'display:none;'}">
-              <td class="label adj-row-label">↳ Adj. Temp</td>
-              <td class="value"></td>
-              <td class="value"><b id="adj-temp-${safe}"><span class="metric-number adj-metric-number">${adjTempF !== null ? adjTempF.toFixed(1)+'°F' : '--'}</span></b></td>
+              <td class="value"><b id="temp-${safe}"><span class="metric-number">${displayTempF.toFixed(1)}°F</span></b></td>
             </tr>
             <tr>
               <td class="label">A.B.V.</td>
@@ -833,37 +796,22 @@
           if (sp) sp.textContent = og.toFixed(3);
         }
         if (gEl && entry.gravity != null) {
-          g = Number(entry.gravity);
+          // Show adjusted gravity when variance is configured, else raw reading
+          const hasGravVar = entry.gravity_variance && entry.adj_gravity != null;
+          g = hasGravVar ? Number(entry.adj_gravity) : Number(entry.gravity);
           const sp = gEl.querySelector('.metric-number');
           if (sp) sp.textContent = g.toFixed(3);
         }
         if (tempEl && entry.temp_f != null) {
+          // Show adjusted temp when variance is configured, else raw reading
+          const hasTempVar = entry.temp_variance && entry.adj_temp_f != null;
+          const dispTemp = hasTempVar ? Number(entry.adj_temp_f) : Number(entry.temp_f);
           const sp = tempEl.querySelector('.metric-number');
-          if (sp) sp.textContent = Number(entry.temp_f).toFixed(1) + '°F';
+          if (sp) sp.textContent = dispTemp.toFixed(1) + '°F';
         }
         if (abvEl) {
           abvEl.textContent = (og !== null && g !== null && isFinite((og - g) * 131.25))
             ? ((og - g) * 131.25).toFixed(1) + '%' : '--';
-        }
-
-        // Calibration adjusted rows
-        const adjGravityRow = document.getElementById('adj-gravity-row-' + safe);
-        const adjGravityEl  = document.getElementById('adj-gravity-'     + safe);
-        const adjTempRow    = document.getElementById('adj-temp-row-'    + safe);
-        const adjTempEl     = document.getElementById('adj-temp-'        + safe);
-
-        const hasGravVar = entry.gravity_variance && entry.adj_gravity != null;
-        const hasTempVar = entry.temp_variance    && entry.adj_temp_f  != null;
-
-        if (adjGravityRow) adjGravityRow.style.display = hasGravVar ? '' : 'none';
-        if (adjGravityEl && hasGravVar) {
-          const sp = adjGravityEl.querySelector('.metric-number');
-          if (sp) sp.textContent = Number(entry.adj_gravity).toFixed(3);
-        }
-        if (adjTempRow) adjTempRow.style.display = hasTempVar ? '' : 'none';
-        if (adjTempEl && hasTempVar) {
-          const sp = adjTempEl.querySelector('.metric-number');
-          if (sp) sp.textContent = Number(entry.adj_temp_f).toFixed(1) + '°F';
         }
       });
     }

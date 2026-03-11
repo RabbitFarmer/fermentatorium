@@ -56,6 +56,13 @@ except Exception:
     TILT_UUIDS = {}
     COLOR_MAP = {}
 
+from tilt_table import (
+    load_tilt_table, save_tilt_table,
+    upsert_device_from_reading,
+    set_device_variances, get_device_variances,
+    normalize_mac,
+)
+
 try:
     from kasa_worker import kasa_worker, kasa_query_state
 except Exception:
@@ -811,6 +818,7 @@ temp_cfg_raw = load_json(TEMP_CFG_FILE, {})
 temp_cfg_raw = migrate_temp_config_to_multi_controller(temp_cfg_raw)
 temp_cfg = temp_cfg_raw
 system_cfg = load_json(SYSTEM_CFG_FILE, {})
+tilt_table = load_tilt_table()  # MAC-keyed device registry (persists calibration by device)
 
 def ensure_temp_defaults_for_controller(controller):
     """
@@ -985,10 +993,16 @@ def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=Fals
     cfg = tilt_cfg.get(color, {})
     # Preserve existing MAC address if a new (non-None, non-empty) one is not provided
     existing_mac = live_tilts.get(color, {}).get("mac_address", "")
+    resolved_mac = mac_address if mac_address else existing_mac
 
-    # Apply calibration variances if configured
-    temp_variance    = float(cfg.get("temp_variance",    0) or 0)
-    gravity_variance = float(cfg.get("gravity_variance", 0) or 0)
+    # Apply calibration variances — prefer MAC-keyed tilt_table (survives color reassignment),
+    # fall back to color-keyed tilt_cfg for backwards compat.
+    if resolved_mac and normalize_mac(resolved_mac) in tilt_table:
+        temp_variance, gravity_variance = get_device_variances(tilt_table, mac=resolved_mac)
+    else:
+        temp_variance    = float(cfg.get("temp_variance",    0) or 0)
+        gravity_variance = float(cfg.get("gravity_variance", 0) or 0)
+
     raw_gravity = round(gravity, 3) if gravity is not None else None
     adj_temp_f  = round(temp_f    + temp_variance,    1) if temp_f    is not None else None
     adj_gravity = round(raw_gravity + gravity_variance, 3) if raw_gravity is not None else None
@@ -1008,7 +1022,7 @@ def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=Fals
         "actual_og": cfg.get("actual_og", ""),
         "og_confirmed": cfg.get("og_confirmed", False),
         "original_gravity": cfg.get("actual_og", 0),
-        "mac_address": mac_address if mac_address else existing_mac,
+        "mac_address": resolved_mac,
         "is_pro": is_pro,
         # Calibration
         "temp_variance":    temp_variance,
@@ -4759,7 +4773,9 @@ def batch_settings():
 
         og_confirmed = False  # No longer using og_confirmed checkbox
 
-        # Calibration variances — default to existing values if not submitted
+        # Calibration variances — default to existing values if not submitted.
+        # Prefer the MAC-keyed tilt_table record (follows the physical device),
+        # fall back to the color-keyed tilt_cfg entry.
         def _parse_variance(raw, existing_key, cfg_dict):
             """Return float variance or preserve existing value if raw is empty."""
             s = (raw or '').strip()
@@ -4770,9 +4786,16 @@ def batch_settings():
             except ValueError:
                 return 0.0
 
-        existing_cfg = tilt_cfg.get(color, {})
-        temp_variance    = _parse_variance(data.get('temp_variance'),    'temp_variance',    existing_cfg)
-        gravity_variance = _parse_variance(data.get('gravity_variance'), 'gravity_variance', existing_cfg)
+        tilt_mac = live_tilts.get(color, {}).get("mac_address", "")
+        normalized_tilt_mac = normalize_mac(tilt_mac)
+        if normalized_tilt_mac and normalized_tilt_mac in tilt_table:
+            mac_tv, mac_gv = get_device_variances(tilt_table, mac=tilt_mac)
+            existing_tv = {"temp_variance": mac_tv}
+            existing_gv = {"gravity_variance": mac_gv}
+        else:
+            existing_tv = existing_gv = tilt_cfg.get(color, {})
+        temp_variance    = _parse_variance(data.get('temp_variance'),    'temp_variance',    existing_tv)
+        gravity_variance = _parse_variance(data.get('gravity_variance'), 'gravity_variance', existing_gv)
 
         batch_entry = {
             "beer_name": beer_name,
@@ -4833,6 +4856,17 @@ def batch_settings():
             save_json(TILT_CONFIG_FILE, tilt_cfg)
         except Exception as e:
             print(f"[LOG] Could not save tilt_config in batch_settings: {e}")
+        # Persist variances to tilt_table keyed by MAC so calibration follows the
+        # physical device even if it is later reassigned to a different color slot.
+        tilt_mac = live_tilts.get(color, {}).get("mac_address", "")
+        if tilt_mac:
+            set_device_variances(tilt_table, mac=tilt_mac,
+                                 temp_variance=temp_variance,
+                                 gravity_variance=gravity_variance)
+            try:
+                save_tilt_table(tilt_table)
+            except Exception as e:
+                print(f"[LOG] Could not save tilt_table in batch_settings: {e}")
         # --- PATCH: Append batch_metadata to .jsonl whenever batch is edited
         append_batch_metadata_to_batch_jsonl(color, batch_entry)
         return redirect(f"/batch_settings?tilt_color={color}")
@@ -4852,6 +4886,16 @@ def batch_settings():
     active_colors = list(active_tilts.keys())
     # Live reading for the selected tilt (used in calibration section)
     selected_live = live_tilts.get(selected, {}) if selected else {}
+
+    # Prefer MAC-keyed variances over color-keyed when the tilt is active and its MAC is known.
+    # The tilt_table is the authoritative source for calibration, since it follows the physical
+    # device even when the device is reassigned to a different color slot.
+    if selected and selected_live.get("mac_address"):
+        mac_tv, mac_gv = get_device_variances(tilt_table, mac=selected_live["mac_address"])
+        config = dict(config)  # avoid mutating the shared tilt_cfg dict
+        config["temp_variance"]    = mac_tv
+        config["gravity_variance"] = mac_gv
+
     return render_template('batch_settings.html',
         tilt_cfg=tilt_cfg,
         tilt_colors=all_colors,
