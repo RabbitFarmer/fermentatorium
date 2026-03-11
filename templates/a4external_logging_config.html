@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>External Logging Configuration</title>
+  <link rel="stylesheet" href="/static/a4styles.css">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+</head>
+<body>
+  <div class="page-container">
+    <h1 class="dashboard-title">EXTERNAL LOGGING INTEGRATIONS</h1>
+
+    <div style="max-width:700px; margin:0 auto; background:#fff; border-radius:8px; padding:24px; box-shadow:0 1px 6px rgba(0,0,0,0.04);">
+      <p style="color:#555; text-align:center; margin-bottom:20px;">Configure external logging services</p>
+
+      <form action="/update_external_logging_config" method="post">
+        <table class="config-table" style="width: 100%;">
+          <tr>
+            <td><label for="external_refresh_rate"><b>External Post Interval (minutes)</b></label></td>
+            <td><input type="number" name="external_refresh_rate" id="external_refresh_rate" value="{{ system_settings.external_refresh_rate }}" style="padding:6px; border:1px solid #ccc; border-radius:4px; width:120px;"></td>
+          </tr>
+          {% for i in range(2) %}
+          <tr>
+            <td>
+              <label for="external_name_{{ i }}"><b>Name {{ i + 1 }}</b></label><br>
+              <label for="external_url_{{ i }}"><b>URL {{ i + 1 }}</b></label>
+            </td>
+            <td>
+              <input type="text" name="external_name_{{ i }}" id="external_name_{{ i }}" value="{{ system_settings['external_name_' ~ i] }}" style="padding:6px; border:1px solid #ccc; border-radius:4px; width:100%; box-sizing:border-box; margin-bottom:4px;"><br>
+              <input type="text" name="external_url_{{ i }}" id="external_url_{{ i }}" value="{{ system_settings['external_url_' ~ i] }}" style="padding:6px; border:1px solid #ccc; border-radius:4px; width:100%; box-sizing:border-box;">
+            </td>
+          </tr>
+          {% endfor %}
+        </table>
+
+        <div style="text-align:center; margin-top:24px;">
+          <button type="submit" class="btn-primary">Save</button>
+          <button type="button" class="btn-secondary" style="margin-left:16px;" onclick="window.location.href='/system_config'">Cancel</button>
+        </div>
+      </form>
+
+      <div style="text-align:center; margin-top:16px;">
+        <a href="/system_config" class="btn-action">Return to System Config</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

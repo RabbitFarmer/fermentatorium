@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Temperature Control — Tilt Log</title>
+  <link rel="stylesheet" href="/static/a4styles.css">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    .log-container { max-width:1000px; margin:18px auto; padding:12px; background:#fff; border-radius:8px; box-shadow:0 1px 6px rgba(0,0,0,0.04); }
+    .log-row { padding:8px 6px; border-bottom:1px solid #eee; font-family:monospace; font-size:13px; }
+    .log-header { font-weight:900; margin-bottom:8px; }
+    .back { margin-bottom:12px; display:block; }
+  </style>
+</head>
+<body>
+  <div class="page-container">
+    <h1 class="dashboard-title">TILT LOG</h1>
+    <div style="text-align:center; margin-bottom:12px;">
+      <a class="btn-action" href="/temp_config">&larr; Return to Temperature Configuration</a>
+    </div>
+    <div class="log-container">
+      <div class="log-header">Tilt Log{% if tilt_color %} for {{ tilt_color }}{% endif %}</div>
+      {% if not entries %}
+        <div>No tilt log entries found.</div>
+      {% else %}
+        {% for e in entries %}
+          <div class="log-row">
+            {{ e.timestamp }} — {{ e.payload.beer_name or e.payload.batch_name or '' }} —
+            Temp: {{ e.payload.temp_f }}°F —
+            Gravity: {{ e.payload.gravity }} —
+            Brew ID: {{ e.payload.brewid or '--' }}
+          </div>
+        {% endfor %}
+      {% endif %}
+    </div>
+  </div>
+</body>
+</html>

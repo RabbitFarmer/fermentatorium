@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Log & Data Management</title>
+  <link rel="stylesheet" href="/static/a4styles.css">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    .management-container { max-width:1200px; margin:18px auto; padding:18px; background:#fff; border-radius:8px; box-shadow:0 1px 6px rgba(0,0,0,0.04); }
+    .section { margin-bottom:30px; padding:20px; border:1px solid #ddd; border-radius:8px; background:#f9f9f9; }
+    .section-title { font-weight:700; font-size:1.3em; color:#1a6; margin-bottom:12px; padding-bottom:8px; border-bottom:2px solid #1a6; }
+    .file-row { display:flex; justify-content:space-between; align-items:center; padding:12px; margin:8px 0; background:#fff; border-radius:6px; border:1px solid #ddd; }
+    .file-info { flex:1; }
+    .file-name { font-weight:700; color:#333; }
+    .file-size { font-size:0.9em; color:#666; margin-top:4px; }
+    .file-actions { display:flex; gap:8px; }
+    .btn { padding:8px 16px; border:none; border-radius:5px; cursor:pointer; font-weight:600; font-size:14px; text-decoration:none; display:inline-block; }
+    .btn-view { background-color:#2196F3; color:white; }
+    .btn-export { background-color:#4CAF50; color:white; }
+    .btn-danger { background-color:#f44336; color:white; }
+    .btn-warning { background-color:#ff9800; color:white; }
+    .btn:hover { opacity:0.9; }
+    .status-message { padding:12px; margin:12px 0; border-radius:6px; font-weight:600; }
+    .status-success { background-color:#d4edda; color:#155724; border:1px solid #c3e6cb; }
+    .status-error { background-color:#f8d7da; color:#721c24; border:1px solid #f5c6cb; }
+    .batch-card { display:flex; justify-content:space-between; align-items:center; padding:16px; margin:8px 0; background:#fff; border:1px solid #ddd; border-radius:6px; }
+    .batch-info { flex:1; }
+    .batch-title { font-weight:700; color:#1a6; margin-bottom:6px; font-size:1.1em; }
+    .batch-detail { font-size:0.9em; color:#666; margin:3px 0; }
+    .batch-actions { display:flex; gap:8px; flex-wrap:wrap; }
+  </style>
+</head>
+<body class="page-bg">
+  <div class="page-container">
+    <header class="site-header"><h1 class="dashboard-title">LOG & DATA MANAGEMENT</h1></header>
+    <div class="management-container">
+      {% if success_message %}
+      <div class="status-message status-success">✓ {{ success_message }}</div>
+      {% endif %}
+      {% if error_message %}
+      <div class="status-message status-error">✗ {{ error_message }}</div>
+      {% endif %}
+
+      <div class="section">
+        <div class="section-title">Temperature Control Log</div>
+        <div class="file-row">
+          <div class="file-info">
+            <div class="file-name">temp_control_log.jsonl</div>
+            <div class="file-size">{{ temp_log_size }}</div>
+          </div>
+          <div class="file-actions">
+            <a href="/view_log?file=temp_control_log.jsonl&type=temp" class="btn btn-view">[VIEW]</a>
+            <form action="/export_temp_control_csv" method="POST" style="display:inline;">
+              <button type="submit" class="btn btn-export">Export CSV</button>
+            </form>
+            <form action="/archive_temp_log" method="POST" style="display:inline;" onsubmit="return confirm('Archive this log? A backup will be created and the log will be reset.');">
+              <button type="submit" class="btn btn-warning">Archive & Reset</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Kasa Activity Log</div>
+        <div class="file-row">
+          <div class="file-info">
+            <div class="file-name">kasa_activity_monitoring.jsonl</div>
+            <div class="file-size">{{ kasa_log_size }}</div>
+          </div>
+          <div class="file-actions">
+            <a href="/view_log?file=kasa_activity_monitoring.jsonl&type=kasa" class="btn btn-view">[VIEW]</a>
+            <form action="/archive_kasa_log" method="POST" style="display:inline;" onsubmit="return confirm('Archive this log?');">
+              <button type="submit" class="btn btn-warning">Archive & Reset</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Notifications Log</div>
+        <div class="file-row">
+          <div class="file-info">
+            <div class="file-name">notifications_log.jsonl</div>
+            <div class="file-size">{{ notifications_log_size }}</div>
+          </div>
+          <div class="file-actions">
+            <a href="/view_log?file=notifications_log.jsonl&type=notifications" class="btn btn-view">[VIEW]</a>
+            <form action="/archive_notifications_log" method="POST" style="display:inline;" onsubmit="return confirm('Archive this log?');">
+              <button type="submit" class="btn btn-warning">Archive & Reset</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Application Logs</div>
+        {% for log_file in app_logs %}
+        <div class="file-row">
+          <div class="file-info">
+            <div class="file-name">{{ log_file.name }}</div>
+            <div class="file-size">{{ log_file.size }}</div>
+          </div>
+          <div class="file-actions">
+            <a href="/view_log?file={{ log_file.name }}&type=app" class="btn btn-view">[VIEW]</a>
+            <form action="/archive_log" method="POST" style="display:inline;" onsubmit="return confirm('Archive {{ log_file.name }}?');">
+              <input type="hidden" name="log_file" value="{{ log_file.name }}">
+              <button type="submit" class="btn btn-warning">Archive</button>
+            </form>
+            <form action="/delete_log" method="POST" style="display:inline;" onsubmit="return confirm('Delete {{ log_file.name }}? Cannot be undone!');">
+              <input type="hidden" name="log_file" value="{{ log_file.name }}">
+              <button type="submit" class="btn btn-danger">Delete</button>
+            </form>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="section">
+        <div class="section-title">Batch Data Files</div>
+        <p style="margin-bottom:12px; color:#666;">Batch files sorted by fermentation start date (most recent first).</p>
+        {% if batches %}
+        <div>
+          {% for batch in batches %}
+          <div class="batch-card">
+            <div class="batch-info">
+              <div class="batch-title">{{ batch.beer_name or 'Unknown Beer' }}{% if batch.batch_name %} - {{ batch.batch_name }}{% endif %}</div>
+              <div class="batch-detail"><strong>File:</strong> {{ batch.filename }} | <strong>Size:</strong> {{ batch.size }}</div>
+              <div class="batch-detail"><strong>Brew ID:</strong> {{ batch.brewid[:8] if batch.brewid else 'N/A' }}{% if batch.ferm_start_date %} | <strong>Start Date:</strong> {{ batch.ferm_start_date }}{% endif %}</div>
+            </div>
+            <div class="batch-actions">
+              <form action="/export_batch_csv" method="POST" style="display:inline;">
+                <input type="hidden" name="brewid" value="{{ batch.brewid }}">
+                <button type="submit" class="btn btn-export">Export CSV</button>
+              </form>
+              <form action="/archive_batch" method="POST" style="display:inline;" onsubmit="return confirm('Archive batch?');">
+                <input type="hidden" name="brewid" value="{{ batch.brewid }}">
+                <button type="submit" class="btn btn-warning">Archive</button>
+              </form>
+              <form action="/delete_batch" method="POST" style="display:inline;" onsubmit="return confirm('Delete batch? Cannot be undone!');">
+                <input type="hidden" name="brewid" value="{{ batch.brewid }}">
+                <button type="submit" class="btn btn-danger">Delete</button>
+              </form>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p style="font-style:italic; color:#999; text-align:center; padding:20px;">No batch files found.</p>
+        {% endif %}
+      </div>
+
+      <div style="text-align:center; margin-top:30px;">
+        <button type="button" onclick="window.location='/'" class="btn-action">Dashboard</button>
+        <button type="button" onclick="window.location='/system_config?tab=backup-restore'" class="btn-action">Backup/Restore</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
