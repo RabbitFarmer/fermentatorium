@@ -427,8 +427,10 @@ try:
     # If we stopped any processes, wait for the port to be released
     if stopped_info.get('stopped'):
         # We'll check the port later after config is loaded
+        pass
     
 except Exception as e:
+    print(f"[WARNING] Error during startup process cleanup: {e}")
 
 # --- Utilities --------------------------------------------------------------
 def load_json(path, fallback):
