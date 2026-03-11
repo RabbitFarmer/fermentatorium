@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Starting Up…</title>
+  <link rel="icon" type="image/svg+xml" href="/static/beer-stein.svg">
+  <!-- ── Browser-warning capture ────────────────────────────────────────────
+       Intercepts console.warn, console.error, window.onerror, and unhandled
+       Promise rejections and POSTs them to /client_log so they are saved to
+       logs/browser_warnings.log on the server for later inspection.
+  ──────────────────────────────────────────────────────────────────────── -->
+  <script>
+  (function () {
+    var _queue   = [];
+    var _sending = false;
+    var MAX_Q    = 50;
+
+    function flush() {
+      if (_sending || _queue.length === 0) return;
+      var batch = _queue.splice(0, 10);
+      _sending  = true;
+      try {
+        fetch('/client_log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ entries: batch }),
+          keepalive: true
+        }).catch(function () {}).then(function () {
+          _sending = false;
+          if (_queue.length) flush();
+        });
+      } catch (e) { _sending = false; }
+    }
+
+    function enqueue(level, args, extra) {
+      if (_queue.length >= MAX_Q) return;
+      var msg = Array.prototype.slice.call(args).map(function (a) {
+        try { return (typeof a === 'object') ? JSON.stringify(a) : String(a); }
+        catch (e) { return String(a); }
+      }).join(' ');
+      var rec = { ts: new Date().toISOString(), level: level,
+                  url: window.location.href, msg: msg };
+      if (extra) { Object.keys(extra).forEach(function(k){ rec[k] = extra[k]; }); }
+      _queue.push(rec);
+      setTimeout(flush, 0);
+    }
+
+    var _warn  = console.warn.bind(console);
+    var _error = console.error.bind(console);
+    console.warn  = function () { _warn.apply(console, arguments);  enqueue('warn',  arguments); };
+    console.error = function () { _error.apply(console, arguments); enqueue('error', arguments); };
+
+    window.addEventListener('error', function (e) {
+      enqueue('error', [e.message], { src: e.filename, line: e.lineno,
+                                      col: e.colno,
+                                      stack: e.error && e.error.stack });
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      var msg = e.reason ? (e.reason.message || String(e.reason)) : 'Unhandled rejection';
+      enqueue('error', [msg], { stack: e.reason && e.reason.stack });
+    });
+  }());
+  </script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+    }
+    .startup-container {
+      text-align: center;
+      color: white;
+      padding: 40px;
+      animation: fadeIn 0.8s ease-in;
+    }
+    .beer-icon { width: 150px; height: 150px; margin: 0 auto 30px; animation: bounce 2s infinite; }
+    .startup-title { font-size: 4em; font-weight: bold; margin: 20px 0; text-shadow: 3px 3px 10px rgba(0,0,0,0.5); animation: slideDown 0.8s ease-out; }
+    .startup-message { font-size: 2em; margin-top: 20px; opacity: 0.9; animation: fadeIn 1.5s ease-in; }
+    .status-line { font-size: 1em; margin-top: 16px; opacity: 0.65; min-height: 1.4em; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideDown { from { transform: translateY(-50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-20px); } }
+    @keyframes ellipsis { 0%, 20% { opacity: 0; } 40% { opacity: 1; } 100% { opacity: 0; } }
+    .dot1 { animation: ellipsis 1.4s infinite 0s; }
+    .dot2 { animation: ellipsis 1.4s infinite 0.2s; }
+    .dot3 { animation: ellipsis 1.4s infinite 0.4s; }
+    .spinner { margin: 40px auto 0; width: 80px; height: 80px; position: relative; }
+    .spinner-ring { display: block; width: 80px; height: 80px; border: 8px solid rgba(255,255,255,0.2); border-top-color: #FFD700; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+  <script>
+    var attempts = 0;
+    var MAX_ATTEMPTS = 45;  // ~90 s total wait time
+    var statusEl;
+
+    function setStatus(msg) {
+      if (statusEl) statusEl.textContent = msg;
+    }
+
+    function checkAppReady() {
+      attempts++;
+      if (attempts > MAX_ATTEMPTS) {
+        setStatus('Taking longer than expected — redirecting…');
+        setTimeout(function() { window.location.href = '/'; }, 2000);
+        return;
+      }
+      fetch('/', { cache: 'no-store' })
+        .then(function(response) {
+          if (response.ok) {
+            setStatus('Dashboard ready — loading…');
+            window.location.href = '/';
+          } else {
+            setStatus('Server responded — warming up (' + attempts + ')…');
+            setTimeout(checkAppReady, 2000);
+          }
+        })
+        .catch(function() {
+          setStatus('Waiting for server… (' + attempts + '/' + MAX_ATTEMPTS + ')');
+          setTimeout(checkAppReady, 2000);
+        });
+    }
+
+    window.addEventListener('DOMContentLoaded', function() {
+      statusEl = document.getElementById('status-line');
+      setStatus('Connecting to server…');
+
+      // Unregister any stale service workers before polling starts.
+      // A service worker from a previous version can serve old cached HTML
+      // to every page — including this one — even after clearing browser cache.
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          if (registrations.length > 0) {
+            console.warn('[fermentatorium] Startup: unregistering ' +
+              registrations.length + ' stale service worker(s).');
+            registrations.forEach(function(reg) { reg.unregister(); });
+          }
+        });
+      }
+
+      // Start polling quickly; the server is usually already up when this page loads.
+      setTimeout(checkAppReady, 500);
+    });
+  </script>
+</head>
+<body>
+  <div class="startup-container">
+    <img src="/static/beer-stein.svg" alt="Beer Stein" class="beer-icon">
+    <h1 class="startup-title">It's Coming</h1>
+    <p class="startup-message">Please wait, starting up<span class="dot1">.</span><span class="dot2">.</span><span class="dot3">.</span></p>
+    <p class="status-line" id="status-line"></p>
+    <div class="spinner"><div class="spinner-ring"></div></div>
+  </div>
+</body>
+</html>
