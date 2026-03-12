@@ -203,7 +203,7 @@
     .footer-info .footer-mac     { font-size: 0.95em; font-weight: 700; opacity: 0.95; }
     .footer-info .footer-ts      { font-size: 0.9em; opacity: 0.95; }
 
-    /* ── Temp card footer (below temp control section) ── */
+    /* ── TC card footer (below temp control section, always visible) ── */
     .tc-footer {
       display: flex;
       justify-content: space-between;
@@ -603,6 +603,7 @@
                 <a class="chart-pill tc-chart-pill"
                    href="{{ url_for('chart_plotly_for', tilt_color='TempControl') }}"
                    style="color:{{ tilt.color_code }};">CHART</a>
+                   {# 'TempControl' is the special identifier for the temperature control chart route #}
               </div>
 
             </article>
