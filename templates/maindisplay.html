@@ -190,18 +190,31 @@
       justify-content: space-between;
       align-items: center;
       padding: 10px 12px;
-      border-radius: 0 0 6px 6px;
     }
 
-    /* Footer left: brew id + last reading */
+    /* Footer info: brew id + MAC + last reading */
     .footer-info {
       display: flex;
       flex-direction: column;
-      font-size: 0.85em;
+      font-size: 0.9em;
       font-weight: 700;
     }
-    .footer-info .footer-brewid  { font-size: 0.95em; font-weight: 700; }
-    .footer-info .footer-ts      { font-size: 0.85em; opacity: 0.95; }
+    .footer-info .footer-brewid  { font-size: 1.0em; font-weight: 700; }
+    .footer-info .footer-mac     { font-size: 0.95em; font-weight: 700; opacity: 0.95; }
+    .footer-info .footer-ts      { font-size: 0.9em; opacity: 0.95; }
+
+    /* ── Temp card footer (below temp control section) ── */
+    .tc-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      border-top: 2px solid rgba(0,0,0,0.15);
+      font-size: 0.9em;
+      font-weight: 700;
+    }
+    .tc-ftr-ts { font-size: 0.9em; font-weight: 700; opacity: 0.95; }
+    .tc-chart-pill { font-size: 13px; }
 
     /* Chart link pill */
     .chart-pill {
@@ -257,17 +270,7 @@
     .slider.round::before             { border-radius: 50%; }
 
     /* ── Banner sub-elements ── */
-    .tilt-batch-name  { font-size: 14px; font-weight: 700; opacity: 0.95; margin-top: 3px; }
-    .tilt-brewid-line { font-size: 13px; font-weight: 700; opacity: 0.95; margin-top: 3px; }
-    .tilt-banner-meta { font-size: 12px; font-weight: 500; opacity: 0.90; margin-top: 4px; }
-    .tilt-banner-meta-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: 6px;
-      margin-top: 3px;
-    }
-    .tilt-banner-meta-row span { font-size: 11px; font-weight: 500; opacity: 0.85; }
+    .tilt-batch-name  { font-size: 18px; font-weight: 700; opacity: 0.95; margin-top: 4px; }
 
     /* Clickable banner */
     .tilt-banner[data-tilt-color] { cursor: pointer; }
@@ -360,8 +363,86 @@
     <section class="tiltcards-wrapper" aria-label="Active Tilts">
       <div class="tiltcard-container">
 
-        {# ── Tilts WITH an assigned temperature controller ── #}
-        {% for controller in controllers %}
+        {# ── Tilts WITHOUT an assigned temperature controller (no active temp control — shown first) ── #}
+        {% for color, tilt in live_tilts.items() %}
+          {% set is_assigned = namespace(value=false) %}
+          {% for controller in controllers %}
+            {% if controller.tilt_color == color %}{% set is_assigned.value = true %}{% endif %}
+          {% endfor %}
+          {% if not is_assigned.value %}
+            {% set safe = color.replace(' ', '_') %}
+            {% set use_dark_text = tilt.color_code in ['#ffff00','#ffc0cb','#00ff00'] %}
+            <article class="tilt-card" data-tilt="{{ color }}">
+
+              <!-- Tilt banner: only beer name + batch name -->
+              <div class="tilt-banner"
+                   style="background-color:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};"
+                   data-tilt-color="{{ color | e }}"
+                   {% if tilt.brewid %}data-brewid="{{ tilt.brewid | e }}" title="View fermentation chart"{% endif %}>
+                <div class="beer-name">{{ tilt.beer_name or 'Unnamed Beer' }}</div>
+                <div class="tilt-batch-name">Batch: {{ tilt.batch_name or 'Unnamed Batch' }}</div>
+              </div>
+
+              <div class="tilt-body">
+                <table class="tilt-metrics restore">
+                  <tr>
+                    <th></th>
+                    <th class="right-header">Recipe</th>
+                    <th class="right-header">Actual</th>
+                  </tr>
+                  <tr>
+                    <td class="label">Original Gravity</td>
+                    <td class="value"><span class="metric-number" id="recipe_og-{{ safe }}">{{ "%.3f"|format((tilt.recipe_og|default(0)|float)) }}</span></td>
+                    <td class="value"><b id="og-{{ safe }}"><span class="metric-number">{{ "%.3f"|format((tilt.original_gravity|default(0)|float)) }}</span></b></td>
+                  </tr>
+                  <tr>
+                    <td class="label">Final / Current Gravity</td>
+                    <td class="value"><span class="metric-number" id="recipe_fg-{{ safe }}">{{ "%.3f"|format((tilt.recipe_fg|default(0)|float)) }}</span></td>
+                    <td class="value"><b id="gravity-{{ safe }}"><span class="metric-number">
+                      {%- if tilt.gravity_variance and tilt.adj_gravity is not none %}{{ "%.3f"|format(tilt.adj_gravity) }}{%- else %}{{ "%.3f"|format((tilt.gravity|default(0)|float)) }}{%- endif %}
+                    </span></b></td>
+                  </tr>
+                  <tr>
+                    <td class="label">Temperature</td>
+                    <td class="value"></td>
+                    <td class="value"><b id="temp-{{ safe }}"><span class="metric-number">
+                      {%- if tilt.temp_variance and tilt.adj_temp_f is not none %}{{ "%.1f"|format(tilt.adj_temp_f) }}°F{%- else %}{{ "%.1f"|format((tilt.temp_f|default(0)|float)) }}°F{%- endif %}
+                    </span></b></td>
+                  </tr>
+                  <tr>
+                    <td class="label">A.B.V.</td>
+                    <td class="value">
+                      <span class="metric-number" id="recipe_abv-{{ safe }}">
+                        {%- if tilt.recipe_abv %}{{ "%.1f"|format(tilt.recipe_abv|float) }}%{%- else %}--{%- endif %}
+                      </span>
+                    </td>
+                    <td class="value">
+                      <b><span class="metric-number" id="abv-{{ safe }}">
+                        {%- if tilt.actual_og and tilt.gravity %}{{ ((tilt.actual_og|float - tilt.gravity|float) * 131.25)|round(1) }}%{%- else %}--{%- endif %}
+                      </span></b>
+                    </td>
+                  </tr>
+                </table>
+              </div>
+
+              <!-- Tilt footer: brewid + MAC + last reading + tilt chart -->
+              <footer class="tilt-footer-colored"
+                      style="background:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};">
+                <div class="footer-info">
+                  <div class="footer-brewid">Brew ID: <span id="footer-brewid-{{ safe }}">{{ tilt.brewid or '--' }}</span></div>
+                  <div class="footer-mac">MAC: <span id="footer-mac-{{ safe }}">{{ tilt.mac_address or '--' }}</span></div>
+                  <div class="footer-ts">Last: <span id="footer-ts-{{ safe }}">{{ tilt.timestamp | localtime }}</span></div>
+                </div>
+                <a class="chart-pill"
+                   href="{{ url_for('chart_plotly_for', tilt_color=color) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
+                   style="color:{{ tilt.color_code }};">CHART</a>
+              </footer>
+            </article>
+          {% endif %}
+        {% endfor %}
+
+        {# ── Tilts WITH an assigned temperature controller (inactive first, active last) ── #}
+        {% for controller in controllers | sort(attribute='temp_control_active') %}
           {% set tilt_color = controller.tilt_color %}
           {% if tilt_color and tilt_color in live_tilts %}
             {% set tilt   = live_tilts[tilt_color] %}
@@ -370,20 +451,13 @@
             {% set use_dark_text = tilt.color_code in ['#ffff00','#ffc0cb','#00ff00'] %}
             <article class="tilt-card" data-tilt="{{ tilt_color }}" data-controller="{{ cid }}">
 
-              <!-- Tilt banner: click → batch review or chart -->
+              <!-- Tilt banner: only beer name + batch name -->
               <div class="tilt-banner"
                    style="background-color:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};"
                    data-tilt-color="{{ tilt_color | e }}"
                    {% if tilt.brewid %}data-brewid="{{ tilt.brewid | e }}" title="View fermentation chart"{% endif %}>
                 <div class="beer-name">{{ tilt.beer_name or 'Unnamed Beer' }}</div>
                 <div class="tilt-batch-name">Batch: {{ tilt.batch_name or 'Unnamed Batch' }}</div>
-                <div class="tilt-brewid-line">Brew ID: <span id="banner-brewid-{{ safe }}">{{ tilt.brewid or '--' }}</span></div>
-                <div class="tilt-banner-meta">
-                  <div class="tilt-banner-meta-row">
-                    <span>Last: <span id="banner-ts-{{ safe }}">{{ tilt.timestamp | localtime }}</span></span>
-                    <span>MAC: <span id="banner-mac-{{ safe }}">{{ tilt.mac_address or '--' }}</span></span>
-                  </div>
-                </div>
               </div>
 
               <!-- Fermentation metrics -->
@@ -429,11 +503,24 @@
                 </table>
               </div>
 
-              <!-- Temperature control section (shown when active) -->
+              <!-- Tilt footer: brewid + MAC + last tilt reading + tilt chart -->
+              <footer class="tilt-footer-colored"
+                      style="background:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};">
+                <div class="footer-info">
+                  <div class="footer-brewid">Brew ID: <span id="footer-brewid-{{ safe }}">{{ tilt.brewid or '--' }}</span></div>
+                  <div class="footer-mac">MAC: <span id="footer-mac-{{ safe }}">{{ tilt.mac_address or '--' }}</span></div>
+                  <div class="footer-ts">Last: <span id="footer-ts-{{ safe }}">{{ tilt.timestamp | localtime }}</span></div>
+                </div>
+                <a class="chart-pill"
+                   href="{{ url_for('chart_plotly_for', tilt_color=tilt_color) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
+                   style="color:{{ tilt.color_code }};">CHART</a>
+              </footer>
+
+              <!-- Temperature control section (placed below tilt footer; shown when active) -->
               <div class="temp-control-section" id="tc_section_{{ cid }}"
                    style="background-color:{{ tilt.color_code }};{% if not controller.temp_control_active %}display:none;{% endif %}">
 
-                <!-- Header: clickable → temp summary chart -->
+                <!-- Header: clickable → temp summary -->
                 <div class="tc-header"
                      style="color:{% if use_dark_text %}black{% else %}white{% endif %};"
                      onclick="window.location='{{ url_for('temp_summary', controller_id=cid) }}'"
@@ -492,11 +579,9 @@
                 </div>
               </div>
 
-              <!-- Footer: toggle switch + last reading + chart link -->
-              <footer class="tilt-footer-colored"
-                      style="background:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};">
-
-                <!-- Toggle switch to enable/disable temperature control -->
+              <!-- Temp card footer: toggle + last temp reading + temp chart (always visible) -->
+              <div class="tc-footer"
+                   style="background:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};">
                 <div class="footer-toggle-container">
                   <label class="switch" title="Enable or disable temperature control">
                     <input type="checkbox"
@@ -510,99 +595,16 @@
                     {% if controller.temp_control_active %}Temp Control ON{% else %}Temp Control OFF{% endif %}
                   </span>
                 </div>
-
-                <div class="footer-info">
-                  <div class="footer-brewid">Brew ID: <span id="footer-brewid-{{ safe }}">{{ tilt.brewid or '--' }}</span></div>
-                  <div class="footer-ts">Last: <span id="footer-ts-{{ safe }}">{{ tilt.timestamp | localtime }}</span></div>
+                <div class="tc-ftr-ts">
+                  Last: <span id="tc_ftr_ts_{{ cid }}">
+                    {%- if controller.last_reading_time %}{{ controller.last_reading_time | localtime }}{%- else %}--{%- endif %}
+                  </span>
                 </div>
-
-                <a class="chart-pill"
-                   href="{{ url_for('chart_plotly_for', tilt_color=tilt_color) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
+                <a class="chart-pill tc-chart-pill"
+                   href="{{ url_for('chart_plotly_for', tilt_color='TempControl') }}"
                    style="color:{{ tilt.color_code }};">CHART</a>
-              </footer>
-
-            </article>
-          {% endif %}
-        {% endfor %}
-
-        {# ── Tilts WITHOUT an assigned temperature controller ── #}
-        {% for color, tilt in live_tilts.items() %}
-          {% set is_assigned = namespace(value=false) %}
-          {% for controller in controllers %}
-            {% if controller.tilt_color == color %}{% set is_assigned.value = true %}{% endif %}
-          {% endfor %}
-          {% if not is_assigned.value %}
-            {% set safe = color.replace(' ', '_') %}
-            {% set use_dark_text = tilt.color_code in ['#ffff00','#ffc0cb','#00ff00'] %}
-            <article class="tilt-card" data-tilt="{{ color }}">
-
-              <div class="tilt-banner"
-                   style="background-color:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};"
-                   data-tilt-color="{{ color | e }}"
-                   {% if tilt.brewid %}data-brewid="{{ tilt.brewid | e }}" title="View fermentation chart"{% endif %}>
-                <div class="beer-name">{{ tilt.beer_name or 'Unnamed Beer' }}</div>
-                <div class="tilt-batch-name">Batch: {{ tilt.batch_name or 'Unnamed Batch' }}</div>
-                <div class="tilt-brewid-line">Brew ID: <span id="banner-brewid-{{ safe }}">{{ tilt.brewid or '--' }}</span></div>
-                <div class="tilt-banner-meta">
-                  <div class="tilt-banner-meta-row">
-                    <span>Last: <span id="banner-ts-{{ safe }}">{{ tilt.timestamp | localtime }}</span></span>
-                    <span>MAC: <span id="banner-mac-{{ safe }}">{{ tilt.mac_address or '--' }}</span></span>
-                  </div>
-                </div>
               </div>
 
-              <div class="tilt-body">
-                <table class="tilt-metrics restore">
-                  <tr>
-                    <th></th>
-                    <th class="right-header">Recipe</th>
-                    <th class="right-header">Actual</th>
-                  </tr>
-                  <tr>
-                    <td class="label">Original Gravity</td>
-                    <td class="value"><span class="metric-number" id="recipe_og-{{ safe }}">{{ "%.3f"|format((tilt.recipe_og|default(0)|float)) }}</span></td>
-                    <td class="value"><b id="og-{{ safe }}"><span class="metric-number">{{ "%.3f"|format((tilt.original_gravity|default(0)|float)) }}</span></b></td>
-                  </tr>
-                  <tr>
-                    <td class="label">Final / Current Gravity</td>
-                    <td class="value"><span class="metric-number" id="recipe_fg-{{ safe }}">{{ "%.3f"|format((tilt.recipe_fg|default(0)|float)) }}</span></td>
-                    <td class="value"><b id="gravity-{{ safe }}"><span class="metric-number">
-                      {%- if tilt.gravity_variance and tilt.adj_gravity is not none %}{{ "%.3f"|format(tilt.adj_gravity) }}{%- else %}{{ "%.3f"|format((tilt.gravity|default(0)|float)) }}{%- endif %}
-                    </span></b></td>
-                  </tr>
-                  <tr>
-                    <td class="label">Temperature</td>
-                    <td class="value"></td>
-                    <td class="value"><b id="temp-{{ safe }}"><span class="metric-number">
-                      {%- if tilt.temp_variance and tilt.adj_temp_f is not none %}{{ "%.1f"|format(tilt.adj_temp_f) }}°F{%- else %}{{ "%.1f"|format((tilt.temp_f|default(0)|float)) }}°F{%- endif %}
-                    </span></b></td>
-                  </tr>
-                  <tr>
-                    <td class="label">A.B.V.</td>
-                    <td class="value">
-                      <span class="metric-number" id="recipe_abv-{{ safe }}">
-                        {%- if tilt.recipe_abv %}{{ "%.1f"|format(tilt.recipe_abv|float) }}%{%- else %}--{%- endif %}
-                      </span>
-                    </td>
-                    <td class="value">
-                      <b><span class="metric-number" id="abv-{{ safe }}">
-                        {%- if tilt.actual_og and tilt.gravity %}{{ ((tilt.actual_og|float - tilt.gravity|float) * 131.25)|round(1) }}%{%- else %}--{%- endif %}
-                      </span></b>
-                    </td>
-                  </tr>
-                </table>
-              </div>
-
-              <footer class="tilt-footer-colored"
-                      style="background:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};">
-                <div class="footer-info">
-                  <div class="footer-brewid">Brew ID: <span id="footer-brewid-{{ safe }}">{{ tilt.brewid or '--' }}</span></div>
-                  <div class="footer-ts">Last: <span id="footer-ts-{{ safe }}">{{ tilt.timestamp | localtime }}</span></div>
-                </div>
-                <a class="chart-pill"
-                   href="{{ url_for('chart_plotly_for', tilt_color=color) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
-                   style="color:{{ tilt.color_code }};">CHART</a>
-              </footer>
             </article>
           {% endif %}
         {% endfor %}
@@ -689,13 +691,6 @@
              data-tilt-color="${color}" ${brewAttr}>
           <div class="beer-name">${beerName}</div>
           <div class="tilt-batch-name">Batch: ${batchName}</div>
-          <div class="tilt-brewid-line">Brew ID: <span id="banner-brewid-${safe}">${brewid}</span></div>
-          <div class="tilt-banner-meta">
-            <div class="tilt-banner-meta-row">
-              <span>Last: <span id="banner-ts-${safe}">${timestamp}</span></span>
-              <span>MAC: <span id="banner-mac-${safe}">${mac}</span></span>
-            </div>
-          </div>
         </div>
         <div class="tilt-body">
           <table class="tilt-metrics restore">
@@ -730,6 +725,7 @@
                 style="background:${colorCode};color:${textColor};">
           <div class="footer-info">
             <div class="footer-brewid">Brew ID: <span id="footer-brewid-${safe}">${brewid}</span></div>
+            <div class="footer-mac">MAC: <span id="footer-mac-${safe}">${mac}</span></div>
             <div class="footer-ts">Last: <span id="footer-ts-${safe}">${timestamp}</span></div>
           </div>
           <a class="chart-pill" href="${chartHref}" style="color:${colorCode};">CHART</a>
@@ -758,6 +754,7 @@
         const bannerBrewid = document.getElementById('banner-brewid-'+ safe);
         const footerTs     = document.getElementById('footer-ts-'    + safe);
         const footerBrewid = document.getElementById('footer-brewid-'+ safe);
+        const footerMac    = document.getElementById('footer-mac-'   + safe);
 
         const formattedTs = (() => {
           if (!entry.timestamp) return '';
@@ -772,6 +769,7 @@
         if (bannerBrewid && entry.brewid)      bannerBrewid.textContent = entry.brewid;
         if (footerTs     && entry.timestamp)   footerTs.textContent     = formattedTs;
         if (footerBrewid && entry.brewid)      footerBrewid.textContent = entry.brewid;
+        if (footerMac    && entry.mac_address) footerMac.textContent    = entry.mac_address;
 
         // Recipe columns
         const recipeOgEl  = document.getElementById('recipe_og-'  + safe);
@@ -827,6 +825,7 @@
       const statusEl   = document.getElementById('temp_control_status_top_' + cid);
       const notifEl    = document.getElementById('tc_notifications_'        + cid);
       const hdrTsEl    = document.getElementById('tc_hdr_timestamp_'        + cid);
+      const ftrTsEl    = document.getElementById('tc_ftr_ts_'               + cid);
       const toggleEl   = document.getElementById('temp_control_toggle_'     + cid);
       const labelEl    = document.getElementById('toggle_label_'            + cid);
 
@@ -845,6 +844,13 @@
           const dt = new Date(tc.last_reading_time);
           hdrTsEl.textContent = isNaN(dt.getTime()) ? tc.last_reading_time : dt.toLocaleString();
         } catch(e) { hdrTsEl.textContent = tc.last_reading_time; }
+      }
+      // Footer timestamp
+      if (ftrTsEl && tc.last_reading_time) {
+        try {
+          const dt = new Date(tc.last_reading_time);
+          ftrTsEl.textContent = isNaN(dt.getTime()) ? tc.last_reading_time : dt.toLocaleString();
+        } catch(e) { ftrTsEl.textContent = tc.last_reading_time; }
       }
 
       // Show/hide status + notifications

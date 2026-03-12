@@ -221,7 +221,7 @@ body, body.page-bg {
 .display-mode-3 .tilt-metrics.restore td:nth-child(2) .metric-number { font-size: 18px; }
 
 /* Card footer */
-.tilt-footer-colored { padding: 10px 12px; font-size: 14px; }
+.tilt-footer-colored { padding: 10px 12px; font-size: 15px; }
 
 /* Temp control section headings (config pages) */
 .temp-header .temp-title    { font-size: 20px; font-weight: 900; text-align: center; margin-bottom: 4px; }
