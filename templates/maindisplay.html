@@ -387,6 +387,27 @@
     .modal-button.primary:hover      { background: #45a049; }
     .modal-button.secondary          { background: #ddd; color: #333; }
     .modal-button.secondary:hover    { background: #ccc; }
+
+  /* ── Fullscreen button ── */
+  .fullscreen-btn {
+    position: fixed;
+    bottom: 18px;
+    right: 18px;
+    z-index: 2000;
+    background: var(--panel-brown);
+    color: white;
+    border: none;
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 20px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.28);
+    transition: background 0.2s, opacity 0.2s;
+    opacity: 0.82;
+    line-height: 1;
+    user-select: none;
+  }
+  .fullscreen-btn:hover { opacity: 1; background: rgba(101,67,33,0.95); }
   </style>
 </head>
 <body>
@@ -674,6 +695,9 @@
     </section>
 
   </div><!-- /.page-container -->
+
+  <!-- Fullscreen toggle button -->
+  <button class="fullscreen-btn" id="fullscreenBtn" title="Toggle fullscreen (F11)">⛶</button>
 
   <!-- Session-selection modal (New vs Existing when turning on temp control) -->
   <div id="sessionModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
@@ -1122,6 +1146,55 @@
         }
       });
     }
+  </script>
+
+  <script>
+  // ── Fullscreen toggle ──────────────────────────────────────────────────
+  (function () {
+    var btn = document.getElementById('fullscreenBtn');
+
+    function isFullscreen() {
+      return !!(document.fullscreenElement ||
+                document.webkitFullscreenElement ||
+                document.mozFullScreenElement);
+    }
+
+    function enterFullscreen() {
+      var el = document.documentElement;
+      if      (el.requestFullscreen)       el.requestFullscreen();
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+      else if (el.mozRequestFullScreen)    el.mozRequestFullScreen();
+    }
+
+    function exitFullscreen() {
+      if      (document.exitFullscreen)       document.exitFullscreen();
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      else if (document.mozCancelFullScreen)  document.mozCancelFullScreen();
+    }
+
+    function toggleFullscreen() {
+      if (isFullscreen()) { exitFullscreen(); } else { enterFullscreen(); }
+    }
+
+    function syncIcon() {
+      if (btn) btn.textContent = isFullscreen() ? '✕' : '⛶';
+    }
+
+    if (btn) btn.addEventListener('click', toggleFullscreen);
+
+    // F11 → toggle fullscreen (suppress browser default F11 behaviour)
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'F11') {
+        e.preventDefault();
+        toggleFullscreen();
+      }
+    });
+
+    // Keep icon in sync when fullscreen state changes (e.g. ESC to exit)
+    document.addEventListener('fullscreenchange',       syncIcon);
+    document.addEventListener('webkitfullscreenchange', syncIcon);
+    document.addEventListener('mozfullscreenchange',    syncIcon);
+  }());
   </script>
 </body>
 </html>
