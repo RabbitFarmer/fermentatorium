@@ -166,13 +166,18 @@ body, body.page-bg {
   margin-bottom: 18px;
 }
 .tiltcard-container {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(4, var(--card-width));
   gap: var(--card-gap);
+  justify-content: center;
   max-width: var(--page-max-width);
   margin: 0 auto;
   box-sizing: border-box;
+}
+
+/* 3-across mode: 3 columns */
+.display-mode-3 .tiltcard-container {
+  grid-template-columns: repeat(3, var(--card-width));
 }
 
 /* Tilt card appearance */
@@ -232,9 +237,13 @@ body, body.page-bg {
 .status-above   { color: #c00; }
 .status-below   { color: #007bff; }
 
-/* Mobile: cards fill available width */
+/* Mobile: single-column grid */
 @media (max-width: 699px) {
   :root { --temp-number-size: 32px; --metric-number-size: 18px; }
+  .tiltcard-container {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
   .tilt-card { width: 92%; }
 }
 

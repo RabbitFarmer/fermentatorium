@@ -77,17 +77,12 @@
       --kasa-yellow: #B8860B;
     }
 
-    /* ── Temperature control section (embedded in tilt card) ── */
-    .temp-control-section {
-      border-top: 2px solid rgba(0,0,0,0.15);
-    }
-
-    /* Coloured header bar that matches the tilt banner */
+    /* Coloured header bar — top of standalone TC card, mirrors the tilt banner */
     .tc-header {
       text-align: center;
       font-weight: 900;
       font-size: 18px;
-      padding: 8px 12px 4px;
+      padding: 14px 12px 8px;
       cursor: pointer;
       letter-spacing: 0.5px;
     }
@@ -99,10 +94,11 @@
       margin-top: 3px;
     }
 
-    /* White body area */
+    /* White body area — fills remaining card height */
     .tc-body {
       background: #fff;
       padding: 8px 12px;
+      flex: 1;
     }
 
     /* 2-column grid: label left, value-box right */
@@ -444,7 +440,86 @@
     <section class="tiltcards-wrapper" aria-label="Active Tilts">
       <div class="tiltcard-container">
 
-        {# ── Tilts WITHOUT an assigned temperature controller (no active temp control — shown first) ── #}
+        {# ── 1. Tilts WITH a temperature controller (active TC first, then inactive) ── #}
+        {% for controller in controllers | sort(attribute='temp_control_active', reverse=true) %}
+          {% set tilt_color = controller.tilt_color %}
+          {% if tilt_color and tilt_color in live_tilts %}
+            {% set tilt   = live_tilts[tilt_color] %}
+            {% set safe   = tilt_color.replace(' ', '_') %}
+            {% set cid    = controller.controller_id %}
+            {% set use_dark_text = tilt.color_code in ['#ffff00','#ffc0cb','#00ff00'] %}
+            <article class="tilt-card" data-tilt="{{ tilt_color }}" data-controller="{{ cid }}">
+
+              <!-- Tilt banner: beer name + batch name -->
+              <div class="tilt-banner"
+                   style="background-color:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};"
+                   data-tilt-color="{{ tilt_color | e }}"
+                   {% if tilt.brewid %}data-brewid="{{ tilt.brewid | e }}" title="View fermentation chart"{% endif %}>
+                <div class="beer-name">{{ tilt.beer_name or 'Unnamed Beer' }}</div>
+                <div class="tilt-batch-name">Batch: {{ tilt.batch_name or 'Unnamed Batch' }}</div>
+              </div>
+
+              <!-- Fermentation metrics -->
+              <div class="tilt-body">
+                <table class="tilt-metrics restore">
+                  <tr>
+                    <th></th>
+                    <th class="right-header">Recipe</th>
+                    <th class="right-header">Actual</th>
+                  </tr>
+                  <tr>
+                    <td class="label">Original Gravity</td>
+                    <td class="value"><span class="metric-number" id="recipe_og-{{ safe }}">{{ "%.3f"|format((tilt.recipe_og|default(0)|float)) }}</span></td>
+                    <td class="value"><b id="og-{{ safe }}"><span class="metric-number">{{ "%.3f"|format((tilt.original_gravity|default(0)|float)) }}</span></b></td>
+                  </tr>
+                  <tr>
+                    <td class="label">Final / Current Gravity</td>
+                    <td class="value"><span class="metric-number" id="recipe_fg-{{ safe }}">{{ "%.3f"|format((tilt.recipe_fg|default(0)|float)) }}</span></td>
+                    <td class="value"><b id="gravity-{{ safe }}"><span class="metric-number">
+                      {%- if tilt.gravity_variance and tilt.adj_gravity is not none %}{{ "%.3f"|format(tilt.adj_gravity) }}{%- else %}{{ "%.3f"|format((tilt.gravity|default(0)|float)) }}{%- endif %}
+                    </span></b></td>
+                  </tr>
+                  <tr>
+                    <td class="label">Temperature</td>
+                    <td class="value"></td>
+                    <td class="value"><b id="temp-{{ safe }}"><span class="metric-number">
+                      {%- if tilt.temp_variance and tilt.adj_temp_f is not none %}{{ "%.1f"|format(tilt.adj_temp_f) }}°F{%- else %}{{ "%.1f"|format((tilt.temp_f|default(0)|float)) }}°F{%- endif %}
+                    </span></b></td>
+                  </tr>
+                  <tr>
+                    <td class="label">A.B.V.</td>
+                    <td class="value">
+                      <span class="metric-number" id="recipe_abv-{{ safe }}">
+                        {%- if tilt.recipe_abv %}{{ "%.1f"|format(tilt.recipe_abv|float) }}%{%- else %}--{%- endif %}
+                      </span>
+                    </td>
+                    <td class="value">
+                      <b><span class="metric-number" id="abv-{{ safe }}">
+                        {%- if tilt.actual_og and tilt.gravity %}{{ ((tilt.actual_og|float - tilt.gravity|float) * 131.25)|round(1) }}%{%- else %}--{%- endif %}
+                      </span></b>
+                    </td>
+                  </tr>
+                </table>
+              </div>
+
+              <!-- Tilt footer: brewid + MAC + last reading + chart -->
+              <footer class="tilt-footer-colored"
+                      style="background:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};">
+                <div class="footer-info">
+                  <div class="footer-brewid">Brew ID: <span id="footer-brewid-{{ safe }}">{{ tilt.brewid or '--' }}</span></div>
+                  <div class="footer-mac">MAC: <span id="footer-mac-{{ safe }}">{{ tilt.mac_address or '--' }}</span></div>
+                  <div class="footer-ts">Last: <span id="footer-ts-{{ safe }}">{{ tilt.timestamp | localtime }}</span></div>
+                </div>
+                <a class="chart-pill"
+                   href="{{ url_for('chart_plotly_for', tilt_color=tilt_color) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
+                   style="color:{{ tilt.color_code }};">CHART</a>
+              </footer>
+
+            </article>
+          {% endif %}
+        {% endfor %}
+
+        {# ── 2. Tilts WITHOUT a temperature controller ── #}
         {% for color, tilt in live_tilts.items() %}
           {% set is_assigned = namespace(value=false) %}
           {% for controller in controllers %}
@@ -522,145 +597,77 @@
           {% endif %}
         {% endfor %}
 
-        {# ── Tilts WITH an assigned temperature controller (inactive first, active last) ── #}
-        {% for controller in controllers | sort(attribute='temp_control_active') %}
+        {# ── 3. Standalone temperature control cards (positioned below their tilt by JS) ── #}
+        {#    Same sort order as the tilt cards above (active first, then inactive).        #}
+        {% for controller in controllers | sort(attribute='temp_control_active', reverse=true) %}
           {% set tilt_color = controller.tilt_color %}
           {% if tilt_color and tilt_color in live_tilts %}
-            {% set tilt   = live_tilts[tilt_color] %}
-            {% set safe   = tilt_color.replace(' ', '_') %}
-            {% set cid    = controller.controller_id %}
+            {% set tilt = live_tilts[tilt_color] %}
+            {% set cid  = controller.controller_id %}
             {% set use_dark_text = tilt.color_code in ['#ffff00','#ffc0cb','#00ff00'] %}
-            <article class="tilt-card" data-tilt="{{ tilt_color }}" data-controller="{{ cid }}">
+            <article class="tilt-card temp-ctrl-card"
+                     data-controller="{{ cid }}"
+                     data-for-tilt="{{ tilt_color }}">
 
-              <!-- Tilt banner: only beer name + batch name -->
-              <div class="tilt-banner"
+              <!-- Coloured header (mirrors the tilt banner colour; clickable → temp summary) -->
+              <div class="tc-header"
                    style="background-color:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};"
-                   data-tilt-color="{{ tilt_color | e }}"
-                   {% if tilt.brewid %}data-brewid="{{ tilt.brewid | e }}" title="View fermentation chart"{% endif %}>
-                <div class="beer-name">{{ tilt.beer_name or 'Unnamed Beer' }}</div>
-                <div class="tilt-batch-name">Batch: {{ tilt.batch_name or 'Unnamed Batch' }}</div>
-              </div>
-
-              <!-- Fermentation metrics -->
-              <div class="tilt-body">
-                <table class="tilt-metrics restore">
-                  <tr>
-                    <th></th>
-                    <th class="right-header">Recipe</th>
-                    <th class="right-header">Actual</th>
-                  </tr>
-                  <tr>
-                    <td class="label">Original Gravity</td>
-                    <td class="value"><span class="metric-number" id="recipe_og-{{ safe }}">{{ "%.3f"|format((tilt.recipe_og|default(0)|float)) }}</span></td>
-                    <td class="value"><b id="og-{{ safe }}"><span class="metric-number">{{ "%.3f"|format((tilt.original_gravity|default(0)|float)) }}</span></b></td>
-                  </tr>
-                  <tr>
-                    <td class="label">Final / Current Gravity</td>
-                    <td class="value"><span class="metric-number" id="recipe_fg-{{ safe }}">{{ "%.3f"|format((tilt.recipe_fg|default(0)|float)) }}</span></td>
-                    <td class="value"><b id="gravity-{{ safe }}"><span class="metric-number">
-                      {%- if tilt.gravity_variance and tilt.adj_gravity is not none %}{{ "%.3f"|format(tilt.adj_gravity) }}{%- else %}{{ "%.3f"|format((tilt.gravity|default(0)|float)) }}{%- endif %}
-                    </span></b></td>
-                  </tr>
-                  <tr>
-                    <td class="label">Temperature</td>
-                    <td class="value"></td>
-                    <td class="value"><b id="temp-{{ safe }}"><span class="metric-number">
-                      {%- if tilt.temp_variance and tilt.adj_temp_f is not none %}{{ "%.1f"|format(tilt.adj_temp_f) }}°F{%- else %}{{ "%.1f"|format((tilt.temp_f|default(0)|float)) }}°F{%- endif %}
-                    </span></b></td>
-                  </tr>
-                  <tr>
-                    <td class="label">A.B.V.</td>
-                    <td class="value">
-                      <span class="metric-number" id="recipe_abv-{{ safe }}">
-                        {%- if tilt.recipe_abv %}{{ "%.1f"|format(tilt.recipe_abv|float) }}%{%- else %}--{%- endif %}
-                      </span>
-                    </td>
-                    <td class="value">
-                      <b><span class="metric-number" id="abv-{{ safe }}">
-                        {%- if tilt.actual_og and tilt.gravity %}{{ ((tilt.actual_og|float - tilt.gravity|float) * 131.25)|round(1) }}%{%- else %}--{%- endif %}
-                      </span></b>
-                    </td>
-                  </tr>
-                </table>
-              </div>
-
-              <!-- Tilt footer: brewid + MAC + last tilt reading + tilt chart -->
-              <footer class="tilt-footer-colored"
-                      style="background:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};">
-                <div class="footer-info">
-                  <div class="footer-brewid">Brew ID: <span id="footer-brewid-{{ safe }}">{{ tilt.brewid or '--' }}</span></div>
-                  <div class="footer-mac">MAC: <span id="footer-mac-{{ safe }}">{{ tilt.mac_address or '--' }}</span></div>
-                  <div class="footer-ts">Last: <span id="footer-ts-{{ safe }}">{{ tilt.timestamp | localtime }}</span></div>
-                </div>
-                <a class="chart-pill"
-                   href="{{ url_for('chart_plotly_for', tilt_color=tilt_color) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
-                   style="color:{{ tilt.color_code }};">CHART</a>
-              </footer>
-
-              <!-- Temperature control section (placed below tilt footer; shown when active) -->
-              <div class="temp-control-section" id="tc_section_{{ cid }}"
-                   style="background-color:{{ tilt.color_code }};{% if not controller.temp_control_active %}display:none;{% endif %}">
-
-                <!-- Header: clickable → temp summary -->
-                <div class="tc-header"
-                     style="color:{% if use_dark_text %}black{% else %}white{% endif %};"
-                     onclick="window.location='{{ url_for('temp_summary', controller_id=cid) }}'"
-                     title="View Temperature Control summary and chart">
-                  TEMPERATURE CONTROLLER #{{ cid + 1 }}
-                  <div class="tc-header-sub">
-                    Last Reading:
-                    <span id="tc_hdr_timestamp_{{ cid }}">
-                      {%- if controller.last_reading_time %}{{ controller.last_reading_time | localtime }}{%- else %}--{%- endif %}
-                    </span>
-                  </div>
-                </div>
-
-                <!-- White body: limits / status / notifications -->
-                <div class="tc-body">
-                  <div class="tc-grid" id="temp_control_readings_{{ cid }}"
-                       role="group" aria-label="Temperature limits">
-
-                    <div class="tc-label">HIGH LIMIT</div>
-                    <div style="text-align:right;">
-                      <div id="high_limit_box_{{ cid }}" class="tc-value-box">
-                        <span id="high_limit_val_{{ cid }}">
-                          {%- if controller.temp_control_active and controller.high_limit is not none %}{{ controller.high_limit }}{%- else %}--{%- endif %}
-                        </span><span class="tc-value-unit"> F</span>
-                      </div>
-                    </div>
-
-                    <div class="tc-label">CURRENT<br>TEMPERATURE</div>
-                    <div style="text-align:right;">
-                      <div id="current_temp_box_{{ cid }}" class="tc-value-box tc-value-current">
-                        <span id="temp_control_current_{{ cid }}">
-                          {%- if controller.temp_control_active and controller.current_temp is not none %}{{ controller.current_temp }}{%- else %}--{%- endif %}
-                        </span><span class="tc-value-unit"> F</span>
-                      </div>
-                    </div>
-
-                    <div class="tc-label">LOW LIMIT</div>
-                    <div style="text-align:right;">
-                      <div id="low_limit_box_{{ cid }}" class="tc-value-box">
-                        <span id="low_limit_val_{{ cid }}">
-                          {%- if controller.temp_control_active and controller.low_limit is not none %}{{ controller.low_limit }}{%- else %}--{%- endif %}
-                        </span><span class="tc-value-unit"> F</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div id="temp_control_status_top_{{ cid }}" class="tc-status"
-                       style="display:{% if controller.temp_control_active %}block{% else %}none{% endif %};">
-                    {{ controller.status or '' }}
-                  </div>
-
-                  <div id="tc_notifications_{{ cid }}" class="tc-notifications"
-                       style="display:{% if controller.temp_control_active %}flex{% else %}none{% endif %};"
-                       aria-live="polite" role="status">
-                  </div>
+                   onclick="window.location='{{ url_for('temp_summary', controller_id=cid) }}'"
+                   title="View Temperature Control summary and chart">
+                TEMPERATURE CONTROLLER #{{ cid + 1 }}
+                <div class="tc-header-sub">
+                  Last Reading:
+                  <span id="tc_hdr_timestamp_{{ cid }}">
+                    {%- if controller.last_reading_time %}{{ controller.last_reading_time | localtime }}{%- else %}--{%- endif %}
+                  </span>
                 </div>
               </div>
 
-              <!-- Temp card footer: toggle + last temp reading + temp chart (always visible) -->
+              <!-- White body: limits / status / notifications (always visible; "--" when TC is off) -->
+              <div class="tc-body" id="tc_section_{{ cid }}">
+                <div class="tc-grid" id="temp_control_readings_{{ cid }}"
+                     role="group" aria-label="Temperature limits">
+
+                  <div class="tc-label">HIGH LIMIT</div>
+                  <div style="text-align:right;">
+                    <div id="high_limit_box_{{ cid }}" class="tc-value-box">
+                      <span id="high_limit_val_{{ cid }}">
+                        {%- if controller.temp_control_active and controller.high_limit is not none %}{{ controller.high_limit }}{%- else %}--{%- endif %}
+                      </span><span class="tc-value-unit"> F</span>
+                    </div>
+                  </div>
+
+                  <div class="tc-label">CURRENT<br>TEMPERATURE</div>
+                  <div style="text-align:right;">
+                    <div id="current_temp_box_{{ cid }}" class="tc-value-box tc-value-current">
+                      <span id="temp_control_current_{{ cid }}">
+                        {%- if controller.temp_control_active and controller.current_temp is not none %}{{ controller.current_temp }}{%- else %}--{%- endif %}
+                      </span><span class="tc-value-unit"> F</span>
+                    </div>
+                  </div>
+
+                  <div class="tc-label">LOW LIMIT</div>
+                  <div style="text-align:right;">
+                    <div id="low_limit_box_{{ cid }}" class="tc-value-box">
+                      <span id="low_limit_val_{{ cid }}">
+                        {%- if controller.temp_control_active and controller.low_limit is not none %}{{ controller.low_limit }}{%- else %}--{%- endif %}
+                      </span><span class="tc-value-unit"> F</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div id="temp_control_status_top_{{ cid }}" class="tc-status"
+                     style="display:{% if controller.temp_control_active %}block{% else %}none{% endif %};">
+                  {{ controller.status or '' }}
+                </div>
+
+                <div id="tc_notifications_{{ cid }}" class="tc-notifications"
+                     style="display:{% if controller.temp_control_active %}flex{% else %}none{% endif %};"
+                     aria-live="polite" role="status">
+                </div>
+              </div>
+
+              <!-- Coloured footer: toggle switch + last reading timestamp + temp chart -->
               <div class="tc-footer"
                    style="background:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};">
                 <div class="footer-toggle-container">
@@ -740,7 +747,49 @@
       drop.addEventListener('click', function (e) { e.stopPropagation(); });
     }());
 
-    /* Convert tilt colour name to safe DOM id fragment */
+    /* ── Position TC cards directly below their assigned tilt in the CSS grid ──
+       TC cards (.temp-ctrl-card) carry data-for-tilt="<Color>" so we can match
+       them to their tilt card and place them in the same column as the tilt and
+       in the immediately following grid row (tilt's row + 1).
+       On mobile (≤ 699 px) explicit placement is cleared and cards flow naturally. */
+    function positionTempCards() {
+      var pageContainer = document.querySelector('.page-container');
+      var container     = document.querySelector('.tiltcard-container');
+      if (!pageContainer || !container) return;
+
+      var cols = pageContainer.classList.contains('display-mode-3') ? 3 : 4;
+
+      // On narrow screens clear explicit positions and let the grid auto-flow
+      if (window.innerWidth <= 699) {
+        container.querySelectorAll('.temp-ctrl-card').forEach(function(card) {
+          card.style.gridColumn = '';
+          card.style.gridRow    = '';
+        });
+        return;
+      }
+
+      // Collect tilt cards (not TC cards) in their DOM / grid order
+      var tiltCards = Array.from(
+        container.querySelectorAll('.tilt-card:not(.temp-ctrl-card)')
+      );
+
+      // Assign each TC card to the column + next row of its tilt
+      container.querySelectorAll('.temp-ctrl-card').forEach(function(tcCard) {
+        var tiltColor = tcCard.getAttribute('data-for-tilt');
+        var idx = tiltCards.findIndex(function(c) {
+          return c.getAttribute('data-tilt') === tiltColor;
+        });
+        if (idx >= 0) {
+          var col = (idx % cols) + 1;
+          var row = Math.floor(idx / cols) + 2;   // row of the tilt + 1
+          tcCard.style.gridColumn = String(col);
+          tcCard.style.gridRow    = String(row);
+        }
+      });
+    }
+
+
+    /* Convert tilt colour name to a safe DOM id fragment (spaces → underscores) */
     function safeIdColor(color) { return color.replace(/\s+/g, '_'); }
 
     /* ── Build a tilt card dynamically (for tilts appearing after page load) ── */
@@ -848,6 +897,7 @@
         // Create card if it doesn't exist yet
         if (!document.querySelector(`[data-tilt="${color}"]`)) {
           container.appendChild(createTiltCard(color, entry));
+          positionTempCards();   // re-anchor TC cards after grid changes
         }
 
         // Banner meta
@@ -933,8 +983,7 @@
 
       const isActive = !!tc.temp_control_active;
 
-      // Show/hide temp-control section
-      if (tcSection) tcSection.style.display = isActive ? 'block' : 'none';
+      // TC body is always visible; values show '--' when inactive (see else-branch below)
 
       // Sync toggle switch
       if (toggleEl && toggleEl.checked !== isActive) toggleEl.checked = isActive;
@@ -1038,6 +1087,9 @@
     /* ── Initialise on DOM ready ── */
     document.addEventListener('DOMContentLoaded', function() {
 
+      /* Position TC cards below their assigned tilts */
+      positionTempCards();
+
       /* Click on tilt banner → batch review (if brewid) or chart */
       document.addEventListener('click', function(e) {
         const banner = e.target.closest('.tilt-banner[data-tilt-color]');
@@ -1122,6 +1174,9 @@
     /* Start polling immediately and at interval */
     pollLiveSnapshot();
     setInterval(pollLiveSnapshot, REFRESH_MS);
+
+    /* Re-position TC cards on window resize (e.g. orientation change) */
+    window.addEventListener('resize', positionTempCards);
 
     /* ── Service-worker cleanup ─────────────────────────────────────────────
        A service worker registered by a previous version of the site can
