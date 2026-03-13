@@ -749,7 +749,8 @@
 
     /* ── Position TC cards directly below their assigned tilt in the CSS grid ──
        TC cards (.temp-ctrl-card) carry data-for-tilt="<Color>" so we can match
-       them to their tilt card and place them in the same column, next row.
+       them to their tilt card and place them in the same column as the tilt and
+       in the immediately following grid row (tilt's row + 1).
        On mobile (≤ 699 px) explicit placement is cleared and cards flow naturally. */
     function positionTempCards() {
       var pageContainer = document.querySelector('.page-container');
@@ -788,6 +789,7 @@
     }
 
 
+    /* Convert tilt colour name to a safe DOM id fragment (spaces → underscores) */
     function safeIdColor(color) { return color.replace(/\s+/g, '_'); }
 
     /* ── Build a tilt card dynamically (for tilts appearing after page load) ── */
