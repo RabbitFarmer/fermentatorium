@@ -144,7 +144,7 @@ text = re.sub(
 
 # Remove or anonymise any remaining personal identifiers.
 text = re.sub(r'803 Blonde Ale Clone of 805', 'Sample Beer', text)
-text = re.sub(r'Demo Batch', 'Demo Batch', text)      # keep, it's generic
+# Note: 'Demo Batch' is intentionally preserved — it is generic and suitable.
 text = re.sub(r'cf38d0a8', '<brew-id>', text)
 text = re.sub(r'Dec \d+, 2025[^)]*Jan \d+, 2026', 'sample date range', text)
 text = re.sub(r'~15 days', 'sample duration', text)
@@ -305,6 +305,15 @@ internet access and `sudo`):
 ```bash
 curl -sSL https://raw.githubusercontent.com/RabbitFarmer/fermentatorium/main/installer/automated-install.sh | sudo bash
 ```
+
+> **Security note:** Piping directly to `bash` executes the script without
+> reviewing it first. If you prefer to inspect the script before running it,
+> download it first and then execute:
+> ```bash
+> curl -sSL https://raw.githubusercontent.com/RabbitFarmer/fermentatorium/main/installer/automated-install.sh -o /tmp/fermentatorium-install.sh
+> less /tmp/fermentatorium-install.sh        # review the script
+> sudo bash /tmp/fermentatorium-install.sh
+> ```
 
 This downloads and runs the installer, which:
 
