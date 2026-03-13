@@ -475,39 +475,6 @@ Notification settings can be configured via the web dashboard:
 
 Pull requests are welcome! For major changes, please open an issue first to discuss what you would like to change.
 
-## External Logging Integration (Brewer's Friend, Grainfather, Brewstat.us)
-
-Fermentatorium supports posting live fermentation data to external services such as
-[Brewer's Friend](https://www.brewersfriend.com/), [Grainfather](https://www.grainfather.com/),
-and [Brewstat.us](https://brewstat.us/).
-
-### How It Works
-
-Configure up to three external endpoints in **System Settings → Logging Integrations**.
-At every configured interval (default: 15 minutes) the server pushes the current readings
-from **every active Tilt** to each enabled endpoint.  A single API key / URL at the system
-level is sufficient because each payload includes the `tilt_color` / device identifier, and
-most services use that field to route the reading to the correct active batch on their side.
-
-### Single System-Level Configuration Is Sufficient
-
-| Service | Routing field | Notes |
-|---|---|---|
-| Brewer's Friend | API key + device name | One key handles multiple devices; BF matches by device name |
-| Grainfather | Webhook URL | URL is per-profile; include `device` in payload so GF routes correctly |
-| Brewstat.us | API key | Single key; Brewstat uses the device/color field to identify the batch |
-
-You do **not** need separate credentials per batch.  The receiving service is responsible
-for matching incoming data to the correct active batch based on the device identifier that
-is already included in every push.
-
-### Per-Batch Override (Future Option)
-
-If you brew the same Tilt color on two simultaneous batches reported to two different
-external accounts, per-batch external settings would be needed.  This is an uncommon
-scenario; the current single system-level configuration covers the vast majority of
-homebrewing setups.  Open an issue if you need per-batch external destinations.
-
 ## License
 
 MIT License
