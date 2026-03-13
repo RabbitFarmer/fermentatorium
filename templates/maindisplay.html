@@ -287,6 +287,62 @@
       .tc-grid { grid-template-columns: 1fr 110px; }
     }
 
+    /* ── Gear-menu (settings dropdown) ── */
+    .gear-menu-wrapper {
+      position: absolute;
+      top: 12px;
+      right: 16px;
+      z-index: 200;
+    }
+    .gear-btn {
+      background: var(--panel-brown);
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 44px;
+      height: 44px;
+      font-size: 24px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+      transition: background 0.2s;
+      line-height: 1;
+      padding: 0;
+    }
+    .gear-btn:hover { background: rgba(101,67,33,0.9); }
+    .gear-dropdown {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: 52px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+      min-width: 190px;
+      overflow: hidden;
+      border: 1px solid rgba(0,0,0,0.08);
+    }
+    .gear-dropdown.open { display: block; }
+    .gear-dropdown a {
+      display: block;
+      padding: 12px 18px;
+      color: #333;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 14px;
+      border-bottom: 1px solid #f0f0f0;
+      transition: background 0.15s;
+    }
+    .gear-dropdown a:last-child { border-bottom: none; }
+    .gear-dropdown a:hover { background: #f5f0eb; }
+    .gear-dropdown a.exit-link { color: #c91f1f; }
+    .gear-dropdown a.exit-link:hover { background: #fff0f0; }
+
+    /* Site header needs relative positioning to anchor the gear button */
+    .site-header { position: relative; }
+
     /* ── Session-selection modal ── */
     .modal {
       display: none;
@@ -339,15 +395,19 @@
     <header class="site-header">
       <h1 class="dashboard-title">{{ system_settings.brewery_name }}</h1>
 
-      <!-- Navigation buttons across the top -->
-      <nav class="top-nav-bar" role="navigation" aria-label="Settings navigation">
-        <a class="nav-btn" href="{{ url_for('system_config') }}">System Settings</a>
-        <a class="nav-btn" href="{{ url_for('temp_config') }}">Temperature Control</a>
-        <a class="nav-btn" href="{{ url_for('batch_settings') }}">Batch Settings</a>
-        <a class="nav-btn" href="{{ url_for('batch_history') }}">Batch History</a>
-        <a class="nav-btn" href="{{ url_for('log_management') }}">Log Management</a>
-        <a class="nav-btn nav-btn-exit" href="{{ url_for('exit_system') }}">Exit System</a>
-      </nav>
+      <!-- Gear settings menu (upper-right corner) -->
+      <div class="gear-menu-wrapper" role="navigation" aria-label="Settings navigation">
+        <button class="gear-btn" id="gearBtn" aria-haspopup="true" aria-expanded="false"
+                aria-label="Open settings menu" title="Settings">⚙</button>
+        <div class="gear-dropdown" id="gearDropdown" role="menu">
+          <a href="{{ url_for('system_config') }}" role="menuitem">System Settings</a>
+          <a href="{{ url_for('temp_config') }}" role="menuitem">Temperature Control</a>
+          <a href="{{ url_for('batch_settings') }}" role="menuitem">Batch Settings</a>
+          <a href="{{ url_for('batch_history') }}" role="menuitem">Batch History</a>
+          <a href="{{ url_for('log_management') }}" role="menuitem">Log Management</a>
+          <a href="{{ url_for('exit_system') }}" role="menuitem" class="exit-link">Exit System</a>
+        </div>
+      </div>
 
       {# Notification comm-failure banner #}
       {% set has_comm_failure = namespace(value=false) %}
@@ -638,6 +698,23 @@
        Polls /live_snapshot every 3 s and updates all card values.
     ════════════════════════════════════════════════════════════════ */
     const REFRESH_MS = 3000;
+
+    /* ── Gear settings dropdown ── */
+    (function () {
+      const btn  = document.getElementById('gearBtn');
+      const drop = document.getElementById('gearDropdown');
+      if (!btn || !drop) return;
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        const isOpen = drop.classList.toggle('open');
+        btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      });
+      document.addEventListener('click', function () {
+        drop.classList.remove('open');
+        btn.setAttribute('aria-expanded', 'false');
+      });
+      drop.addEventListener('click', function (e) { e.stopPropagation(); });
+    }());
 
     /* Convert tilt colour name to safe DOM id fragment */
     function safeIdColor(color) { return color.replace(/\s+/g, '_'); }

@@ -7330,19 +7330,23 @@ def exit_system():
 # --- Program entry ---------------------------------------------------------
 def open_browser(port=5001):
     """
-    Open the default web browser to the Flask app URL after a short delay.
+    Open the web browser to the Flask app URL after a short delay.
     This runs in a separate thread to avoid blocking the Flask startup.
-    Uses system commands (xdg-open, open) for better compatibility with
-    headless and Raspberry Pi environments.
-    
-    Includes extra delay at boot time to ensure desktop environment is ready.
-    
+
+    On Raspberry Pi / Linux, Chromium is launched in kiosk (full-screen)
+    mode so the display fills the screen from the moment it opens.
+    Falls back to a standard browser on platforms where Chromium is not
+    available.
+
+    Includes extra delay at boot time to ensure the desktop environment
+    (display server, window manager) is ready before launching the browser.
+
     Args:
         port: The port number Flask is running on (default: 5001)
     """
-    # Wait for Flask to start
-    time.sleep(1.5)
-    
+    # Short initial pause to let Flask bind to its port before we probe it
+    time.sleep(0.5)
+
     # Additional delay if running at boot time (helps ensure desktop is ready)
     # Check if we've been running for less than 2 minutes (likely boot scenario)
     try:
@@ -7350,61 +7354,103 @@ def open_browser(port=5001):
             process = psutil.Process(os.getpid())
             uptime = time.time() - process.create_time()
             if uptime < 120:  # Process created less than 2 minutes ago
-                print("[LOG] Detected recent boot - waiting additional 10 seconds for desktop environment")
-                time.sleep(10)
+                print("[LOG] Detected recent boot - waiting 5 seconds for desktop environment")
+                time.sleep(5)
             else:
                 # Manual start - shorter delay
-                time.sleep(3)
+                time.sleep(1)
         else:
             # psutil not available - add a reasonable delay for safety
-            time.sleep(3)
+            time.sleep(1)
     except (ImportError, AttributeError, OSError) as e:
-        # If check fails, add a small delay anyway
-        # This helps with boot scenarios without breaking manual starts
         print(f"[LOG] Could not determine process uptime: {e}")
-        time.sleep(3)
-    
+        time.sleep(1)
+
     url = f'http://127.0.0.1:{port}'
-    
-    # Wait for Flask to actually be responding before trying to open browser
+
+    # Wait for Flask to actually be responding before opening the browser.
+    # This avoids a "connection refused" splash on slow hardware.
     max_attempts = 30
     for attempt in range(max_attempts):
         try:
             urllib.request.urlopen(url, timeout=1)
             print(f"[LOG] Flask is responding, opening browser...")
             break
-        except (urllib.error.URLError, OSError) as e:
+        except (urllib.error.URLError, OSError):
             if attempt < max_attempts - 1:
                 time.sleep(1)
             else:
                 print(f"[LOG] Flask not responding after {max_attempts} seconds, opening browser anyway")
-    
+
+    # Common Chromium kiosk flags: full-screen, no address bar, no error dialogs
+    kiosk_flags = [
+        '--kiosk',
+        '--noerrdialogs',
+        '--disable-infobars',
+        '--disable-session-crashed-bubble',
+    ]
+
     try:
-        # Try using system commands first (more reliable on Raspberry Pi)
-        if shutil.which('xdg-open'):
-            # Linux - use nohup and start_new_session for complete detachment
+        # 1) Chromium on Raspberry Pi OS / most Debian-based Linux
+        if shutil.which('chromium-browser'):
+            subprocess.Popen(
+                ['chromium-browser'] + kiosk_flags + [url],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            print(f"[LOG] Opened browser in kiosk mode at {url} using chromium-browser")
+
+        # 2) Chromium under the name 'chromium' (Arch, Fedora, etc.)
+        elif shutil.which('chromium'):
+            subprocess.Popen(
+                ['chromium'] + kiosk_flags + [url],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            print(f"[LOG] Opened browser in kiosk mode at {url} using chromium")
+
+        # 3) Google Chrome on Linux or macOS
+        elif shutil.which('google-chrome'):
+            subprocess.Popen(
+                ['google-chrome'] + kiosk_flags + [url],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            print(f"[LOG] Opened browser in kiosk mode at {url} using google-chrome")
+
+        # 4) macOS — open in default browser (no kiosk equivalent via CLI)
+        elif shutil.which('open'):
+            subprocess.Popen(
+                ['open', url],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            print(f"[LOG] Opened browser at {url} using open (macOS)")
+
+        # 5) Generic Linux fallback via xdg-open
+        elif shutil.which('xdg-open'):
             subprocess.Popen(
                 ['nohup', 'xdg-open', url],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                start_new_session=True
+                start_new_session=True,
             )
             print(f"[LOG] Opened browser at {url} using xdg-open")
-        elif shutil.which('open'):
-            # macOS - use nohup and start_new_session for complete detachment
-            subprocess.Popen(
-                ['nohup', 'open', url],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True
-            )
-            print(f"[LOG] Opened browser at {url} using open")
+
         else:
-            # Fallback to Python's webbrowser module
+            # Last resort: Python's webbrowser module
             webbrowser.open(url)
             print(f"[LOG] Opened browser at {url} using webbrowser module")
+
     except Exception as e:
         print(f"[LOG] Could not automatically open browser: {e}")
         print(f"[LOG] Please manually navigate to {url}")
@@ -7469,10 +7515,9 @@ if __name__ == '__main__':
             kasa_proc.daemon = True
             kasa_proc.start()
             print("[LOG] Started kasa_worker process")
-            # Give the worker process time to initialize before attempting queries
-            # This prevents race conditions where sync_plug_states_at_startup() runs
-            # before the worker is ready to process commands
-            time.sleep(2)
+            # Give the worker process a moment to initialize before we query it.
+            # 1 s is enough; the background sync has its own 0.5 s safety delay.
+            time.sleep(1)
             if kasa_proc.is_alive():
                 print("[LOG] kasa_worker process is running and ready")
             else:

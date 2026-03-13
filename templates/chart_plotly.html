@@ -28,7 +28,7 @@
     {% if tilt_color == "TempControl" %}
     <button id="export">Export CSV</button>
     {% endif %}
-    <button id="dashboard">Dashboard</button>
+    <button id="return">Return</button>
     <span id="status"></span>
   </div>
 
@@ -540,8 +540,8 @@
       window.print();
     });
     
-    // Add dashboard button functionality
-    document.getElementById('dashboard').addEventListener('click', () => {
+    // Add return button functionality
+    document.getElementById('return').addEventListener('click', () => {
       window.location.href = '/';
     });
     
