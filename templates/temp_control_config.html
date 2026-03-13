@@ -239,7 +239,7 @@
             Temp Control {% if temp_control.temp_control_active %}ON{% else %}OFF{% endif %}
           </span>
           <span class="small" style="color:#666;">
-            Assigned Tilt: <strong>{{ temp_control.tilt_color or 'Auto' }}</strong>
+            Assigned Tilt: <strong>{{ temp_control.tilt_color or 'Not Selected' }}</strong>
           </span>
         </div>
 
@@ -319,8 +319,8 @@
 
           <div class="form-row">
             <label for="tilt_color">Control Tilt (color):</label>
-            <select id="tilt_color" name="tilt_color" title="Choose which Tilt sensor is used by the control loop">
-              <option value="" {% if not temp_control.tilt_color %}selected{% endif %}>Auto — use first live Tilt</option>
+            <select id="tilt_color" name="tilt_color" title="Choose which Tilt sensor is used by the control loop" required>
+              <option value="" disabled {% if not temp_control.tilt_color %}selected{% endif %}>— Select a Tilt color —</option>
               {% if report_colors %}
                 <optgroup label="Configured Tilts">
                   {% for c in report_colors %}
@@ -329,7 +329,7 @@
                 </optgroup>
               {% endif %}
             </select>
-            <span class="small">Select which Tilt's temperature is used for control (or Auto).</span>
+            <span class="small">Select which Tilt's temperature is used for control.</span>
           </div>
 
           <div class="form-row">
@@ -447,7 +447,7 @@
 
       <!-- Action buttons at bottom -->
       <div style="text-align:center; margin-top:30px; margin-bottom:20px;">
-        <button type="button" onclick="window.location='/'" class="btn-action">Dashboard</button>
+        <button type="button" onclick="window.location='/'" class="btn-action">Return</button>
         <button type="submit" form="tempConfigForm" class="btn-primary" style="margin-left:16px;">Save</button>
         <button type="button" onclick="window.location='/temp_config?controller_id={{ controller_id }}'" class="btn-secondary" style="margin-left:16px;">Cancel</button>
       </div>
