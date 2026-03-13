@@ -109,8 +109,8 @@ clean_config_templates() {
     # enter their own name rather than inheriting someone else's.
     local tmpl="${OPT_DIR}/config/system_config.json.template"
     if [[ -f "${tmpl}" ]]; then
-        sed -i 's/"brewery_name": *"ThreeControl"/"brewery_name": "My Brewery"/' "${tmpl}"
-        echo "  ✓ system_config.json.template: brewery name cleared"
+        sed -i 's/"brewery_name": *"[^"]*"/"brewery_name": "The Tilt Fermentatorium"/' "${tmpl}"
+        echo "  ✓ system_config.json.template: brewery name set to 'The Tilt Fermentatorium'"
     fi
 }
 
@@ -480,7 +480,7 @@ clean_app_py() {
     sed -i 's/app.py - Three Controller main Flask application./app.py - Fermentatorium main Flask application./g' "${f}"
     sed -i 's/TEST - ThreeControl/TEST - Fermentatorium/g' "${f}"
     sed -i 's/from your ThreeControl system\./from your Fermentatorium system./g' "${f}"
-    sed -i "s/brewery_name=system_cfg.get('brewery_name', 'ThreeControl')/brewery_name=system_cfg.get('brewery_name', 'Fermentatorium')/" "${f}"
+    sed -i "s/brewery_name=system_cfg.get('brewery_name', 'ThreeControl')/brewery_name=system_cfg.get('brewery_name', 'The Tilt Fermentatorium')/" "${f}"
     echo "  ✓ app.py: stale project-name strings updated"
 }
 
