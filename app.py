@@ -882,6 +882,7 @@ def ensure_temp_defaults_for_controller(controller):
     controller.setdefault("last_logged_high_limit", controller.get("high_limit"))
     controller.setdefault("last_logged_enable_heating", controller.get("enable_heating"))
     controller.setdefault("last_logged_enable_cooling", controller.get("enable_cooling"))
+    controller.setdefault("mode", "--")
     # New flag to turn on/off the entire temp-control UI and behavior:
     controller.setdefault("temp_control_enabled", True)
     # New flag to control active monitoring/recording (user-controlled switch):
@@ -3305,11 +3306,11 @@ def temperature_control_logic_single(temp_cfg):
         # Preserve all settings and return early to prevent any control actions
         return
     if enable_heat and enable_cool:
-        temp_cfg['mode'] = "Heating and Cooling Selected"
+        temp_cfg['mode'] = "Heating & Cooling"
     elif enable_heat:
-        temp_cfg['mode'] = "Heating Selected"
+        temp_cfg['mode'] = "Heating"
     elif enable_cool:
-        temp_cfg['mode'] = "Cooling Selected"
+        temp_cfg['mode'] = "Cooling"
     else:
         temp_cfg['mode'] = "Off"
 
@@ -3427,10 +3428,23 @@ def temperature_control_logic_single(temp_cfg):
             control_cooling("off", temp_cfg)
             return
 
+    # When both heating and cooling are enabled, compute the midpoint once.
+    # Heating turns off at midpoint; cooling turns off at midpoint.
+    # This prevents the two systems from fighting each other.
+    both_active = enable_heat and enable_cool
+    if both_active and low is not None and high is not None:
+        midpoint = (low + high) / 2.0
+    else:
+        midpoint = None
+
     # Heating control:
     # - Turn ON when temp <= low_limit
-    # - Turn OFF when temp >= high_limit
+    # - Turn OFF at midpoint (both H+C) or high_limit (heating only)
+    # Note: if the off-threshold is None (no high limit configured), heating will not
+    # turn off between readings — this matches the original single-mode behaviour.
     if enable_heat:
+        heat_off_threshold = midpoint if both_active else high
+
         if low is not None and temp <= low:
             # Temperature at or below low limit - turn heating ON
             control_heating("on", temp_cfg)
@@ -3445,20 +3459,24 @@ def temperature_control_logic_single(temp_cfg):
                 temp_cfg["below_limit_trigger_armed"] = False
                 # Arm the above_limit trigger for when temp rises to high limit
                 temp_cfg["above_limit_trigger_armed"] = True
-        elif high is not None and temp >= high:
-            # Temperature at or above high limit - turn heating OFF
+        elif heat_off_threshold is not None and temp >= heat_off_threshold:
+            # Temperature at or above turn-off threshold - turn heating OFF
             control_heating("off", temp_cfg)
             # Arm the below_limit trigger for when temp drops to low limit again
             temp_cfg["below_limit_trigger_armed"] = True
-        # else: temperature is between low and high - maintain current state
+        # else: temperature is between low and turn-off threshold - maintain current state
         # (don't change heating state, let it continue)
     else:
         control_heating("off", temp_cfg)
 
     # Cooling control:
     # - Turn ON when temp >= high_limit
-    # - Turn OFF when temp <= low_limit
+    # - Turn OFF at midpoint (both H+C) or low_limit (cooling only)
+    # Note: if the off-threshold is None (no low limit configured), cooling will not
+    # turn off between readings — this matches the original single-mode behaviour.
     if enable_cool:
+        cool_off_threshold = midpoint if both_active else low
+
         if high is not None and temp >= high:
             # Temperature at or above high limit - turn cooling ON
             control_cooling("on", temp_cfg)
@@ -3473,12 +3491,12 @@ def temperature_control_logic_single(temp_cfg):
                 temp_cfg["above_limit_trigger_armed"] = False
                 # Arm the below_limit trigger for when temp drops to low limit
                 temp_cfg["below_limit_trigger_armed"] = True
-        elif low is not None and temp <= low:
-            # Temperature at or below low limit - turn cooling OFF
+        elif cool_off_threshold is not None and temp <= cool_off_threshold:
+            # Temperature at or below turn-off threshold - turn cooling OFF
             control_cooling("off", temp_cfg)
             # Arm the above_limit trigger for when temp rises to high limit again
             temp_cfg["above_limit_trigger_armed"] = True
-        # else: temperature is between low and high - maintain current state
+        # else: temperature is between turn-off threshold and high - maintain current state
         # (don't change cooling state, let it continue)
     else:
         control_cooling("off", temp_cfg)

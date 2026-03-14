@@ -361,7 +361,7 @@
             limitLineEnd = dataPoints[dataPoints.length - 1].timestamp;
           }
           
-          // Add low limit line (thin red horizontal line)
+          // Add low limit line (more visible orange horizontal line)
           if (lowLimit !== null && limitLineStart && limitLineEnd) {
             traces.push({
               type: 'scatter',
@@ -369,14 +369,14 @@
               y: [lowLimit, lowLimit],
               mode: 'lines',
               name: 'Low Limit',
-              line: { color: 'red', width: 1, dash: 'solid' },
+              line: { color: 'orange', width: 2.5, dash: 'dash' },
               yaxis: 'y1',
               showlegend: true,
               hoverinfo: 'y',
             });
           }
           
-          // Add high limit line (thin red horizontal line)
+          // Add high limit line (more visible blue horizontal line)
           if (highLimit !== null && limitLineStart && limitLineEnd) {
             traces.push({
               type: 'scatter',
@@ -384,7 +384,7 @@
               y: [highLimit, highLimit],
               mode: 'lines',
               name: 'High Limit',
-              line: { color: 'red', width: 1, dash: 'solid' },
+              line: { color: '#0066CC', width: 2.5, dash: 'dash' },
               yaxis: 'y1',
               showlegend: true,
               hoverinfo: 'y',
