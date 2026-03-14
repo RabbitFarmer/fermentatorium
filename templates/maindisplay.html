@@ -110,6 +110,18 @@
     }
     .tc-label { font-weight: 800; color: #222; font-size: 13px; }
 
+    /* Mode row above the limit grid */
+    .tc-mode-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 0 6px;
+      border-bottom: 1px solid #ddd;
+      margin-bottom: 8px;
+    }
+    .tc-mode-label { font-weight: 800; color: #222; font-size: 13px; }
+    .tc-mode-value { font-weight: 700; color: #555; font-size: 13px; text-align: right; }
+
     .tc-value-box {
       border: 2px solid #111;
       padding: 6px 8px;
@@ -625,6 +637,12 @@
 
               <!-- White body: limits / status / notifications (always visible; "--" when TC is off) -->
               <div class="tc-body" id="tc_section_{{ cid }}">
+                <div class="tc-mode-row">
+                  <span class="tc-mode-label">MODE</span>
+                  <span class="tc-mode-value" id="tc_mode_{{ cid }}">
+                    {%- if controller.temp_control_active %}{{ controller.get('mode', '--') }}{%- else %}--{%- endif %}
+                  </span>
+                </div>
                 <div class="tc-grid" id="temp_control_readings_{{ cid }}"
                      role="group" aria-label="Temperature limits">
 
@@ -980,6 +998,7 @@
       const ftrTsEl    = document.getElementById('tc_ftr_ts_'               + cid);
       const toggleEl   = document.getElementById('temp_control_toggle_'     + cid);
       const labelEl    = document.getElementById('toggle_label_'            + cid);
+      const modeEl     = document.getElementById('tc_mode_'                 + cid);
 
       const isActive = !!tc.temp_control_active;
 
@@ -1009,6 +1028,9 @@
       if (notifEl)  notifEl.style.display  = isActive ? 'flex'  : 'none';
 
       if (isActive) {
+        // Mode
+        if (modeEl) modeEl.textContent = tc.mode || '--';
+
         // Limit values
         if (highBox) highBox.textContent = (tc.high_limit != null) ? tc.high_limit : '--';
         if (lowBox)  lowBox.textContent  = (tc.low_limit  != null) ? tc.low_limit  : '--';
@@ -1060,6 +1082,7 @@
 
       } else {
         // Controller OFF — blank values
+        if (modeEl)  modeEl.textContent  = '--';
         if (highBox) highBox.textContent = '--';
         if (curBox)  curBox.textContent  = '--';
         if (lowBox)  lowBox.textContent  = '--';
@@ -1237,11 +1260,14 @@
 
     if (btn) btn.addEventListener('click', toggleFullscreen);
 
-    // F11 → toggle fullscreen (suppress browser default F11 behaviour)
+    // F11 → toggle fullscreen; ESC → exit fullscreen
     document.addEventListener('keydown', function (e) {
       if (e.key === 'F11') {
         e.preventDefault();
         toggleFullscreen();
+      } else if (e.key === 'Escape' && isFullscreen()) {
+        e.preventDefault();
+        exitFullscreen();
       }
     });
 
