@@ -8,12 +8,14 @@ This project is a Raspberry Pi-based fermentation monitor and temperature contro
 ## Features
 
 - **Multi-Device Tilt Support**: Track multiple Tilt hydrometers simultaneously for fermentation monitoring
-  - Supports standard Tilt, Tilt Pro and / or Tilt Mini-Pro
-  - Supports all 8 colors of the standard Tilt Hydrometer (Black, Blue, Green, Orange, Pink, Purple, Red, Yellow)
+  - Supports standard Tilt, Tilt Pro and / or Tilt Mini-Pro models.
+  - Supports all 8 colors of the Tilt Hydrometer (Black, Blue, Green, Orange, Pink, Purple, Red, Yellow)
   - Each Tilt can be independently monitored for fermentation data
-  - How many Tilts can be monitored at the same time?  Mix and match models and colors.  You'll run out of tilts before you run out of monitoring capacity. It can monitor every Tilt within the range of the Tilt BLE signals.
+  - How many Tilts can be monitored at the same time?  Mix and match models and colors.  You'll run out of tilts before you run out of monitoring capacity. It can monitor every Tilt within the range of the Tilt BLE signals.   - Multiple Tilts of the same color is not a problem.
     
-- **Three Independent Temperature Controllers**: Control up to 3 fermenters simultaneously (subject to Tilt BLE signal strength)
+- **Three Independent Temperature Controllers**:
+  - Up to 3 Tilts can be selected for double duty:  monitor the fermentation gravity and temperature and also act as fermenter temperature controller.
+  - Control up to 3 fermenters simultaneously
   - Each controller can be assigned to a different Tilt color
   - Independent temperature limits (high/low) for each controller
   - Each controller manages its own heating and cooling Kasa smart plugs (15 amp rated)
@@ -441,10 +443,19 @@ Notification settings can be configured via the web dashboard (click Gear icon):
 - Navigate to **Batch Settings** for batch notification preferences
 - Navigate to **Temp Control Settings** for temperature control notification preferences
 
-
+## Reception Range
+-  The program's reception of Tilt BLE signals is contingent upon distance the Raspberry Pi is from the tilt in the fermenter, fermenter construction (ie. steel, plastic), cooling device used (freezer may impaire signal), and signal strength of the individual Tilts.
+-  
 ## License
 
 MIT License
+Copyright (c) 2026 RabbitFarmer aka Frank Cunningham
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ## Credits
 
