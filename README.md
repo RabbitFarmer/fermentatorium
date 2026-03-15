@@ -1,5 +1,6 @@
-# Tilt Temperature Control and Fermentation Monitor (tiltcontrlmonitor)
+### THE TILE FERMENTATORIUM ###
 
+# Tilt Device Fermentation Monitor and Temperature Controller
 This project is a Raspberry Pi-based fermentation monitor and temperature controller for homebrewing. It uses Tilt hydrometers and TP-Link Kasa smart plugs to manage and log fermentation temperature with a web dashboard.
 
 > **Privacy Note for New Users:** This repository does not contain any personal data. Your configuration files, batch data, and logs are automatically created on your system and remain private - they are not tracked by git.
@@ -7,34 +8,48 @@ This project is a Raspberry Pi-based fermentation monitor and temperature contro
 ## Features
 
 - **Multi-Device Tilt Support**: Track multiple Tilt hydrometers simultaneously for fermentation monitoring
+  - Supports standard Tilt, Tilt Pro and / or Tilt Mini-Pro
   - Supports all 8 colors of the standard Tilt Hydrometer (Black, Blue, Green, Orange, Pink, Purple, Red, Yellow)
   - Each Tilt can be independently monitored for fermentation data
-- **Three Independent Temperature Controllers**: Control up to 3 fermenters simultaneously
+  - How many Tilts can be monitored at the same time?  Mix and match models and colors.  You'll run out of tilts before you run out of monitoring capacity. It can monitor every Tilt within the range of the Tilt BLE signals.
+    
+- **Three Independent Temperature Controllers**: Control up to 3 fermenters simultaneously (subject to Tilt BLE signal strength)
   - Each controller can be assigned to a different Tilt color
   - Independent temperature limits (high/low) for each controller
   - Each controller manages its own heating and cooling Kasa smart plugs (15 amp rated)
+  - Use 1 TP-Link Kara plug for each function (1 for heating for one fermenter, 1 for cooling for same or another fermenter)
   - Controllers operate completely independently of one another
-  - Temperature control UI is integrated directly into each Tilt's card for easy monitoring
+  - Temperature control UI is integrated directly into each Tilt's display for easy monitoring
+    
+ **Three Settings Options for each Temperature Controller
+  - Set Heating Only: use 1 Kasa plug per fermenter.  Heat starts at low temperature limit and turns off at high limit.
+  - Set Cooling Only:  use 1 Kasa plug per fermenter.  Cooling starts at high temperature limit and turns off at lower limit.
+  - Set Both Heating and Cooling: use 2 Kasa plugs per fermenter.  Heating starts at low temperature limit and stops at mid-point between low and high limits.  Cooling starts at high limit and stops at mid-point between high and low limits.
+  - SAFETY SETTING:  Temperature Controls will shut down if Tilt signal is lost after 2 attempts to read the Tilt.
+    
 - **Interactive Charting**: Real-time charts for both Tilt-tracked fermentation data and temperature control monitoring
   - Fermentation charts display gravity and temperature trends over time
   - Temperature control charts show heating/cooling events and temperature readings
   - Powered by Plotly for interactive zooming, panning, and data exploration
+    
 - **CSV Data Export**: Export fermentation batch data and temperature control logs to CSV format for external analysis
-- Reads Tilt hydrometer data via Bluetooth (BLE)
+- Batch history and temperature logging to JSONL/CSV
+  
+- Reads Tilt hydrometer data via Bluetooth (BLE).  Range from Tilt is determinant on Tilt signal strength.
+
 - Web dashboard for monitoring and configuration (Flask)
   - Accessible from anywhere on your home network
-  - Remote access via [Raspberry Pi Connect](https://connect.raspberrypi.com) (free, no VPN required)
-- Batch history and temperature logging to JSONL/CSV
+  - Use a monitor or go headless after initial setup.
+    
+- Remote access via [Raspberry Pi Connect](https://connect.raspberrypi.com) (free, no VPN required)
+
 - **Email/Push notifications for fermentation status and temperature alerts**
   - Temperature control alerts (temp out of range, heating/cooling events, Kasa plug failures)
   - Batch alerts (signal loss, fermentation starting, daily reports)
   - Configurable notification settings per event type
-  - See [NOTIFICATIONS.md](NOTIFICATIONS.md) for detailed configuration guide
   - See [Notification Types](#notification-types) section below for complete list of 11 notification types
 
-## Getting Started
-
-## Installation
+## Getting Started -
 
 ### Prerequisites
 
@@ -43,6 +58,7 @@ This project is a Raspberry Pi-based fermentation monitor and temperature contro
 - Bluetooth enabled (for Tilt hydrometer scanning)
 - (Optional) TP-Link Kasa plugs for temperature control
 
+## Installation
 ### One-Command Install (Recommended)
 
 For a fresh Raspberry Pi OS installation, run:
@@ -60,7 +76,8 @@ This will:
 
 After installation, open:
 
-- `http://<raspberry-pi-ip>:5001`
+- `http://<raspberry-pi-ip>:5001`(example: 192.168.0.120:5001)
+  
 
 ### Quick Installation (Git Clone)
 
@@ -135,13 +152,15 @@ If you prefer to install manually:
    ```
    Then visit `http://<raspberry-pi-ip>:5001` in your browser.
 
-### First Run Configuration
+
+
+### First Run Configuration ###
 
 **On first run, the application automatically creates configuration files from templates.**
 
 - Configuration files are created in the `config/` directory
-- Use the web interface to configure your settings (brewery name, Kasa plug IPs, Tilt assignments, etc.)
-- Your personal configuration and data files are **not tracked in git** - they remain private on your system
+- Use the web interface, click on the gear icon to configure your settings (brewery name, Kasa plug IPs, Tilt assignments, etc.)
+- Your personal configuration, passwords and data files are **not tracked in git** - they remain private on your system
 
 For more details, see [config/README.md](config/README.md).
 
@@ -161,7 +180,7 @@ bash install_desktop_autostart.sh
 This will:
 - ✓ Start the application when you log in
 - ✓ Open the browser automatically to the dashboard
-- ✓ Wait for the Flask server to be ready (up to 3 minutes at boot)
+- ✓ Wait for the Flask server to be ready (up to 2 minutes at boot)
 - ✓ No sudo required
 
 #### Option 2: Systemd Service (Recommended for headless setups)
@@ -193,65 +212,8 @@ sudo systemctl enable fermenter
 sudo systemctl start fermenter
 ```
 
-For detailed instructions, troubleshooting, and comparison of auto-start methods, see:
-- [AUTO_START_TIMING_FIX.md](AUTO_START_TIMING_FIX.md) - Complete guide to auto-start options
-- [INSTALLATION.md](INSTALLATION.md#running-on-system-startup-recommended) - Detailed installation steps
 
-### Troubleshooting Installation
-
-If you encounter errors during installation, see [INSTALLATION.md](INSTALLATION.md) for:
-- **PEP 668 "externally-managed-environment" errors**
-- Bluetooth/BLE setup issues
-- KASA plug configuration
-- Running on system startup
-- Complete troubleshooting guide
-
-#### Port Conflict: "Address already in use"
-
-The application now **automatically frees port 5001** on startup by detecting and stopping any process using it (requires appropriate permissions).
-
-If port 5001 is in use when starting the application:
-- The app will automatically identify the process using the port
-- It will terminate that process if you have permission (gracefully first, then forcefully if needed)
-- Then start normally on port 5001
-
-**Note**: Automatic port clearing works for processes owned by your user. If the port is used by a system process or a process owned by another user, you may need to run with `sudo` or manually stop the conflicting process.
-
-**Manual override options** (if automatic port clearing fails or you prefer a different port):
-
-**Solution 1: Use a different port**
-```bash
-# Option A: Set environment variable (temporary)
-FLASK_PORT=5001 python3 app.py
-# Or when using start.sh:
-FLASK_PORT=5001 ./start.sh
-
-# Option B: Update config file (permanent)
-# Edit config/system_config.json and set flask_port:
-{
-  "brewery_name": "Tilt Fermentatorium",
-  "brewer_name": "Your Name",
-  "flask_port": 5001,
-  ...
-}
-```
-
-**Solution 2: Manually identify and stop the conflicting process**
-```bash
-# Find what's using port 5001
-sudo lsof -i :5001
-# Or
-sudo netstat -tlnp | grep :5001
-
-# Kill the process manually
-sudo kill <PID>
-```
-
-**Note**: If the application cannot free the port (e.g., due to permissions), you'll see an error message explaining why and suggesting alternatives.
-
-After changing the port, access the dashboard at the new port (e.g., `http://127.0.0.1:5001`).
-
-## Configuration
+## Configuration -- Gear Icon 
 
 - Edit system settings via the web dashboard.
 - Configure batch and temperature settings for each Tilt hydrometer color.
@@ -290,6 +252,12 @@ Access your Fermenter Temperature Controller from anywhere using **Raspberry Pi 
    (Use the local address since you're accessing it through the Pi's own browser via Connect.)
 
 > **No special configuration needed** — Raspberry Pi Connect handles all the networking securely through the Raspberry Pi Foundation's servers. Your fermenter data never leaves your home network.
+
+### RUNNING THE PROGRAM AFTER SETUP ###
+- After program start, activate a Tilt hydrometer.
+- Program will detect it and display "Unknown Beer"
+- Click on Gear icon, Batch Settings to set up your fermenter.
+- Click on Gear icon, Temperature Contol Settings to set up batches using Temperature Control. Notice that on the settings screen and Temperature Control display on the main display employ an On/Off switch. When ON, the settings are put to action. When OFF, temperature control is not operational.
 
 ## File Structure
 
@@ -377,7 +345,7 @@ The Request Timeout setting (default: 8 seconds) controls how long the system wi
 
 ## Notification Types
 
-The system can send notifications via Email and/or Push (Pushover or ntfy) for various fermentation and temperature control events. All notifications (except test notifications) use a common notification system with deduplication to prevent duplicate alerts.
+The system can send notifications via Email and/or Push (Pushover or ntfy) for various fermentation and temperature control events. All notifications  use a common notification system with deduplication to prevent duplicate alerts.
 
 ### Batch Notifications
 
@@ -448,11 +416,13 @@ Temperature control notifications alert when temperatures exceed limits, when he
 ### Notification Delivery Methods
 
 - **Email** - SMTP-based email notifications (supports Gmail, custom SMTP servers)
-- **Push** - Mobile push notifications via:
+
+- **Push** -   Mobile push notifications via:
   - **Pushover** - Paid service ($5 one-time per platform, very reliable)
   - **ntfy** - Free, open-source, self-hostable alternative
-- **Both** - Send via both Email and Push simultaneously
-
+  - **Both** - Send via both Email and Push simultaneously
+  - Some phones may block push notifications. Check permissions in your cellphone.
+    
 ### Notification Deduplication
 
 All notifications use a 10-second pending queue with deduplication to prevent duplicate alerts. If the same notification is triggered multiple times within 10 seconds (e.g., from rapid BLE updates), only the first notification will be sent.
@@ -466,14 +436,11 @@ Failed notifications are automatically retried with exponential backoff:
 
 ### Configuration
 
-Notification settings can be configured via the web dashboard:
+Notification settings can be configured via the web dashboard (click Gear icon):
 - Navigate to **System Settings** → **Push/Email** tab for delivery method settings
 - Navigate to **Batch Settings** for batch notification preferences
 - Navigate to **Temp Control Settings** for temperature control notification preferences
 
-## Contributing
-
-Pull requests are welcome! For major changes, please open an issue first to discuss what you would like to change.
 
 ## License
 
