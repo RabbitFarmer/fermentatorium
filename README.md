@@ -259,7 +259,7 @@ Access your Fermenter Temperature Controller from anywhere using **Raspberry Pi 
 - After program start, activate a Tilt hydrometer.
 - Program will detect it and display "Unknown Beer"
 - Click on Gear icon, Batch Settings to set up your fermenter.
-- Click on Gear icon, Temperature Contol Settings to set up batches using Temperature Control. Notice that on the settings screen and Temperature Control display on the main display employ an On/Off switch. When ON, the settings are put to action. When OFF, temperature control is not operational.
+- Click on Gear icon, Temperature Contol Settings to set up batches using Temperature Control. Notice that the settings screen and Temperature Control display on the main display employ an On/Off switch. When ON, the settings are put to action. When OFF, temperature control is not operational. 
 
 ## File Structure
 
