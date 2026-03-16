@@ -5215,7 +5215,23 @@ def update_temp_config():
             "mode": data.get("mode", controller.get('mode','')),
             "status": data.get("status", controller.get('status',''))
         })
-        
+
+        # Remove duplicate plug assignments: if a plug URL now assigned to this controller
+        # was previously assigned to another controller (or to both roles on this controller),
+        # clear it from every other location to prevent cross-assignment.
+        new_plugs = {
+            "heating_plug": controller.get("heating_plug", "").strip(),
+            "cooling_plug": controller.get("cooling_plug", "").strip(),
+        }
+        for i, other_ctrl in enumerate(controllers):
+            if i == controller_id:
+                continue
+            for role in ("heating_plug", "cooling_plug"):
+                for new_url in new_plugs.values():
+                    if new_url and other_ctrl.get(role, "").strip() == new_url:
+                        other_ctrl[role] = ""
+                        print(f"[LOG] Removed duplicate {role} assignment from controller {i}")
+
         # If a new Tilt is being assigned (or changed), record the assignment time
         # This starts the grace period for the newly assigned Tilt
         if new_tilt_color and new_tilt_color != old_tilt_color:

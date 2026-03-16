@@ -21,7 +21,22 @@
         .success-message { padding: 12px; background: #d4edda; border-left: 4px solid #28a745; margin-bottom: 1em; font-size: 14px; border-radius: 4px; display: none; }
     </style>
     <script>
+        const plugAssignments = {{ assignments | tojson }};
+
         function setPlug(type, url) {
+            const existing = plugAssignments[url];
+            if (existing && existing.length > 0) {
+                let assignmentDesc = existing.map(function(a) {
+                    let desc = 'Controller #' + (a.controller_id + 1) + ' \u2014 ' + a.role;
+                    if (a.tilt_color) desc += ' (' + a.tilt_color + ')';
+                    return desc;
+                }).join('\n');
+                const confirmed = confirm(
+                    'WARNING: This plug is already assigned as:\n' + assignmentDesc +
+                    '\n\nDo you want to overwrite this assignment?'
+                );
+                if (!confirmed) return;
+            }
             localStorage.setItem('kasa_' + type + '_url', url);
             const successMsg = document.getElementById('successMessage');
             const typeCapitalized = type.charAt(0).toUpperCase() + type.slice(1);
