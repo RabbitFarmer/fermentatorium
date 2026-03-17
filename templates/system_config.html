@@ -234,11 +234,7 @@
           <tr>
             <td><label for="email"><b>Recipient eMail Address</b></label></td>
             <td>
-              <input type="email" name="email" id="email" value="{{ system_settings.get('email','') }}" oninput="checkSmsGateway(this.value)" aria-describedby="sms-gateway-error">
-              <div id="sms-gateway-error" style="display:none; color:#c0392b; font-size:0.88em; margin-top:4px;">
-                ⚠ This looks like an SMS carrier-gateway address. Carriers no longer deliver email sent to these addresses.
-                Please enter a real email address or switch to Push notifications.
-              </div>
+              <input type="email" name="email" id="email" value="{{ system_settings.get('email','') }}">
               {% if error_msg %}
               <div style="color:#c0392b; font-size:0.88em; margin-top:4px;">⚠ {{ error_msg }}</div>
               {% endif %}
@@ -829,50 +825,6 @@
         gmailRow.style.display = (hostVal.toLowerCase().includes('gmail')) ? 'table-row' : 'none';
       }
     }
-
-    // Known SMS carrier-gateway domains — emailing these no longer works
-    const SMS_GATEWAY_DOMAINS = new Set([
-      'txt.att.net', 'mms.att.net', 'att.net',
-      'vtext.com', 'vzwpix.com',
-      'tmomail.net',
-      'messaging.sprintpcs.com', 'pm.sprint.com',
-      'myboostmobile.com', 'sms.myboostmobile.com',
-      'sms.cricketwireless.net', 'mms.cricketwireless.net',
-      'mymetropcs.com',
-      'uscellular.net', 'email.uscc.net',
-      'msg.fi.google.com',
-      'cingularme.com', 'message.alltel.com',
-      'pcs.rogers.com', 'mms.rogers.com', 'fido.ca', 'txt.bell.ca', 'txt.telus.com',
-    ]);
-
-    function checkSmsGateway(value) {
-      const errDiv = document.getElementById('sms-gateway-error');
-      if (!errDiv) return false;
-      const parts = value.split('@');
-      if (parts.length === 2 && SMS_GATEWAY_DOMAINS.has(parts[1].toLowerCase())) {
-        errDiv.style.display = 'block';
-        return true;  // is an SMS gateway
-      }
-      errDiv.style.display = 'none';
-      return false;
-    }
-
-    // Block form submission if recipient email is an SMS gateway address
-    document.addEventListener('DOMContentLoaded', function () {
-      const emailEl = document.getElementById('email');
-      const form = document.querySelector('form.temp-config-form');
-      if (form) {
-        form.addEventListener('submit', function (e) {
-          const emailVal = emailEl ? emailEl.value : '';
-          if (checkSmsGateway(emailVal)) {
-            e.preventDefault();
-            if (emailEl) emailEl.focus();
-          }
-        });
-      }
-      // Run check on page load in case the stored value is already a gateway address
-      if (emailEl) checkSmsGateway(emailEl.value);
-    });
 
     // Test Email notification
     function testEmail() {

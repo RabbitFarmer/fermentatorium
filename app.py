@@ -32,7 +32,7 @@ from glob import glob as glob_func
 from math import ceil
 from multiprocessing import Process, Queue
 import multiprocessing  # Needed for set_start_method and get_all_start_methods
-from urllib.parse import urlparse, quote
+from urllib.parse import urlparse
 import urllib.request
 import urllib.error
 import subprocess
@@ -153,39 +153,6 @@ SYSTEM_CFG_FILE    = os.path.join(_HERE, 'config', 'system_config.json')
 
 # Valid tab names for system config page (using set for O(1) lookup)
 VALID_SYSTEM_CONFIG_TABS = {'main-settings', 'push-email', 'logging-integrations', 'backup-restore'}
-
-# Known SMS/MMS carrier gateway domains — emailing these addresses no longer works
-# and was the old discontinued notification method.  Block them to prevent confusion.
-SMS_GATEWAY_DOMAINS = frozenset({
-    # AT&T
-    'txt.att.net', 'mms.att.net', 'att.net',
-    # Verizon
-    'vtext.com', 'vzwpix.com',
-    # T-Mobile
-    'tmomail.net',
-    # Sprint / Boost (legacy)
-    'messaging.sprintpcs.com', 'pm.sprint.com',
-    'myboostmobile.com', 'sms.myboostmobile.com',
-    # Cricket / AT&T subsidiary
-    'sms.cricketwireless.net', 'mms.cricketwireless.net',
-    # Metro by T-Mobile
-    'mymetropcs.com',
-    # US Cellular
-    'uscellular.net', 'email.uscc.net',
-    # Google Fi
-    'msg.fi.google.com',
-    # Legacy / other US carriers
-    'cingularme.com', 'message.alltel.com',
-    # Canadian carriers
-    'pcs.rogers.com', 'mms.rogers.com', 'fido.ca', 'txt.bell.ca', 'txt.telus.com',
-})
-
-def is_sms_gateway_email(address: str) -> bool:
-    """Return True if *address* looks like an SMS/MMS carrier-gateway address."""
-    if not address or '@' not in address:
-        return False
-    domain = address.split('@', 1)[1].strip().lower()
-    return domain in SMS_GATEWAY_DOMAINS
 
 # Chart caps
 DEFAULT_CHART_LIMIT = 3000
@@ -1791,21 +1758,14 @@ def _smtp_send(recipient, subject, body):
         return False, error_msg
 
 def send_email(subject, body):
-    recipient = system_cfg.get("email")
+    recipient = system_cfg.get("email", "").strip()
+    # Fall back to the sending email address when no separate recipient is configured
+    if not recipient:
+        recipient = system_cfg.get("sending_email", "").strip()
     if not recipient:
         print("[LOG] No recipient email configured")
         temp_cfg["email_error"] = True
         return False, "No recipient email configured"
-    if is_sms_gateway_email(recipient):
-        error_msg = (
-            f"Recipient address '{recipient}' is an SMS carrier-gateway address. "
-            "Sending email to carrier domains (e.g. @vtext.com, @tmomail.net) is no longer "
-            "supported by carriers. Update the Recipient eMail Address in System Settings to "
-            "a real email address, or switch to Push notifications."
-        )
-        print(f"[LOG] {error_msg}")
-        temp_cfg["email_error"] = True
-        return False, error_msg
     success, error_msg = _smtp_send(recipient, subject, body)
     temp_cfg["email_error"] = not success
     return success, error_msg
@@ -4376,7 +4336,7 @@ def system_config():
             "field_map_id": "default"
         })
     
-    return render_template('system_config.html', 
+    return render_template('system_config.html',
                          system_settings=system_cfg,
                          external_urls=external_urls,
                          predefined_field_maps=get_predefined_field_maps(),
@@ -4392,17 +4352,6 @@ def update_system_config():
     active_tab = data.get('active_tab', 'main-settings')
     if active_tab not in VALID_SYSTEM_CONFIG_TABS:
         active_tab = 'main-settings'
-    
-    # Reject SMS carrier-gateway addresses before saving
-    recipient_email = data.get("email", "").strip()
-    if is_sms_gateway_email(recipient_email):
-        domain = recipient_email.split('@', 1)[1].lower()
-        error = (
-            f"'{recipient_email}' is an SMS carrier-gateway address (@{domain}). "
-            "Carriers no longer deliver email sent to these addresses. "
-            "Please enter a real email address, or use Push notifications instead."
-        )
-        return redirect(f'/system_config?tab={active_tab}&error={quote(error)}')
 
     # Handle password field - only update if provided
     sending_email_password = data.get("sending_email_password", "")
