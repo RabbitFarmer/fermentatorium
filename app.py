@@ -7420,8 +7420,9 @@ def open_browser(port=5001):
     Open the web browser to the Flask app URL after a short delay.
     This runs in a separate thread to avoid blocking the Flask startup.
 
-    On Raspberry Pi / Linux, Chromium is launched in kiosk (full-screen)
-    mode so the display fills the screen from the moment it opens.
+    On Raspberry Pi / Linux, Chromium is launched in fullscreen mode so
+    the display fills the screen from the moment it opens.  F11 and ESC
+    remain active so the user can toggle fullscreen on and off.
     Falls back to a standard browser on platforms where Chromium is not
     available.
 
@@ -7469,9 +7470,11 @@ def open_browser(port=5001):
             else:
                 print(f"[LOG] Flask not responding after {max_attempts} seconds, opening browser anyway")
 
-    # Common Chromium kiosk flags: full-screen, no address bar, no error dialogs
-    kiosk_flags = [
-        '--kiosk',
+    # Launch Chromium in fullscreen with no address bar or error dialogs.
+    # --start-fullscreen is used instead of --kiosk so that the F11 and ESC
+    # keys remain active and can toggle fullscreen on and off.
+    chromium_flags = [
+        '--start-fullscreen',
         '--noerrdialogs',
         '--disable-infobars',
         '--disable-session-crashed-bubble',
@@ -7481,35 +7484,35 @@ def open_browser(port=5001):
         # 1) Chromium on Raspberry Pi OS / most Debian-based Linux
         if shutil.which('chromium-browser'):
             subprocess.Popen(
-                ['chromium-browser'] + kiosk_flags + [url],
+                ['chromium-browser'] + chromium_flags + [url],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
-            print(f"[LOG] Opened browser in kiosk mode at {url} using chromium-browser")
+            print(f"[LOG] Opened browser in fullscreen mode at {url} using chromium-browser")
 
         # 2) Chromium under the name 'chromium' (Arch, Fedora, etc.)
         elif shutil.which('chromium'):
             subprocess.Popen(
-                ['chromium'] + kiosk_flags + [url],
+                ['chromium'] + chromium_flags + [url],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
-            print(f"[LOG] Opened browser in kiosk mode at {url} using chromium")
+            print(f"[LOG] Opened browser in fullscreen mode at {url} using chromium")
 
         # 3) Google Chrome on Linux or macOS
         elif shutil.which('google-chrome'):
             subprocess.Popen(
-                ['google-chrome'] + kiosk_flags + [url],
+                ['google-chrome'] + chromium_flags + [url],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
-            print(f"[LOG] Opened browser in kiosk mode at {url} using google-chrome")
+            print(f"[LOG] Opened browser in fullscreen mode at {url} using google-chrome")
 
         # 4) macOS — open in default browser (no kiosk equivalent via CLI)
         elif shutil.which('open'):
