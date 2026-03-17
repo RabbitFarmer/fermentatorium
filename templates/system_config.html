@@ -185,10 +185,19 @@
           <tr>
             <td><label for="sending_email_password"><b>Sending Email Password</b></label></td>
             <td>
-              <input type="password" name="sending_email_password" id="sending_email_password" placeholder="{% if system_settings.get('smtp_password') %}Leave blank to keep existing password{% else %}Enter password{% endif %}">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <input type="password" name="sending_email_password" id="sending_email_password"
+                       placeholder="{% if system_settings.get('smtp_password') %}Leave blank to keep existing password{% else %}Enter password{% endif %}"
+                       oninput="stripPasswordSpaces(this)"
+                       onpaste="setTimeout(() => stripPasswordSpaces(this), 0)"
+                       style="flex: 1;">
+                <button type="button" onclick="togglePasswordVisibility('sending_email_password', this)"
+                        style="padding: 4px 8px; font-size: 0.85em; white-space: nowrap;">Show</button>
+              </div>
               {% if system_settings.get('smtp_password') %}
               <span style="color: green; font-size: 0.9em; margin-left: 8px;">✓ Password saved</span>
               {% endif %}
+              <div style="font-size: 0.8em; color: #666; margin-top: 3px;">Spaces are automatically removed (Google displays App Passwords with spaces).</div>
             </td>
           </tr>
           <!-- Gmail App Password notice -->
@@ -828,6 +837,33 @@
       const gmailRow = document.getElementById('gmail-notice-row');
       if (gmailRow) {
         gmailRow.style.display = (isGmailHost || isGmailEmail) ? 'table-row' : 'none';
+      }
+    }
+
+    // Strip all whitespace (including non-breaking spaces) from a password-style input.
+    // Called on input and paste events so the field never holds spaces.
+    function stripPasswordSpaces(input) {
+      const val = input.value;
+      const stripped = val.replace(/\s/g, '');
+      if (val !== stripped) {
+        const start = Math.max(0, input.selectionStart - (val.length - stripped.length));
+        input.value = stripped;
+        try {
+          input.setSelectionRange(start, start);
+        } catch (e) { /* selectionRange not supported on password inputs in some browsers */ }
+      }
+    }
+
+    // Toggle a password input between "password" (hidden) and "text" (visible) modes.
+    function togglePasswordVisibility(inputId, btn) {
+      const input = document.getElementById(inputId);
+      if (!input) return;
+      if (input.type === 'password') {
+        input.type = 'text';
+        btn.textContent = 'Hide';
+      } else {
+        input.type = 'password';
+        btn.textContent = 'Show';
       }
     }
 
