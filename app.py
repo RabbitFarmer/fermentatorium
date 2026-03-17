@@ -4528,8 +4528,8 @@ def update_system_config():
 @app.route('/test_email', methods=['POST'])
 def test_email():
     """Test email notification with current settings"""
-    subject = "TEST - ThreeControl"
-    body = "*** TEST MESSAGE ***\n\nThis is a TEST email from your ThreeControl system.\n\nIf you received this, your email settings are configured correctly!\n\n*** TEST MESSAGE ***"
+    subject = "TEST - THE TILT FERMENTATORIUM"
+    body = "*** TEST MESSAGE ***\n\nThis is a TEST email from The Tilt Fermentatorium.\n\nIf you received this, your email settings are configured correctly!\n\n*** TEST MESSAGE ***"
     
     success = False
     error_msg = None
