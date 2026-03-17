@@ -25,6 +25,27 @@ show_notification() {
     fi
 }
 
+# Open the browser in fullscreen mode.
+# Tries Chromium (with --start-fullscreen) first; falls back to xdg-open.
+# Note: --start-fullscreen is used intentionally (not --kiosk) so that F11
+# and ESC continue to work for the in-app fullscreen toggle.
+open_browser_fullscreen() {
+    local url="$1"
+    [ -n "$DISPLAY" ] || return 0
+    local browser=""
+    for candidate in chromium-browser chromium google-chrome google-chrome-stable; do
+        if command -v "$candidate" > /dev/null 2>&1; then
+            browser="$candidate"
+            break
+        fi
+    done
+    if [ -n "$browser" ]; then
+        "$browser" --start-fullscreen "$url" >> app.log 2>&1 &
+    elif command -v xdg-open > /dev/null 2>&1; then
+        xdg-open "$url" &
+    fi
+}
+
 # Kill any process listening on the given TCP port.
 # Uses lsof (preferred) or fuser (fallback) — both available on Raspberry Pi OS.
 kill_port() {
@@ -87,9 +108,7 @@ _cleanup_stale_port5000_entries
 # ── Already running? ──────────────────────────────────────────────────────────
 if curl -s --max-time 2 "http://127.0.0.1:$FLASK_PORT/" > /dev/null 2>&1; then
     show_notification "Fermentatorium" "Already running — opening dashboard." "normal"
-    if [ -n "$DISPLAY" ] && command -v xdg-open > /dev/null 2>&1; then
-        xdg-open "http://127.0.0.1:$FLASK_PORT/" &
-    fi
+    open_browser_fullscreen "http://127.0.0.1:$FLASK_PORT/"
     exit 0
 fi
 
@@ -167,9 +186,7 @@ done
 
 if [ "$APP_STARTED" = true ]; then
     show_notification "Fermentatorium" "Ready! Opening dashboard…" "normal"
-    if [ -n "$DISPLAY" ] && command -v xdg-open > /dev/null 2>&1; then
-        xdg-open "http://127.0.0.1:$FLASK_PORT/startup" &
-    fi
+    open_browser_fullscreen "http://127.0.0.1:$FLASK_PORT/startup"
 else
     echo "ERROR: Application did not respond after $((RETRIES * RETRY_DELAY)) seconds."
     echo "Last 30 lines of app.log:"
