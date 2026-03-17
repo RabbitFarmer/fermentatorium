@@ -1734,9 +1734,11 @@ def _smtp_send(recipient, subject, body):
         # Use sending_email as username and smtp_password (or sending_email_password) for authentication
         smtp_password = cfg.get("smtp_password") or cfg.get("sending_email_password")
         # Google App Passwords are displayed with spaces (e.g. "abcd efgh ijkl mnop") but
-        # must be used without spaces for authentication.
+        # must be used without spaces for authentication.  Use split/join rather than
+        # replace(" ", "") so that non-breaking spaces and other Unicode whitespace
+        # (which Google's website sometimes inserts) are also removed.
         if smtp_password:
-            smtp_password = smtp_password.replace(" ", "")
+            smtp_password = "".join(smtp_password.split())
         # Pre-validate Gmail App Password format before attempting a network call.
         # App Passwords are always exactly 16 alphanumeric characters; regular Google
         # account passwords will be rejected by Gmail with a 535 error.
@@ -4385,10 +4387,11 @@ def update_system_config():
     # Handle password field - only update if provided
     sending_email_password = data.get("sending_email_password", "")
     if sending_email_password:
-        # Strip spaces so Google App Passwords copied with spaces work correctly
-        # (Google displays App Passwords as "abcd efgh ijkl mnop" but they must be stored without spaces)
+        # Strip all whitespace (including non-breaking spaces that Google's App Password
+        # page sometimes inserts) so copied passwords work regardless of formatting.
+        # Use split/join rather than replace(" ", "") to catch all Unicode whitespace.
         # Store as smtp_password for SMTP authentication
-        system_cfg["smtp_password"] = sending_email_password.replace(" ", "")
+        system_cfg["smtp_password"] = "".join(sending_email_password.split())
     
     # Handle Pushover API Token - only update if provided
     pushover_api_token = data.get("pushover_api_token", "")
