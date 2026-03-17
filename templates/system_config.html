@@ -192,7 +192,7 @@
             </td>
           </tr>
           <!-- Gmail App Password notice -->
-          <tr id="gmail-notice-row" style="display: {% if 'gmail' in system_settings.get('smtp_host','') %}table-row{% else %}none{% endif %};">
+          <tr id="gmail-notice-row" style="display: {% if 'gmail' in system_settings.get('smtp_host','') or system_settings.get('sending_email','').endswith('@gmail.com') %}table-row{% else %}none{% endif %};">
             <td colspan="2">
               <div style="background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 5px; padding: 12px; margin: 8px 0;">
                 <strong style="color: #856404;">⚠️ Gmail Users: App Password Required</strong>
@@ -818,11 +818,16 @@
         }
       }
       
-      // Show/hide Gmail App Password notice based on SMTP host
+      // Show/hide Gmail App Password notice based on SMTP host or sending email domain
       const hostVal = document.getElementById('smtp_host') ? document.getElementById('smtp_host').value : '';
+      const emailVal = document.getElementById('sending_email') ? document.getElementById('sending_email').value : '';
+      const emailParts = emailVal.split('@');
+      const emailDomain = emailParts.length >= 2 ? emailParts.pop().toLowerCase() : '';
+      const isGmailHost = hostVal.toLowerCase().includes('gmail');
+      const isGmailEmail = emailDomain === 'gmail.com';
       const gmailRow = document.getElementById('gmail-notice-row');
       if (gmailRow) {
-        gmailRow.style.display = (hostVal.toLowerCase().includes('gmail')) ? 'table-row' : 'none';
+        gmailRow.style.display = (isGmailHost || isGmailEmail) ? 'table-row' : 'none';
       }
     }
 

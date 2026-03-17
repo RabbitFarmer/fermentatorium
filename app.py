@@ -1730,18 +1730,35 @@ def _smtp_send(recipient, subject, body):
         msg["To"] = recipient
         smtp_host = cfg.get("smtp_host", "localhost")
         smtp_port = int(cfg.get("smtp_port", 25))
+        is_gmail = "gmail" in smtp_host.lower()
         # Use sending_email as username and smtp_password (or sending_email_password) for authentication
         smtp_password = cfg.get("smtp_password") or cfg.get("sending_email_password")
         # Google App Passwords are displayed with spaces (e.g. "abcd efgh ijkl mnop") but
         # must be used without spaces for authentication.
         if smtp_password:
             smtp_password = smtp_password.replace(" ", "")
-        # Port 465 requires SSL from the start; port 587 (and others) use STARTTLS
+        # Pre-validate Gmail App Password format before attempting a network call.
+        # App Passwords are always exactly 16 alphanumeric characters; regular Google
+        # account passwords will be rejected by Gmail with a 535 error.
+        if is_gmail and smtp_password and (len(smtp_password) != 16 or not smtp_password.isalnum()):
+            return False, (
+                "Gmail authentication requires a 16-character App Password, not your regular Gmail password. "
+                f"The password stored is {len(smtp_password)} characters, which does not match the App Password format. "
+                "To generate an App Password: Google Account → Security → 2-Step Verification → App Passwords. "
+                "Open App Passwords: https://myaccount.google.com/apppasswords"
+            )
+        # Port 465 requires SSL from the start; port 587 (and others) use STARTTLS.
+        # smtp_starttls may be absent from configs saved before this option was introduced;
+        # in that case default to True for Gmail on port 587, which requires STARTTLS.
         if smtp_port == 465:
             server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10)
         else:
             server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
-            if cfg.get("smtp_starttls"):
+            starttls_setting = cfg.get("smtp_starttls")
+            # Default to True for port 587 (the standard STARTTLS submission port) when
+            # smtp_starttls is absent from the config (i.e. saved before this option existed).
+            use_starttls = bool(starttls_setting) if starttls_setting is not None else (smtp_port == 587)
+            if use_starttls:
                 server.starttls()
         if sending_email and smtp_password and len(smtp_password) > 0:
             server.login(sending_email, smtp_password)
