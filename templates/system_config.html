@@ -239,6 +239,9 @@
                 ⚠ This looks like an SMS carrier-gateway address. Carriers no longer deliver email sent to these addresses.
                 Please enter a real email address or switch to Push notifications.
               </div>
+              {% if recipient_sms_warning %}
+              <div style="color:#856404; background:#fff3cd; border:1px solid #ffc107; border-radius:4px; padding:6px 10px; font-size:0.88em; margin-top:4px;">⚠ {{ recipient_sms_warning }}</div>
+              {% endif %}
               {% if error_msg %}
               <div style="color:#c0392b; font-size:0.88em; margin-top:4px;">⚠ {{ error_msg }}</div>
               {% endif %}

@@ -1791,21 +1791,34 @@ def _smtp_send(recipient, subject, body):
         return False, error_msg
 
 def send_email(subject, body):
-    recipient = system_cfg.get("email")
+    recipient = system_cfg.get("email", "").strip()
+    sending_email = system_cfg.get("sending_email", "").strip()
+
+    # If the stored recipient is an SMS carrier-gateway address (old discontinued format),
+    # fall back to the sending email address (the configured From address) as the recipient.
+    if is_sms_gateway_email(recipient):
+        if sending_email and not is_sms_gateway_email(sending_email):
+            print(
+                f"[LOG] Recipient address '{recipient}' is an SMS carrier-gateway address. "
+                f"Falling back to sending email '{sending_email}' as the recipient. "
+                "Update the Recipient eMail Address in System Settings to remove this warning."
+            )
+            recipient = sending_email
+        else:
+            error_msg = (
+                f"Recipient address '{recipient}' is an SMS carrier-gateway address. "
+                "Sending email to carrier domains (e.g. @vtext.com, @tmomail.net) is no longer "
+                "supported by carriers. Update the Recipient eMail Address in System Settings to "
+                "a real email address, or switch to Push notifications."
+            )
+            print(f"[LOG] {error_msg}")
+            temp_cfg["email_error"] = True
+            return False, error_msg
+
     if not recipient:
         print("[LOG] No recipient email configured")
         temp_cfg["email_error"] = True
         return False, "No recipient email configured"
-    if is_sms_gateway_email(recipient):
-        error_msg = (
-            f"Recipient address '{recipient}' is an SMS carrier-gateway address. "
-            "Sending email to carrier domains (e.g. @vtext.com, @tmomail.net) is no longer "
-            "supported by carriers. Update the Recipient eMail Address in System Settings to "
-            "a real email address, or switch to Push notifications."
-        )
-        print(f"[LOG] {error_msg}")
-        temp_cfg["email_error"] = True
-        return False, error_msg
     success, error_msg = _smtp_send(recipient, subject, body)
     temp_cfg["email_error"] = not success
     return success, error_msg
@@ -4376,12 +4389,32 @@ def system_config():
             "field_map_id": "default"
         })
     
-    return render_template('system_config.html', 
-                         system_settings=system_cfg,
+    # Detect if the stored recipient email is an SMS gateway address and pre-fill with sending_email
+    stored_recipient = system_cfg.get("email", "").strip()
+    sending_email = system_cfg.get("sending_email", "").strip()
+    recipient_sms_warning = None
+    if is_sms_gateway_email(stored_recipient) and sending_email and not is_sms_gateway_email(sending_email):
+        recipient_sms_warning = (
+            f"The saved Recipient eMail Address ('{stored_recipient}') is an SMS carrier-gateway "
+            f"address that is no longer supported. It has been replaced with your Sending Email "
+            f"Address ('{sending_email}'). Please save to confirm this change."
+        )
+        # Build an updated settings view with the corrected recipient pre-filled
+        display_settings = dict(system_cfg)
+        display_settings["email"] = sending_email
+        # Switch to push-email tab so the user can see and confirm the corrected value
+        if active_tab == 'main-settings':
+            active_tab = 'push-email'
+    else:
+        display_settings = system_cfg
+
+    return render_template('system_config.html',
+                         system_settings=display_settings,
                          external_urls=external_urls,
                          predefined_field_maps=get_predefined_field_maps(),
                          active_tab=active_tab,
-                         error_msg=request.args.get('error', ''))
+                         error_msg=request.args.get('error', ''),
+                         recipient_sms_warning=recipient_sms_warning)
 
 @app.route('/update_system_config', methods=['POST'])
 def update_system_config():
