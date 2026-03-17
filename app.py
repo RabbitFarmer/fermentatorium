@@ -1728,11 +1728,21 @@ def _smtp_send(recipient, subject, body):
         msg["Subject"] = subject
         msg["From"] = sending_email
         msg["To"] = recipient
-        server = smtplib.SMTP(cfg.get("smtp_host", "localhost"), int(cfg.get("smtp_port", 25)), timeout=10)
-        if cfg.get("smtp_starttls"):
-            server.starttls()
+        smtp_host = cfg.get("smtp_host", "localhost")
+        smtp_port = int(cfg.get("smtp_port", 25))
         # Use sending_email as username and smtp_password (or sending_email_password) for authentication
         smtp_password = cfg.get("smtp_password") or cfg.get("sending_email_password")
+        # Google App Passwords are displayed with spaces (e.g. "abcd efgh ijkl mnop") but
+        # must be used without spaces for authentication.
+        if smtp_password:
+            smtp_password = smtp_password.replace(" ", "")
+        # Port 465 requires SSL from the start; port 587 (and others) use STARTTLS
+        if smtp_port == 465:
+            server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10)
+        else:
+            server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
+            if cfg.get("smtp_starttls"):
+                server.starttls()
         if sending_email and smtp_password and len(smtp_password) > 0:
             server.login(sending_email, smtp_password)
         server.sendmail(sending_email, [recipient], msg.as_string())
@@ -1745,11 +1755,13 @@ def _smtp_send(recipient, subject, body):
         # Provide helpful error message for Gmail authentication issues
         if "BadCredentials" in original_error or ("535" in original_error and "gmail" in cfg.get("smtp_host", "").lower()):
             error_msg = (
-                "Gmail authentication failed. Gmail requires an App Password when 2-Factor Authentication is enabled. "
-                "Regular Gmail passwords will not work. "
-                "To fix this: 1) Enable 2-Factor Authentication on your Google account, "
-                "2) Generate an App Password at https://myaccount.google.com/apppasswords, "
-                "3) Use the App Password (not your regular password) in the Fermenter Email Password field. "
+                "Gmail authentication failed. "
+                "If you are already using a Gmail App Password, verify that: "
+                "1) The App Password was entered without spaces (Google displays them with spaces, but they must be saved without spaces), "
+                "2) The App Password is still valid at https://myaccount.google.com/apppasswords, "
+                "3) The sending email address matches the Google account where the App Password was created. "
+                "If you have not yet set up an App Password: Gmail requires one when 2-Factor Authentication is enabled — "
+                "go to Google Account → Security → 2-Step Verification → App Passwords to generate one. "
                 f"Original error: {original_error}"
             )
         else:
@@ -4356,8 +4368,10 @@ def update_system_config():
     # Handle password field - only update if provided
     sending_email_password = data.get("sending_email_password", "")
     if sending_email_password:
+        # Strip spaces so Google App Passwords copied with spaces work correctly
+        # (Google displays App Passwords as "abcd efgh ijkl mnop" but they must be stored without spaces)
         # Store as smtp_password for SMTP authentication
-        system_cfg["smtp_password"] = sending_email_password
+        system_cfg["smtp_password"] = sending_email_password.replace(" ", "")
     
     # Handle Pushover API Token - only update if provided
     pushover_api_token = data.get("pushover_api_token", "")
