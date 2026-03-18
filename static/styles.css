@@ -7,13 +7,19 @@
      (1340 page − 28 page padding − 16 container padding = 1296 px)       */
   --card-width: 305px;
   --card-gap: 24px;
-  --metric-number-size: 20px;
+  --metric-number-size: 26px;
   --temp-number-size: 36px;
   --ribbon-green: #0b8a2e;
   --btn-brown: #8B4513;
   --btn-green: #4CAF50;
   --panel-bg: #e2e6ea;
   --panel-border: #cfdbe0;
+}
+
+/* 4-across display mode — compact page padding, fixed card height for equal rows */
+.display-mode-4 {
+  --card-height: 390px;
+  padding: 10px 14px 20px;
 }
 
 /* 3-across display mode
@@ -23,6 +29,8 @@
   --card-width: 400px;
   --metric-number-size: 32px;
   --temp-number-size: 48px;
+  --card-height: 420px;
+  padding: 10px 14px 20px;
 }
 
 /* Body background */
@@ -159,6 +167,12 @@ body, body.page-bg {
   margin: 10px 0 18px;
 }
 
+/* Reduce title spacing in display-mode pages to reclaim vertical space */
+.display-mode-3 .dashboard-title,
+.display-mode-4 .dashboard-title {
+  margin: 6px 0 10px;
+}
+
 /* ── Tilt card layout ────────────────────────────────────────────────────
    Flexbox wrapping — cards line up side-by-side and wrap naturally.
    justify-content: center keeps the row centred on all screen sizes.      */
@@ -168,6 +182,7 @@ body, body.page-bg {
 .tiltcard-container {
   display: grid;
   grid-template-columns: repeat(4, var(--card-width));
+  grid-auto-rows: var(--card-height, auto);
   gap: var(--card-gap);
   justify-content: center;
   max-width: var(--page-max-width);
@@ -190,7 +205,13 @@ body, body.page-bg {
   display: flex;
   flex-direction: column;
 }
-.tilt-banner { padding: 14px; text-align: center; font-weight: 900; font-size: 18px; }
+
+/* Temperature controller card — same dimensions as a tilt card */
+.temp-ctrl-card {
+  width: var(--card-width);
+}
+
+.tilt-banner { padding: 16px; text-align: center; font-weight: 900; font-size: 22px; }
 .tilt-body   { padding: 12px; }
 
 /* Metrics table */
@@ -203,7 +224,7 @@ body, body.page-bg {
 }
 .tilt-metrics.restore .label {
   color: #444;
-  font-size: 16px;
+  font-size: 18px;
   padding: 6px;
   text-align: left;
   vertical-align: middle;
@@ -220,10 +241,11 @@ body, body.page-bg {
 .metric-number { display: inline-block; }
 
 /* 3-across display mode: larger text */
-.display-mode-3 .tilt-banner                               { font-size: 24px; padding: 18px; }
-.display-mode-3 .tilt-metrics.restore .label              { font-size: 20px; font-weight: 800; }
-.display-mode-3 .tilt-metrics.restore th.right-header     { font-size: 16px; }
-.display-mode-3 .tilt-metrics.restore td:nth-child(2) .metric-number { font-size: 18px; }
+.display-mode-3 .tilt-banner                               { font-size: 26px; padding: 16px; }
+.display-mode-3 .tilt-batch-name                           { font-size: 20px; }
+.display-mode-3 .tilt-metrics.restore .label              { font-size: 22px; font-weight: 800; }
+.display-mode-3 .tilt-metrics.restore th.right-header     { font-size: 18px; }
+.display-mode-3 .tilt-metrics.restore td:nth-child(2) .metric-number { font-size: 20px; }
 
 /* Card footer */
 .tilt-footer-colored { padding: 10px 12px; font-size: 15px; }
