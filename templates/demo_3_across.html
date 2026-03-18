@@ -10,6 +10,7 @@
       --page-max-width: 1340px;
       --card-width: 400px;
       --card-gap: 24px;
+      --card-height: 420px;
       --metric-number-size: 32px;
       --temp-number-size: 48px;
       --ribbon-green: #0b8a2e;
@@ -36,7 +37,7 @@
     .page-container {
       max-width: var(--page-max-width);
       margin: 0 auto;
-      padding: 18px 14px 40px;
+      padding: 10px 14px 20px;
       box-sizing: border-box;
     }
 
@@ -46,7 +47,7 @@
       text-align: center;
       font-size: 36px;
       font-weight: 900;
-      margin: 10px 0 4px;
+      margin: 6px 0 4px;
     }
     .demo-badge {
       text-align: center;
@@ -54,7 +55,7 @@
       font-weight: 700;
       color: #888;
       letter-spacing: 1px;
-      margin-bottom: 18px;
+      margin-bottom: 10px;
     }
 
     /* ── Tilt card grid — 3-across ── */
@@ -62,6 +63,7 @@
     .tiltcard-container {
       display: grid;
       grid-template-columns: repeat(3, var(--card-width));
+      grid-auto-rows: var(--card-height);
       gap: var(--card-gap);
       justify-content: center;
       max-width: var(--page-max-width);
@@ -80,14 +82,14 @@
       flex-direction: column;
     }
     .tilt-banner {
-      padding: 18px;
+      padding: 16px;
       text-align: center;
       font-weight: 900;
-      font-size: 24px;
+      font-size: 26px;
       cursor: pointer;
     }
     .tilt-banner:hover { opacity: 0.92; }
-    .tilt-batch-name { font-size: 18px; font-weight: 700; opacity: 0.95; margin-top: 4px; }
+    .tilt-batch-name { font-size: 20px; font-weight: 700; opacity: 0.95; margin-top: 4px; }
     .tilt-body { padding: 12px; flex: 1; }
 
     /* ── Metrics table ── */
@@ -96,11 +98,11 @@
       text-align: right;
       font-weight: 700;
       padding: 6px;
-      font-size: 16px;
+      font-size: 18px;
     }
     .tilt-metrics .label {
       color: #444;
-      font-size: 20px;
+      font-size: 22px;
       font-weight: 800;
       padding: 6px;
       text-align: left;
@@ -115,6 +117,8 @@
       text-align: right;
       vertical-align: middle;
     }
+    /* Recipe column shown smaller than Actual to de-emphasise reference values */
+    .tilt-metrics td:nth-child(2) .metric-number { font-size: 20px; }
     .metric-number { display: inline-block; }
 
     /* ── Tilt footer ── */
@@ -160,8 +164,8 @@
     .tc-header {
       text-align: center;
       font-weight: 900;
-      font-size: 22px;
-      padding: 14px 12px 8px;
+      font-size: 26px;
+      padding: 16px 12px 10px;
       cursor: pointer;
       letter-spacing: 0.5px;
     }
@@ -189,17 +193,17 @@
       border-bottom: 1px solid #ddd;
       margin-bottom: 8px;
     }
-    .tc-mode-label { font-weight: 800; color: #222; font-size: 18px; }
-    .tc-mode-value { font-weight: 700; color: #555; font-size: 18px; text-align: right; }
+    .tc-mode-label { font-weight: 800; color: #222; font-size: 20px; }
+    .tc-mode-value { font-weight: 700; color: #555; font-size: 20px; text-align: right; }
 
     /* 2-column grid: label + value-box */
     .tc-grid {
       display: grid;
-      grid-template-columns: 1fr 130px;
+      grid-template-columns: 1fr 140px;
       align-items: center;
       gap: 10px 12px;
     }
-    .tc-label { font-weight: 800; color: #222; font-size: 18px; }
+    .tc-label { font-weight: 800; color: #222; font-size: 22px; }
 
     .tc-value-box {
       border: 2px solid #111;
@@ -207,19 +211,19 @@
       text-align: center;
       font-weight: 900;
       font-family: monospace;
-      font-size: 22px;
+      font-size: 26px;
       background: #fff;
       box-sizing: border-box;
-      min-width: 100px;
+      min-width: 120px;
       line-height: 1;
     }
-    .tc-value-current { border-width: 3px; font-size: 32px; padding: 6px 10px; }
+    .tc-value-current { border-width: 3px; font-size: 36px; padding: 6px 10px; }
 
     /* Status */
     .tc-status {
       font-weight: 900;
       text-align: center;
-      font-size: 22px;
+      font-size: 24px;
       margin: 6px 0 8px;
       letter-spacing: 0.5px;
       line-height: 1.1;
@@ -233,7 +237,7 @@
       margin-top: 10px;
       text-align: center;
       font-weight: 900;
-      font-size: 18px;
+      font-size: 20px;
       padding: 4px 6px;
       min-height: 28px;
       line-height: 1.2;
@@ -347,304 +351,278 @@
   </header>
 
   <!-- ══ Tilt card grid ══
-       Layout (3-column grid, 2 rows):
-         Col 1: Red tilt (row 1) + Red TC card (row 2)
-         Col 2: Purple tilt (row 1) + Purple TC card (row 2)
-         Col 3: Orange tilt (row 1, top) + Black tilt (row 1, bottom)
-
-       Because the grid is 3-across and the right column needs to stack
-       2 tilt-only cards, we use a nested wrapper in column 3.
+       Layout (3-column CSS grid, 2 rows — mirrors production maindisplay behavior):
+         Row 1: Red tilt (col 1) | Purple tilt (col 2) | Orange tilt (col 3)
+         Row 2: Red TC  (col 1) | Purple TC  (col 2) | Black tilt  (col 3)
+       grid-auto-rows: var(--card-height) keeps all cells the same height,
+       so TC cards match tilt-card dimensions exactly.
   ══ -->
   <section class="tiltcards-wrapper" aria-label="Active Tilts">
-    <div class="tiltcard-container" style="grid-template-columns: repeat(3, var(--card-width)); align-items: start;">
+    <div class="tiltcard-container" style="grid-template-columns: repeat(3, var(--card-width));">
 
-      <!-- ═══════════════════════════════════════════════════════
-           COLUMN 1 — Red Tilt + Temperature Controller
-      ═══════════════════════════════════════════════════════ -->
-      <div style="display:flex; flex-direction:column; gap:var(--card-gap);">
+      <!-- ── ROW 1, COL 1 — Red Tilt ── -->
+      <article class="tilt-card" data-tilt="Red" style="grid-column:1;grid-row:1;">
+        <div class="tilt-banner" style="background-color:#c8102e; color:white;">
+          <div class="beer-name">Scarlet Lager</div>
+          <div class="tilt-batch-name">Batch: Spring Lager 2026</div>
+        </div>
+        <div class="tilt-body">
+          <table class="tilt-metrics">
+            <tr>
+              <th></th>
+              <th class="right-header">Recipe</th>
+              <th class="right-header">Actual</th>
+            </tr>
+            <tr>
+              <td class="label">Original Gravity</td>
+              <td class="value"><span class="metric-number">1.058</span></td>
+              <td class="value"><b><span class="metric-number">1.058</span></b></td>
+            </tr>
+            <tr>
+              <td class="label">Final / Current Gravity</td>
+              <td class="value"><span class="metric-number">1.010</span></td>
+              <td class="value"><b><span class="metric-number">1.014</span></b></td>
+            </tr>
+            <tr>
+              <td class="label">Temperature</td>
+              <td class="value"></td>
+              <td class="value"><b><span class="metric-number">52.4°F</span></b></td>
+            </tr>
+            <tr>
+              <td class="label">A.B.V.</td>
+              <td class="value"><span class="metric-number">6.3%</span></td>
+              <td class="value"><b><span class="metric-number">5.8%</span></b></td>
+            </tr>
+          </table>
+        </div>
+        <footer class="tilt-footer-colored" style="background:#c8102e; color:white;">
+          <div class="footer-info">
+            <div class="footer-brewid">Brew ID: RF-2026-03-001</div>
+            <div class="footer-mac">MAC: C8:10:2E:AA:BB:01</div>
+            <div class="footer-ts">Last: 3/14/2026, 11:47:32 AM</div>
+          </div>
+          <a class="chart-pill" href="#" style="color:#c8102e;">CHART</a>
+        </footer>
+      </article>
 
-        <!-- Red Tilt Card -->
-        <article class="tilt-card" data-tilt="Red">
-          <div class="tilt-banner" style="background-color:#c8102e; color:white;">
-            <div class="beer-name">Scarlet Lager</div>
-            <div class="tilt-batch-name">Batch: Spring Lager 2026</div>
+      <!-- ── ROW 1, COL 2 — Purple Tilt ── -->
+      <article class="tilt-card" data-tilt="Purple" style="grid-column:2;grid-row:1;">
+        <div class="tilt-banner" style="background-color:#6a0dad; color:white;">
+          <div class="beer-name">Plum Fury IPA</div>
+          <div class="tilt-batch-name">Batch: Hop Fest Alpha</div>
+        </div>
+        <div class="tilt-body">
+          <table class="tilt-metrics">
+            <tr>
+              <th></th>
+              <th class="right-header">Recipe</th>
+              <th class="right-header">Actual</th>
+            </tr>
+            <tr>
+              <td class="label">Original Gravity</td>
+              <td class="value"><span class="metric-number">1.072</span></td>
+              <td class="value"><b><span class="metric-number">1.071</span></b></td>
+            </tr>
+            <tr>
+              <td class="label">Final / Current Gravity</td>
+              <td class="value"><span class="metric-number">1.012</span></td>
+              <td class="value"><b><span class="metric-number">1.018</span></b></td>
+            </tr>
+            <tr>
+              <td class="label">Temperature</td>
+              <td class="value"></td>
+              <td class="value"><b><span class="metric-number">68.9°F</span></b></td>
+            </tr>
+            <tr>
+              <td class="label">A.B.V.</td>
+              <td class="value"><span class="metric-number">7.9%</span></td>
+              <td class="value"><b><span class="metric-number">7.0%</span></b></td>
+            </tr>
+          </table>
+        </div>
+        <footer class="tilt-footer-colored" style="background:#6a0dad; color:white;">
+          <div class="footer-info">
+            <div class="footer-brewid">Brew ID: RF-2026-02-017</div>
+            <div class="footer-mac">MAC: 6A:0D:AD:CC:DD:02</div>
+            <div class="footer-ts">Last: 3/14/2026, 11:47:29 AM</div>
           </div>
-          <div class="tilt-body">
-            <table class="tilt-metrics">
-              <tr>
-                <th></th>
-                <th class="right-header">Recipe</th>
-                <th class="right-header">Actual</th>
-              </tr>
-              <tr>
-                <td class="label">Original Gravity</td>
-                <td class="value"><span class="metric-number">1.058</span></td>
-                <td class="value"><b><span class="metric-number">1.058</span></b></td>
-              </tr>
-              <tr>
-                <td class="label">Final / Current Gravity</td>
-                <td class="value"><span class="metric-number">1.010</span></td>
-                <td class="value"><b><span class="metric-number">1.014</span></b></td>
-              </tr>
-              <tr>
-                <td class="label">Temperature</td>
-                <td class="value"></td>
-                <td class="value"><b><span class="metric-number">52.4°F</span></b></td>
-              </tr>
-              <tr>
-                <td class="label">A.B.V.</td>
-                <td class="value"><span class="metric-number">6.3%</span></td>
-                <td class="value"><b><span class="metric-number">5.8%</span></b></td>
-              </tr>
-            </table>
-          </div>
-          <footer class="tilt-footer-colored" style="background:#c8102e; color:white;">
-            <div class="footer-info">
-              <div class="footer-brewid">Brew ID: RF-2026-03-001</div>
-              <div class="footer-mac">MAC: C8:10:2E:AA:BB:01</div>
-              <div class="footer-ts">Last: 3/14/2026, 11:47:32 AM</div>
-            </div>
-            <a class="chart-pill" href="#" style="color:#c8102e;">CHART</a>
-          </footer>
-        </article>
+          <a class="chart-pill" href="#" style="color:#6a0dad;">CHART</a>
+        </footer>
+      </article>
 
-        <!-- Red Temperature Controller Card -->
-        <article class="temp-ctrl-card">
-          <div class="tc-header" style="background-color:#c8102e; color:white;">
-            TEMPERATURE CONTROLLER #1
-            <div class="tc-header-sub">Last Reading: 3/14/2026, 11:47:32 AM</div>
+      <!-- ── ROW 1, COL 3 — Orange Tilt ── -->
+      <article class="tilt-card" data-tilt="Orange" style="grid-column:3;grid-row:1;">
+        <div class="tilt-banner" style="background-color:#e07b00; color:white;">
+          <div class="beer-name">Harvest Wheat</div>
+          <div class="tilt-batch-name">Batch: Summer Wheat 26</div>
+        </div>
+        <div class="tilt-body">
+          <table class="tilt-metrics">
+            <tr>
+              <th></th>
+              <th class="right-header">Recipe</th>
+              <th class="right-header">Actual</th>
+            </tr>
+            <tr>
+              <td class="label">Original Gravity</td>
+              <td class="value"><span class="metric-number">1.048</span></td>
+              <td class="value"><b><span class="metric-number">1.049</span></b></td>
+            </tr>
+            <tr>
+              <td class="label">Final / Current Gravity</td>
+              <td class="value"><span class="metric-number">1.008</span></td>
+              <td class="value"><b><span class="metric-number">1.011</span></b></td>
+            </tr>
+            <tr>
+              <td class="label">Temperature</td>
+              <td class="value"></td>
+              <td class="value"><b><span class="metric-number">64.2°F</span></b></td>
+            </tr>
+            <tr>
+              <td class="label">A.B.V.</td>
+              <td class="value"><span class="metric-number">5.2%</span></td>
+              <td class="value"><b><span class="metric-number">5.0%</span></b></td>
+            </tr>
+          </table>
+        </div>
+        <footer class="tilt-footer-colored" style="background:#e07b00; color:white;">
+          <div class="footer-info">
+            <div class="footer-brewid">Brew ID: RF-2026-03-003</div>
+            <div class="footer-mac">MAC: E0:7B:00:11:22:03</div>
+            <div class="footer-ts">Last: 3/14/2026, 11:47:31 AM</div>
           </div>
-          <div class="tc-body">
-            <div class="tc-mode-row">
-              <span class="tc-mode-label">MODE</span>
-              <span class="tc-mode-value">COOL &amp; HEAT</span>
-            </div>
-            <div class="tc-grid">
-              <div class="tc-label">HIGH LIMIT</div>
-              <div style="text-align:right;">
-                <div class="tc-value-box">55<span style="font-size:14px;font-weight:700;"> F</span></div>
-              </div>
-              <div class="tc-label">CURRENT<br>TEMPERATURE</div>
-              <div style="text-align:right;">
-                <div class="tc-value-box tc-value-current">52<span style="font-size:16px;font-weight:700;"> F</span></div>
-              </div>
-              <div class="tc-label">LOW LIMIT</div>
-              <div style="text-align:right;">
-                <div class="tc-value-box">48<span style="font-size:14px;font-weight:700;"> F</span></div>
-              </div>
-            </div>
-            <div class="tc-status status-inrange">TEMP IN RANGE</div>
-            <div class="tc-notifications">
-              <!-- No active heating/cooling -->
-            </div>
-          </div>
-          <div class="tc-footer" style="background:#c8102e; color:white;">
-            <div class="footer-toggle-container">
-              <label class="switch">
-                <input type="checkbox" checked>
-                <span class="slider round"></span>
-              </label>
-              <span class="toggle-label">Temp Control ON</span>
-            </div>
-            <div class="tc-ftr-ts">Last: 3/14/2026, 11:47:32 AM</div>
-            <a class="chart-pill tc-chart-pill" href="#" style="color:#c8102e;">CHART</a>
-          </div>
-        </article>
+          <a class="chart-pill" href="#" style="color:#e07b00;">CHART</a>
+        </footer>
+      </article>
 
-      </div><!-- /col 1 -->
-
-      <!-- ═══════════════════════════════════════════════════════
-           COLUMN 2 — Purple Tilt + Temperature Controller
-      ═══════════════════════════════════════════════════════ -->
-      <div style="display:flex; flex-direction:column; gap:var(--card-gap);">
-
-        <!-- Purple Tilt Card -->
-        <article class="tilt-card" data-tilt="Purple">
-          <div class="tilt-banner" style="background-color:#6a0dad; color:white;">
-            <div class="beer-name">Plum Fury IPA</div>
-            <div class="tilt-batch-name">Batch: Hop Fest Alpha</div>
+      <!-- ── ROW 2, COL 1 — Red Temperature Controller ── -->
+      <article class="temp-ctrl-card" style="grid-column:1;grid-row:2;">
+        <div class="tc-header" style="background-color:#c8102e; color:white;">
+          TEMPERATURE CONTROLLER #1
+          <div class="tc-header-sub">Last Reading: 3/14/2026, 11:47:32 AM</div>
+        </div>
+        <div class="tc-body">
+          <div class="tc-mode-row">
+            <span class="tc-mode-label">MODE</span>
+            <span class="tc-mode-value">COOL &amp; HEAT</span>
           </div>
-          <div class="tilt-body">
-            <table class="tilt-metrics">
-              <tr>
-                <th></th>
-                <th class="right-header">Recipe</th>
-                <th class="right-header">Actual</th>
-              </tr>
-              <tr>
-                <td class="label">Original Gravity</td>
-                <td class="value"><span class="metric-number">1.072</span></td>
-                <td class="value"><b><span class="metric-number">1.071</span></b></td>
-              </tr>
-              <tr>
-                <td class="label">Final / Current Gravity</td>
-                <td class="value"><span class="metric-number">1.012</span></td>
-                <td class="value"><b><span class="metric-number">1.018</span></b></td>
-              </tr>
-              <tr>
-                <td class="label">Temperature</td>
-                <td class="value"></td>
-                <td class="value"><b><span class="metric-number">68.9°F</span></b></td>
-              </tr>
-              <tr>
-                <td class="label">A.B.V.</td>
-                <td class="value"><span class="metric-number">7.9%</span></td>
-                <td class="value"><b><span class="metric-number">7.0%</span></b></td>
-              </tr>
-            </table>
-          </div>
-          <footer class="tilt-footer-colored" style="background:#6a0dad; color:white;">
-            <div class="footer-info">
-              <div class="footer-brewid">Brew ID: RF-2026-02-017</div>
-              <div class="footer-mac">MAC: 6A:0D:AD:CC:DD:02</div>
-              <div class="footer-ts">Last: 3/14/2026, 11:47:29 AM</div>
+          <div class="tc-grid">
+            <div class="tc-label">HIGH LIMIT</div>
+            <div style="text-align:right;">
+              <div class="tc-value-box">55<span class="tc-value-unit"> F</span></div>
             </div>
-            <a class="chart-pill" href="#" style="color:#6a0dad;">CHART</a>
-          </footer>
-        </article>
-
-        <!-- Purple Temperature Controller Card -->
-        <article class="temp-ctrl-card">
-          <div class="tc-header" style="background-color:#6a0dad; color:white;">
-            TEMPERATURE CONTROLLER #2
-            <div class="tc-header-sub">Last Reading: 3/14/2026, 11:47:29 AM</div>
-          </div>
-          <div class="tc-body">
-            <div class="tc-mode-row">
-              <span class="tc-mode-label">MODE</span>
-              <span class="tc-mode-value">HEAT ONLY</span>
+            <div class="tc-label">CURRENT<br>TEMPERATURE</div>
+            <div style="text-align:right;">
+              <div class="tc-value-box tc-value-current">52<span class="tc-value-unit"> F</span></div>
             </div>
-            <div class="tc-grid">
-              <div class="tc-label">HIGH LIMIT</div>
-              <div style="text-align:right;">
-                <div class="tc-value-box">72<span style="font-size:14px;font-weight:700;"> F</span></div>
-              </div>
-              <div class="tc-label">CURRENT<br>TEMPERATURE</div>
-              <div style="text-align:right;">
-                <div class="tc-value-box tc-value-current">69<span style="font-size:16px;font-weight:700;"> F</span></div>
-              </div>
-              <div class="tc-label">LOW LIMIT</div>
-              <div style="text-align:right;">
-                <div class="tc-value-box">66<span style="font-size:14px;font-weight:700;"> F</span></div>
-              </div>
-            </div>
-            <div class="tc-status status-inrange">TEMP IN RANGE</div>
-            <div class="tc-notifications">
-              <div class="tc-notification-item heating">🔥 Heating ON</div>
+            <div class="tc-label">LOW LIMIT</div>
+            <div style="text-align:right;">
+              <div class="tc-value-box">48<span class="tc-value-unit"> F</span></div>
             </div>
           </div>
-          <div class="tc-footer" style="background:#6a0dad; color:white;">
-            <div class="footer-toggle-container">
-              <label class="switch">
-                <input type="checkbox" checked>
-                <span class="slider round"></span>
-              </label>
-              <span class="toggle-label">Temp Control ON</span>
+          <div class="tc-status status-inrange">TEMP IN RANGE</div>
+          <div class="tc-notifications"><!-- No active heating/cooling --></div>
+        </div>
+        <div class="tc-footer" style="background:#c8102e; color:white;">
+          <div class="footer-toggle-container">
+            <label class="switch">
+              <input type="checkbox" checked>
+              <span class="slider round"></span>
+            </label>
+            <span class="toggle-label">Temp Control ON</span>
+          </div>
+          <div class="tc-ftr-ts">Last: 3/14/2026, 11:47:32 AM</div>
+          <a class="chart-pill tc-chart-pill" href="#" style="color:#c8102e;">CHART</a>
+        </div>
+      </article>
+
+      <!-- ── ROW 2, COL 2 — Purple Temperature Controller ── -->
+      <article class="temp-ctrl-card" style="grid-column:2;grid-row:2;">
+        <div class="tc-header" style="background-color:#6a0dad; color:white;">
+          TEMPERATURE CONTROLLER #2
+          <div class="tc-header-sub">Last Reading: 3/14/2026, 11:47:29 AM</div>
+        </div>
+        <div class="tc-body">
+          <div class="tc-mode-row">
+            <span class="tc-mode-label">MODE</span>
+            <span class="tc-mode-value">HEAT ONLY</span>
+          </div>
+          <div class="tc-grid">
+            <div class="tc-label">HIGH LIMIT</div>
+            <div style="text-align:right;">
+              <div class="tc-value-box">72<span class="tc-value-unit"> F</span></div>
             </div>
-            <div class="tc-ftr-ts">Last: 3/14/2026, 11:47:29 AM</div>
-            <a class="chart-pill tc-chart-pill" href="#" style="color:#6a0dad;">CHART</a>
-          </div>
-        </article>
-
-      </div><!-- /col 2 -->
-
-      <!-- ═══════════════════════════════════════════════════════
-           COLUMN 3 — Orange Tilt (top) + Black Tilt (bottom)
-                      No temperature controllers on these two.
-      ═══════════════════════════════════════════════════════ -->
-      <div style="display:flex; flex-direction:column; gap:var(--card-gap);">
-
-        <!-- Orange Tilt Card -->
-        <article class="tilt-card" data-tilt="Orange">
-          <div class="tilt-banner" style="background-color:#e07b00; color:white;">
-            <div class="beer-name">Harvest Wheat</div>
-            <div class="tilt-batch-name">Batch: Summer Wheat 26</div>
-          </div>
-          <div class="tilt-body">
-            <table class="tilt-metrics">
-              <tr>
-                <th></th>
-                <th class="right-header">Recipe</th>
-                <th class="right-header">Actual</th>
-              </tr>
-              <tr>
-                <td class="label">Original Gravity</td>
-                <td class="value"><span class="metric-number">1.048</span></td>
-                <td class="value"><b><span class="metric-number">1.049</span></b></td>
-              </tr>
-              <tr>
-                <td class="label">Final / Current Gravity</td>
-                <td class="value"><span class="metric-number">1.008</span></td>
-                <td class="value"><b><span class="metric-number">1.011</span></b></td>
-              </tr>
-              <tr>
-                <td class="label">Temperature</td>
-                <td class="value"></td>
-                <td class="value"><b><span class="metric-number">64.2°F</span></b></td>
-              </tr>
-              <tr>
-                <td class="label">A.B.V.</td>
-                <td class="value"><span class="metric-number">5.2%</span></td>
-                <td class="value"><b><span class="metric-number">5.0%</span></b></td>
-              </tr>
-            </table>
-          </div>
-          <footer class="tilt-footer-colored" style="background:#e07b00; color:white;">
-            <div class="footer-info">
-              <div class="footer-brewid">Brew ID: RF-2026-03-003</div>
-              <div class="footer-mac">MAC: E0:7B:00:11:22:03</div>
-              <div class="footer-ts">Last: 3/14/2026, 11:47:31 AM</div>
+            <div class="tc-label">CURRENT<br>TEMPERATURE</div>
+            <div style="text-align:right;">
+              <div class="tc-value-box tc-value-current">69<span class="tc-value-unit"> F</span></div>
             </div>
-            <a class="chart-pill" href="#" style="color:#e07b00;">CHART</a>
-          </footer>
-        </article>
-
-        <!-- Black Tilt Card -->
-        <article class="tilt-card" data-tilt="Black">
-          <div class="tilt-banner" style="background-color:#1a1a1a; color:white;">
-            <div class="beer-name">Midnight Stout</div>
-            <div class="tilt-batch-name">Batch: Dark Arts Vol. 4</div>
-          </div>
-          <div class="tilt-body">
-            <table class="tilt-metrics">
-              <tr>
-                <th></th>
-                <th class="right-header">Recipe</th>
-                <th class="right-header">Actual</th>
-              </tr>
-              <tr>
-                <td class="label">Original Gravity</td>
-                <td class="value"><span class="metric-number">1.082</span></td>
-                <td class="value"><b><span class="metric-number">1.080</span></b></td>
-              </tr>
-              <tr>
-                <td class="label">Final / Current Gravity</td>
-                <td class="value"><span class="metric-number">1.018</span></td>
-                <td class="value"><b><span class="metric-number">1.022</span></b></td>
-              </tr>
-              <tr>
-                <td class="label">Temperature</td>
-                <td class="value"></td>
-                <td class="value"><b><span class="metric-number">67.5°F</span></b></td>
-              </tr>
-              <tr>
-                <td class="label">A.B.V.</td>
-                <td class="value"><span class="metric-number">8.4%</span></td>
-                <td class="value"><b><span class="metric-number">7.6%</span></b></td>
-              </tr>
-            </table>
-          </div>
-          <footer class="tilt-footer-colored" style="background:#1a1a1a; color:white;">
-            <div class="footer-info">
-              <div class="footer-brewid">Brew ID: RF-2026-01-042</div>
-              <div class="footer-mac">MAC: 1A:1A:1A:FF:EE:04</div>
-              <div class="footer-ts">Last: 3/14/2026, 11:47:28 AM</div>
+            <div class="tc-label">LOW LIMIT</div>
+            <div style="text-align:right;">
+              <div class="tc-value-box">66<span class="tc-value-unit"> F</span></div>
             </div>
-            <a class="chart-pill" href="#" style="color:#1a1a1a;">CHART</a>
-          </footer>
-        </article>
+          </div>
+          <div class="tc-status status-inrange">TEMP IN RANGE</div>
+          <div class="tc-notifications">
+            <div class="tc-notification-item heating">🔥 Heating ON</div>
+          </div>
+        </div>
+        <div class="tc-footer" style="background:#6a0dad; color:white;">
+          <div class="footer-toggle-container">
+            <label class="switch">
+              <input type="checkbox" checked>
+              <span class="slider round"></span>
+            </label>
+            <span class="toggle-label">Temp Control ON</span>
+          </div>
+          <div class="tc-ftr-ts">Last: 3/14/2026, 11:47:29 AM</div>
+          <a class="chart-pill tc-chart-pill" href="#" style="color:#6a0dad;">CHART</a>
+        </div>
+      </article>
 
-      </div><!-- /col 3 -->
+      <!-- ── ROW 2, COL 3 — Black Tilt (no TC) ── -->
+      <article class="tilt-card" data-tilt="Black" style="grid-column:3;grid-row:2;">
+        <div class="tilt-banner" style="background-color:#1a1a1a; color:white;">
+          <div class="beer-name">Midnight Stout</div>
+          <div class="tilt-batch-name">Batch: Dark Arts Vol. 4</div>
+        </div>
+        <div class="tilt-body">
+          <table class="tilt-metrics">
+            <tr>
+              <th></th>
+              <th class="right-header">Recipe</th>
+              <th class="right-header">Actual</th>
+            </tr>
+            <tr>
+              <td class="label">Original Gravity</td>
+              <td class="value"><span class="metric-number">1.082</span></td>
+              <td class="value"><b><span class="metric-number">1.080</span></b></td>
+            </tr>
+            <tr>
+              <td class="label">Final / Current Gravity</td>
+              <td class="value"><span class="metric-number">1.018</span></td>
+              <td class="value"><b><span class="metric-number">1.022</span></b></td>
+            </tr>
+            <tr>
+              <td class="label">Temperature</td>
+              <td class="value"></td>
+              <td class="value"><b><span class="metric-number">67.5°F</span></b></td>
+            </tr>
+            <tr>
+              <td class="label">A.B.V.</td>
+              <td class="value"><span class="metric-number">8.4%</span></td>
+              <td class="value"><b><span class="metric-number">7.6%</span></b></td>
+            </tr>
+          </table>
+        </div>
+        <footer class="tilt-footer-colored" style="background:#1a1a1a; color:white;">
+          <div class="footer-info">
+            <div class="footer-brewid">Brew ID: RF-2026-01-042</div>
+            <div class="footer-mac">MAC: 1A:1A:1A:FF:EE:04</div>
+            <div class="footer-ts">Last: 3/14/2026, 11:47:28 AM</div>
+          </div>
+          <a class="chart-pill" href="#" style="color:#1a1a1a;">CHART</a>
+        </footer>
+      </article>
 
     </div><!-- /.tiltcard-container -->
   </section>

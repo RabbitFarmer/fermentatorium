@@ -81,8 +81,8 @@
     .tc-header {
       text-align: center;
       font-weight: 900;
-      font-size: 18px;
-      padding: 14px 12px 8px;
+      font-size: 22px;
+      padding: 16px 12px 10px;
       cursor: pointer;
       letter-spacing: 0.5px;
     }
@@ -108,7 +108,7 @@
       align-items: center;
       gap: 10px 12px;
     }
-    .tc-label { font-weight: 800; color: #222; font-size: 13px; }
+    .tc-label { font-weight: 800; color: #222; font-size: 16px; }
 
     /* Mode row above the limit grid */
     .tc-mode-row {
@@ -119,8 +119,8 @@
       border-bottom: 1px solid #ddd;
       margin-bottom: 8px;
     }
-    .tc-mode-label { font-weight: 800; color: #222; font-size: 13px; }
-    .tc-mode-value { font-weight: 700; color: #555; font-size: 13px; text-align: right; }
+    .tc-mode-label { font-weight: 800; color: #222; font-size: 16px; }
+    .tc-mode-value { font-weight: 700; color: #555; font-size: 16px; text-align: right; }
 
     .tc-value-box {
       border: 2px solid #111;
@@ -128,19 +128,19 @@
       text-align: center;
       font-weight: 900;
       font-family: monospace;
-      font-size: 16px;
+      font-size: 20px;
       background: #fff;
       box-sizing: border-box;
-      min-width: 80px;
+      min-width: 90px;
       line-height: 1;
     }
-    .tc-value-current { border-width: 3px; font-size: 24px; padding: 6px 10px; }
+    .tc-value-current { border-width: 3px; font-size: 28px; padding: 6px 10px; }
 
     /* Status line */
     .tc-status {
       font-weight: 900;
       text-align: center;
-      font-size: 16px;
+      font-size: 18px;
       margin: 6px 0 8px;
       letter-spacing: 0.5px;
       line-height: 1.1;
@@ -283,13 +283,13 @@
     /* Clickable banner */
     .tilt-banner[data-tilt-color] { cursor: pointer; }
     .tilt-banner[data-tilt-color]:hover { opacity: 0.92; }
-
-    /* 3-across mode: scale up temp-control text */
-    .display-mode-3 .tc-header      { font-size: 22px; }
-    .display-mode-3 .tc-status      { font-size: 22px; }
-    .display-mode-3 .tc-label       { font-size: 18px; }
-    .display-mode-3 .tc-value-box   { font-size: 22px; min-width: 100px; }
-    .display-mode-3 .tc-value-current { font-size: 32px; }
+    .display-mode-3 .tc-header      { font-size: 26px; }
+    .display-mode-3 .tc-status      { font-size: 24px; }
+    .display-mode-3 .tc-label       { font-size: 22px; }
+    .display-mode-3 .tc-mode-label,
+    .display-mode-3 .tc-mode-value  { font-size: 20px; }
+    .display-mode-3 .tc-value-box   { font-size: 26px; min-width: 120px; }
+    .display-mode-3 .tc-value-current { font-size: 36px; }
 
     @media (max-width: 720px) {
       .tc-grid { grid-template-columns: 1fr 110px; }

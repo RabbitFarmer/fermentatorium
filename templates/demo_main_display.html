@@ -10,7 +10,8 @@
       --page-max-width: 1340px;
       --card-width: 305px;
       --card-gap: 24px;
-      --metric-number-size: 20px;
+      --card-height: 390px;
+      --metric-number-size: 26px;
       --temp-number-size: 36px;
       --ribbon-green: #0b8a2e;
       --btn-brown: #8B4513;
@@ -33,7 +34,7 @@
     .page-container {
       max-width: var(--page-max-width);
       margin: 0 auto;
-      padding: 18px 14px 40px;
+      padding: 10px 14px 20px;
       box-sizing: border-box;
       color: #111;
     }
@@ -41,7 +42,7 @@
       text-align: center;
       font-size: 36px;
       font-weight: 900;
-      margin: 10px 0 18px;
+      margin: 6px 0 10px;
     }
 
     /* Gear button */
@@ -58,6 +59,7 @@
     .tiltcard-container {
       display: grid;
       grid-template-columns: repeat(4, var(--card-width));
+      grid-auto-rows: var(--card-height);
       gap: var(--card-gap);
       justify-content: center;
       max-width: var(--page-max-width);
@@ -75,9 +77,10 @@
       display: flex;
       flex-direction: column;
     }
+    .temp-ctrl-card { width: var(--card-width); }
     .tilt-banner {
-      padding: 14px; text-align: center;
-      font-weight: 900; font-size: 18px;
+      padding: 16px; text-align: center;
+      font-weight: 900; font-size: 22px;
     }
     .tilt-batch-name { font-size: 15px; font-weight: 700; opacity: 0.95; margin-top: 4px; }
     .tilt-body { padding: 12px; flex: 1; }
@@ -88,7 +91,7 @@
       text-align: right; font-weight: 700; padding: 6px; font-size: 14px;
     }
     .tilt-metrics .label {
-      color: #444; font-size: 16px; padding: 6px;
+      color: #444; font-size: 18px; padding: 6px;
       text-align: left; vertical-align: middle;
     }
     .tilt-metrics .value {
@@ -114,10 +117,9 @@
     }
 
     /* ── Temperature Controller card ── */
-    .temp-ctrl-card { }
     .tc-header {
-      text-align: center; font-weight: 900; font-size: 18px;
-      padding: 14px 12px 8px; cursor: pointer; letter-spacing: 0.5px;
+      text-align: center; font-weight: 900; font-size: 22px;
+      padding: 16px 12px 10px; cursor: pointer; letter-spacing: 0.5px;
     }
     .tc-header-sub { font-size: 11px; font-weight: 500; opacity: 0.85; margin-top: 3px; }
     .tc-body { background: #fff; padding: 8px 12px; flex: 1; }
@@ -127,21 +129,21 @@
       align-items: center;
       gap: 10px 12px;
     }
-    .tc-label { font-weight: 800; color: #222; font-size: 13px; }
+    .tc-label { font-weight: 800; color: #222; font-size: 16px; }
     .tc-mode-row {
       display: flex; align-items: center; justify-content: space-between;
       padding: 4px 0 6px; border-bottom: 1px solid #ddd; margin-bottom: 8px;
     }
-    .tc-mode-label { font-weight: 800; color: #222; font-size: 13px; }
-    .tc-mode-value { font-weight: 700; color: #555; font-size: 13px; text-align: right; }
+    .tc-mode-label { font-weight: 800; color: #222; font-size: 16px; }
+    .tc-mode-value { font-weight: 700; color: #555; font-size: 16px; text-align: right; }
     .tc-value-box {
       border: 2px solid #111; padding: 6px 8px; text-align: center;
-      font-weight: 900; font-family: monospace; font-size: 16px;
-      background: #fff; box-sizing: border-box; min-width: 80px; line-height: 1;
+      font-weight: 900; font-family: monospace; font-size: 20px;
+      background: #fff; box-sizing: border-box; min-width: 90px; line-height: 1;
     }
-    .tc-value-current { border-width: 3px; font-size: 24px; padding: 6px 10px; }
+    .tc-value-current { border-width: 3px; font-size: 28px; padding: 6px 10px; }
     .tc-status {
-      font-weight: 900; text-align: center; font-size: 16px;
+      font-weight: 900; text-align: center; font-size: 18px;
       margin: 6px 0 8px; letter-spacing: 0.5px; line-height: 1.1;
     }
     .status-inrange { color: #007b00; }
@@ -149,7 +151,7 @@
     .status-below   { color: #007bff; }
     .tc-notifications {
       margin-top: 10px; text-align: center; font-weight: 900;
-      font-size: 16px; padding: 4px 6px; min-height: 28px; line-height: 1.2;
+      font-size: 18px; padding: 4px 6px; min-height: 28px; line-height: 1.2;
       display: flex; flex-direction: column; gap: 4px;
     }
     .tc-notification-item.heating { color: var(--status-red); }
