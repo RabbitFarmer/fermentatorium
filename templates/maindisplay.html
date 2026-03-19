@@ -295,11 +295,6 @@
     .display-mode-3 .tc-mode-value  { font-size: 20px; }
     .display-mode-3 .tc-value-box   { font-size: 26px; min-width: 120px; }
     .display-mode-3 .tc-value-current { font-size: 36px; }
-    /* 4-across: shrink recipe column numbers so all 3 columns fit the narrower card */
-    .display-mode-4 .tilt-metrics.restore td:nth-child(2) .metric-number { font-size: 18px; }
-    /* 4-across: shift Recipe and Actual columns ~1/16" to the left */
-    .display-mode-4 .tilt-metrics.restore th.right-header,
-    .display-mode-4 .tilt-metrics.restore .value { padding-right: 12px; }
 
     @media (max-width: 720px) {
       .tc-grid { grid-template-columns: 1fr 110px; }
@@ -1239,9 +1234,33 @@
   </script>
 
   <script>
+  // ── Auto-zoom for wide 4-card layout ──────────────────────────────────────
+  // display-mode-4 uses 400 px cards (4 × 400 + 3 × 24 gap = 1672 px grid)
+  // plus 28 px page padding = 1700 px designed width (max-width: 1724 px).
+  // On screens narrower than that design width we scale the whole page down
+  // uniformly so all four cards remain readable without horizontal scrolling.
+  (function () {
+    var DESIGN_WIDTH = 1724;
+    function applyDisplayZoom() {
+      var el = document.querySelector('.page-container');
+      if (!el || !el.classList.contains('display-mode-4')) {
+        document.documentElement.style.zoom = '';
+        return;
+      }
+      var vw = window.innerWidth;
+      document.documentElement.style.zoom =
+        vw < DESIGN_WIDTH ? String((vw / DESIGN_WIDTH).toFixed(4)) : '';
+    }
+    applyDisplayZoom();
+    window.addEventListener('resize', applyDisplayZoom);
+  }());
+  </script>
+
+  <script>
   // ── Fullscreen toggle ──────────────────────────────────────────────────
   (function () {
     var btn = document.getElementById('fullscreenBtn');
+    var LS_KEY = 'fermentatorium_wantFullscreen';
 
     function isFullscreen() {
       return !!(document.fullscreenElement ||
@@ -1263,7 +1282,13 @@
     }
 
     function toggleFullscreen() {
-      if (isFullscreen()) { exitFullscreen(); } else { enterFullscreen(); }
+      if (isFullscreen()) {
+        localStorage.removeItem(LS_KEY);
+        exitFullscreen();
+      } else {
+        localStorage.setItem(LS_KEY, '1');
+        enterFullscreen();
+      }
     }
 
     function syncIcon() {
@@ -1279,6 +1304,7 @@
         toggleFullscreen();
       } else if (e.key === 'Escape' && isFullscreen()) {
         e.preventDefault();
+        localStorage.removeItem(LS_KEY);
         exitFullscreen();
       }
     });
@@ -1287,6 +1313,13 @@
     document.addEventListener('fullscreenchange',       syncIcon);
     document.addEventListener('webkitfullscreenchange', syncIcon);
     document.addEventListener('mozfullscreenchange',    syncIcon);
+
+    // Auto-restore fullscreen after returning from settings pages.
+    // requestFullscreen() is permitted here because this page was opened by a
+    // user gesture (clicking a link on the settings page or the back button).
+    if (localStorage.getItem(LS_KEY) === '1' && !isFullscreen()) {
+      enterFullscreen();
+    }
   }());
   </script>
 </body>

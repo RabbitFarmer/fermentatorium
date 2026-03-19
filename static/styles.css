@@ -2,9 +2,6 @@
 
 :root {
   --page-max-width: 1340px;
-  /* display-mode-4 default card size
-     4 × 305 + 3 × 24 gap = 1292 px, fits inside a 1296 px usable grid
-     (1340 page − 28 page padding − 16 container padding = 1296 px)       */
   --card-width: 305px;
   --card-gap: 24px;
   --metric-number-size: 26px;
@@ -16,15 +13,19 @@
   --panel-border: #cfdbe0;
 }
 
-/* 4-across display mode — compact page padding, fixed card height for equal rows */
+/* 4-across display mode — uses the same card dimensions as 3-across so numbers
+   are never clipped; the page is auto-scaled by JS (applyDisplayZoom) to fit
+   the viewport width on screens narrower than the design width.             */
 .display-mode-4 {
-  --card-height: 420px;
+  --card-width: 400px;
+  --card-height: 430px;
+  --metric-number-size: 32px;
+  --temp-number-size: 48px;
+  --page-max-width: 1724px;
   padding: 10px 14px 20px;
 }
 
-/* 3-across display mode
-   3 × 400 + 2 × 24 gap = 1248 px, fits in 1296 px grid.
-   4 × 400 + 3 × 24 = 1672 px — auto-fit won't place a 4th column.       */
+/* 3-across display mode — 3 × 400 + 2 × 24 gap = 1248 px */
 .display-mode-3 {
   --card-width: 400px;
   --metric-number-size: 32px;
@@ -246,9 +247,6 @@ body, body.page-bg {
 .display-mode-3 .tilt-metrics.restore .label              { font-size: 22px; font-weight: 800; }
 .display-mode-3 .tilt-metrics.restore th.right-header     { font-size: 18px; }
 .display-mode-3 .tilt-metrics.restore td:nth-child(2) .metric-number { font-size: 20px; }
-
-/* 4-across display mode: shrink recipe column numbers so all 3 columns fit the narrower card */
-.display-mode-4 .tilt-metrics.restore td:nth-child(2) .metric-number { font-size: 18px; }
 
 /* Card footer */
 .tilt-footer-colored { padding: 10px 12px; font-size: 15px; }
