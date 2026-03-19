@@ -247,6 +247,9 @@ body, body.page-bg {
 .display-mode-3 .tilt-metrics.restore th.right-header     { font-size: 18px; }
 .display-mode-3 .tilt-metrics.restore td:nth-child(2) .metric-number { font-size: 20px; }
 
+/* 4-across display mode: shrink recipe column numbers so all 3 columns fit the narrower card */
+.display-mode-4 .tilt-metrics.restore td:nth-child(2) .metric-number { font-size: 18px; }
+
 /* Card footer */
 .tilt-footer-colored { padding: 10px 12px; font-size: 15px; }
 
