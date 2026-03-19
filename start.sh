@@ -16,6 +16,21 @@
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
+# ── Prevent concurrent execution ──────────────────────────────────────────────
+# On systems where both the LXDE session autostart and the XDG .desktop
+# autostart mechanism fire simultaneously (e.g. Raspberry Pi LXDE desktop),
+# two copies of this script can be launched at the same time.  A file lock
+# ensures only the first one proceeds; the second exits immediately.
+# The lock is automatically released when this process exits (fd 9 is closed).
+LOCK_DIR="$HOME/.cache/fermentatorium"
+mkdir -p "$LOCK_DIR"
+LOCK_FILE="$LOCK_DIR/start.lock"
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    echo "Another instance of start.sh is already running. Exiting."
+    exit 0
+fi
+
 show_notification() {
     local title="$1"
     local message="$2"
@@ -29,6 +44,9 @@ show_notification() {
 # Tries Chromium (with --start-fullscreen) first; falls back to xdg-open.
 # Note: --start-fullscreen is used intentionally (not --kiosk) so that F11
 # and ESC continue to work for the in-app fullscreen toggle.
+# --new-window ensures a dedicated fullscreen window is opened even when a
+# Chromium instance is already running (without it Chromium would open a plain
+# tab in the existing window and ignore --start-fullscreen).
 open_browser_fullscreen() {
     local url="$1"
     [ -n "$DISPLAY" ] || return 0
@@ -40,7 +58,7 @@ open_browser_fullscreen() {
         fi
     done
     if [ -n "$browser" ]; then
-        "$browser" --start-fullscreen "$url" >> app.log 2>&1 &
+        "$browser" --new-window --start-fullscreen "$url" >> app.log 2>&1 &
     elif command -v xdg-open > /dev/null 2>&1; then
         xdg-open "$url" &
     fi
