@@ -214,12 +214,17 @@
     /* ── TC card footer (below temp control section, always visible) ── */
     .tc-footer {
       display: flex;
-      justify-content: space-between;
-      align-items: center;
+      flex-direction: column;
       padding: 10px 12px;
       border-top: 2px solid rgba(0,0,0,0.15);
       font-size: 0.9em;
       font-weight: 700;
+      gap: 4px;
+    }
+    .tc-ftr-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
     .tc-ftr-ts { font-size: 0.9em; font-weight: 700; opacity: 0.95; }
     .tc-chart-pill { font-size: 13px; }
@@ -292,6 +297,9 @@
     .display-mode-3 .tc-value-current { font-size: 36px; }
     /* 4-across: shrink recipe column numbers so all 3 columns fit the narrower card */
     .display-mode-4 .tilt-metrics.restore td:nth-child(2) .metric-number { font-size: 18px; }
+    /* 4-across: shift Recipe and Actual columns ~1/16" to the left */
+    .display-mode-4 .tilt-metrics.restore th.right-header,
+    .display-mode-4 .tilt-metrics.restore .value { padding-right: 12px; }
 
     @media (max-width: 720px) {
       .tc-grid { grid-template-columns: 1fr 110px; }
@@ -687,31 +695,33 @@
                 </div>
               </div>
 
-              <!-- Coloured footer: toggle switch + last reading timestamp + temp chart -->
+              <!-- Coloured footer: toggle switch + temp chart (top row), then date/time (full width) -->
               <div class="tc-footer"
                    style="background:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};">
-                <div class="footer-toggle-container">
-                  <label class="switch" title="Enable or disable temperature control">
-                    <input type="checkbox"
-                           class="temp-control-toggle"
-                           id="temp_control_toggle_{{ cid }}"
-                           data-controller-id="{{ cid }}"
-                           {% if controller.temp_control_active %}checked{% endif %}>
-                    <span class="slider round"></span>
-                  </label>
-                  <span class="toggle-label" id="toggle_label_{{ cid }}">
-                    {% if controller.temp_control_active %}Temp Control ON{% else %}Temp Control OFF{% endif %}
-                  </span>
+                <div class="tc-ftr-top">
+                  <div class="footer-toggle-container">
+                    <label class="switch" title="Enable or disable temperature control">
+                      <input type="checkbox"
+                             class="temp-control-toggle"
+                             id="temp_control_toggle_{{ cid }}"
+                             data-controller-id="{{ cid }}"
+                             {% if controller.temp_control_active %}checked{% endif %}>
+                      <span class="slider round"></span>
+                    </label>
+                    <span class="toggle-label" id="toggle_label_{{ cid }}">
+                      {% if controller.temp_control_active %}Temp Control ON{% else %}Temp Control OFF{% endif %}
+                    </span>
+                  </div>
+                  <a class="chart-pill tc-chart-pill"
+                     href="{{ url_for('chart_plotly_for', tilt_color='TempControl') }}"
+                     style="color:{{ tilt.color_code }};">CHART</a>
+                     {# 'TempControl' is the special identifier for the temperature control chart route #}
                 </div>
                 <div class="tc-ftr-ts">
                   Last: <span id="tc_ftr_ts_{{ cid }}">
                     {%- if controller.last_reading_time %}{{ controller.last_reading_time | localtime }}{%- else %}--{%- endif %}
                   </span>
                 </div>
-                <a class="chart-pill tc-chart-pill"
-                   href="{{ url_for('chart_plotly_for', tilt_color='TempControl') }}"
-                   style="color:{{ tilt.color_code }};">CHART</a>
-                   {# 'TempControl' is the special identifier for the temperature control chart route #}
               </div>
 
             </article>
