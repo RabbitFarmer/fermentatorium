@@ -264,12 +264,17 @@
     /* TC coloured footer */
     .tc-footer {
       display: flex;
-      justify-content: space-between;
-      align-items: center;
+      flex-direction: column;
       padding: 10px 12px;
       border-top: 2px solid rgba(0,0,0,0.15);
       font-size: 0.9em;
       font-weight: 700;
+      gap: 4px;
+    }
+    .tc-ftr-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
     .tc-ftr-ts { font-size: 0.9em; font-weight: 700; opacity: 0.95; }
     .tc-chart-pill { font-size: 13px; }
@@ -524,15 +529,17 @@
           <div class="tc-notifications"><!-- No active heating/cooling --></div>
         </div>
         <div class="tc-footer" style="background:#c8102e; color:white;">
-          <div class="footer-toggle-container">
-            <label class="switch">
-              <input type="checkbox" checked>
-              <span class="slider round"></span>
-            </label>
-            <span class="toggle-label">Temp Control ON</span>
+          <div class="tc-ftr-top">
+            <div class="footer-toggle-container">
+              <label class="switch">
+                <input type="checkbox" checked>
+                <span class="slider round"></span>
+              </label>
+              <span class="toggle-label">Temp Control ON</span>
+            </div>
+            <a class="chart-pill tc-chart-pill" href="#" style="color:#c8102e;">CHART</a>
           </div>
           <div class="tc-ftr-ts">Last: 3/14/2026, 11:47:32 AM</div>
-          <a class="chart-pill tc-chart-pill" href="#" style="color:#c8102e;">CHART</a>
         </div>
       </article>
 
@@ -567,15 +574,17 @@
           </div>
         </div>
         <div class="tc-footer" style="background:#6a0dad; color:white;">
-          <div class="footer-toggle-container">
-            <label class="switch">
-              <input type="checkbox" checked>
-              <span class="slider round"></span>
-            </label>
-            <span class="toggle-label">Temp Control ON</span>
+          <div class="tc-ftr-top">
+            <div class="footer-toggle-container">
+              <label class="switch">
+                <input type="checkbox" checked>
+                <span class="slider round"></span>
+              </label>
+              <span class="toggle-label">Temp Control ON</span>
+            </div>
+            <a class="chart-pill tc-chart-pill" href="#" style="color:#6a0dad;">CHART</a>
           </div>
           <div class="tc-ftr-ts">Last: 3/14/2026, 11:47:29 AM</div>
-          <a class="chart-pill tc-chart-pill" href="#" style="color:#6a0dad;">CHART</a>
         </div>
       </article>
 
