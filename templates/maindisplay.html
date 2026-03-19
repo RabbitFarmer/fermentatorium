@@ -123,7 +123,7 @@
     .tc-mode-value { font-weight: 700; color: #555; font-size: 16px; text-align: right; }
 
     .tc-value-box {
-      border: 2px solid #111;
+      border: 1px solid #999;
       padding: 6px 8px;
       text-align: center;
       font-weight: 900;
@@ -134,7 +134,8 @@
       min-width: 90px;
       line-height: 1;
     }
-    .tc-value-current { border-width: 3px; font-size: 28px; padding: 6px 10px; }
+    .tc-value-unit { font-size: 0.6em; vertical-align: middle; }
+    .tc-value-current { border-width: 3px; border-color: #111; font-size: 28px; padding: 6px 6px; white-space: nowrap; }
 
     /* Status line */
     .tc-status {
@@ -651,11 +652,29 @@
                 <div class="tc-grid" id="temp_control_readings_{{ cid }}"
                      role="group" aria-label="Temperature limits">
 
+                  <div class="tc-label">HIGH LIMIT</div>
+                  <div style="text-align:right;">
+                    <div class="tc-value-box">
+                      <span id="tc_high_limit_{{ cid }}">
+                        {%- if controller.temp_control_active and controller.get('high_limit') is not none %}{{"%.1f" % controller.high_limit}}{%- else %}--{%- endif %}
+                      </span><span class="tc-value-unit"> F</span>
+                    </div>
+                  </div>
+
                   <div class="tc-label">CURRENT<br>TEMPERATURE</div>
                   <div style="text-align:right;">
                     <div id="current_temp_box_{{ cid }}" class="tc-value-box tc-value-current">
                       <span id="temp_control_current_{{ cid }}">
                         {%- if controller.temp_control_active and controller.current_temp is not none %}{{"%.1f" % controller.current_temp}}{%- else %}--{%- endif %}
+                      </span><span class="tc-value-unit"> F</span>
+                    </div>
+                  </div>
+
+                  <div class="tc-label">LOW LIMIT</div>
+                  <div style="text-align:right;">
+                    <div class="tc-value-box">
+                      <span id="tc_low_limit_{{ cid }}">
+                        {%- if controller.temp_control_active and controller.get('low_limit') is not none %}{{"%.1f" % controller.low_limit}}{%- else %}--{%- endif %}
                       </span><span class="tc-value-unit"> F</span>
                     </div>
                   </div>
@@ -979,6 +998,8 @@
 
       const tcSection  = document.getElementById('tc_section_'              + cid);
       const curBox     = document.getElementById('temp_control_current_'    + cid);
+      const highLimitEl = document.getElementById('tc_high_limit_'         + cid);
+      const lowLimitEl  = document.getElementById('tc_low_limit_'          + cid);
       const statusEl   = document.getElementById('temp_control_status_top_' + cid);
       const notifEl    = document.getElementById('tc_notifications_'        + cid);
       const hdrTsEl    = document.getElementById('tc_hdr_timestamp_'        + cid);
@@ -1019,7 +1040,8 @@
         if (modeEl) modeEl.textContent = tc.mode || '--';
 
         // Limit values
-        // (high_limit_val and low_limit_val boxes removed from display)
+        if (highLimitEl) highLimitEl.textContent = (tc.high_limit != null) ? Number(tc.high_limit).toFixed(1) : '--';
+        if (lowLimitEl)  lowLimitEl.textContent  = (tc.low_limit  != null) ? Number(tc.low_limit).toFixed(1)  : '--';
 
         // Current temp — prefer controller reading, fall back to tilt sensor
         let tempVal = null;
@@ -1068,8 +1090,10 @@
 
       } else {
         // Controller OFF — blank values
-        if (modeEl)  modeEl.textContent  = '--';
-        if (curBox)  curBox.textContent  = '--';
+        if (modeEl)      modeEl.textContent      = '--';
+        if (curBox)      curBox.textContent      = '--';
+        if (highLimitEl) highLimitEl.textContent = '--';
+        if (lowLimitEl)  lowLimitEl.textContent  = '--';
       }
     }
 
