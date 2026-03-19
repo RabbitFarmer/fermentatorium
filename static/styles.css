@@ -18,7 +18,7 @@
 
 /* 4-across display mode — compact page padding, fixed card height for equal rows */
 .display-mode-4 {
-  --card-height: 390px;
+  --card-height: 420px;
   padding: 10px 14px 20px;
 }
 
@@ -29,7 +29,7 @@
   --card-width: 400px;
   --metric-number-size: 32px;
   --temp-number-size: 48px;
-  --card-height: 420px;
+  --card-height: 450px;
   padding: 10px 14px 20px;
 }
 
@@ -212,7 +212,7 @@ body, body.page-bg {
 }
 
 .tilt-banner { padding: 16px; text-align: center; font-weight: 900; font-size: 22px; }
-.tilt-body   { padding: 12px; }
+.tilt-body   { padding: 12px; flex: 1; min-height: 0; overflow: hidden; }
 
 /* Metrics table */
 .tilt-metrics.restore { width: 100%; border-collapse: collapse; }
