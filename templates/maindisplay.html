@@ -290,6 +290,8 @@
     .display-mode-3 .tc-mode-value  { font-size: 20px; }
     .display-mode-3 .tc-value-box   { font-size: 26px; min-width: 120px; }
     .display-mode-3 .tc-value-current { font-size: 36px; }
+    /* 4-across: shrink recipe column numbers so all 3 columns fit the narrower card */
+    .display-mode-4 .tilt-metrics.restore td:nth-child(2) .metric-number { font-size: 18px; }
 
     @media (max-width: 720px) {
       .tc-grid { grid-template-columns: 1fr 110px; }
@@ -485,7 +487,7 @@
                     <td class="value"><b id="og-{{ safe }}"><span class="metric-number">{{ "%.3f"|format((tilt.original_gravity|default(0)|float)) }}</span></b></td>
                   </tr>
                   <tr>
-                    <td class="label">Final / Current Gravity</td>
+                    <td class="label">Current Gravity</td>
                     <td class="value"><span class="metric-number" id="recipe_fg-{{ safe }}">{{ "%.3f"|format((tilt.recipe_fg|default(0)|float)) }}</span></td>
                     <td class="value"><b id="gravity-{{ safe }}"><span class="metric-number">
                       {%- if tilt.gravity_variance and tilt.adj_gravity is not none %}{{ "%.3f"|format(tilt.adj_gravity) }}{%- else %}{{ "%.3f"|format((tilt.gravity|default(0)|float)) }}{%- endif %}
@@ -564,7 +566,7 @@
                     <td class="value"><b id="og-{{ safe }}"><span class="metric-number">{{ "%.3f"|format((tilt.original_gravity|default(0)|float)) }}</span></b></td>
                   </tr>
                   <tr>
-                    <td class="label">Final / Current Gravity</td>
+                    <td class="label">Current Gravity</td>
                     <td class="value"><span class="metric-number" id="recipe_fg-{{ safe }}">{{ "%.3f"|format((tilt.recipe_fg|default(0)|float)) }}</span></td>
                     <td class="value"><b id="gravity-{{ safe }}"><span class="metric-number">
                       {%- if tilt.gravity_variance and tilt.adj_gravity is not none %}{{ "%.3f"|format(tilt.adj_gravity) }}{%- else %}{{ "%.3f"|format((tilt.gravity|default(0)|float)) }}{%- endif %}
@@ -626,7 +628,7 @@
                    style="background-color:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};"
                    onclick="window.location='{{ url_for('temp_summary', controller_id=cid) }}'"
                    title="View Temperature Control summary and chart">
-                TEMPERATURE CONTROLLER #{{ cid + 1 }}
+                TEMP CONTROLLER #{{ cid + 1 }}
                 <div class="tc-header-sub">
                   Last Reading:
                   <span id="tc_hdr_timestamp_{{ cid }}">
@@ -870,7 +872,7 @@
               <td class="value"><b id="og-${safe}"><span class="metric-number">${og.toFixed(3)}</span></b></td>
             </tr>
             <tr>
-              <td class="label">Final / Current Gravity</td>
+              <td class="label">Current Gravity</td>
               <td class="value"><span class="metric-number" id="recipe_fg-${safe}">${recipeFg.toFixed(3)}</span></td>
               <td class="value"><b id="gravity-${safe}"><span class="metric-number">${displayGravity.toFixed(3)}</span></b></td>
             </tr>
