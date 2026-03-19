@@ -29,16 +29,31 @@ if [ -f "$AUTOSTART_DIR/threecontrol.desktop" ]; then
     echo "✓ Removed old threecontrol.desktop autostart entry"
 fi
 
-# ── 3. Remove LXDE autostart entries that open the browser to port 5000 ───────
-# These stale entries (from a previous installation) cause the browser to try
-# http://127.0.0.1:5000 at login, which produces "cannot connect" because the
-# app now runs on port 5001.
-if [ -f "$LXDE_AUTOSTART" ] && grep -qE ':5000' "$LXDE_AUTOSTART" 2>/dev/null; then
-    _backup="${LXDE_AUTOSTART}.bak.$(date +%Y%m%d%H%M%S)"
-    cp "$LXDE_AUTOSTART" "$_backup"
-    sed -i -E '/:5000/d' "$LXDE_AUTOSTART"
-    echo "✓ Removed stale port-5000 browser entries from LXDE autostart"
-    echo "  (backup saved: $_backup)"
+# ── 3. Remove LXDE autostart entries that would cause duplicate launches ───────
+# The LXDE session manager processes ~/.config/lxsession/LXDE-pi/autostart AND
+# the XDG ~/.config/autostart/*.desktop files at login.  If start.sh (or any
+# fermentatorium launcher) is listed in the LXDE file, it will run a second time
+# alongside the .desktop entry we install below, causing two app instances to
+# start simultaneously.  Remove every such entry here so only the .desktop
+# mechanism fires.
+if [ -f "$LXDE_AUTOSTART" ]; then
+    _needs_backup=false
+    if grep -qE ':5000' "$LXDE_AUTOSTART" 2>/dev/null; then
+        _needs_backup=true
+    fi
+    if grep -qE 'start\.sh|fermentatorium' "$LXDE_AUTOSTART" 2>/dev/null; then
+        _needs_backup=true
+    fi
+
+    if [ "$_needs_backup" = true ]; then
+        _backup="${LXDE_AUTOSTART}.bak.$(date +%Y%m%d%H%M%S)"
+        cp "$LXDE_AUTOSTART" "$_backup"
+        sed -i -E '/:5000/d' "$LXDE_AUTOSTART"
+        sed -i -E '/^[[:space:]]*@[[:space:]]*(bash[[:space:]]+)?[^[:space:]]*start\.sh/d' "$LXDE_AUTOSTART"
+        sed -i -E '/^[[:space:]]*@[[:space:]]*(bash[[:space:]]+)?[^[:space:]]*fermentatorium/d' "$LXDE_AUTOSTART"
+        echo "✓ Removed stale port-5000/fermentatorium entries from LXDE autostart"
+        echo "  (backup saved: $_backup)"
+    fi
 fi
 
 # Also scan ~/.config/autostart/ for .desktop files that open a browser to :5000
