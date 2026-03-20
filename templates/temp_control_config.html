@@ -29,6 +29,22 @@
         
         const data = await response.json();
         resultsContent.innerHTML = ''; // Clear previous content
+
+        if (data.none_configured) {
+          const p = document.createElement('p');
+          p.textContent = 'No plug URLs configured. Enter the IP address(es) of your Kasa plug(s) above and try again.';
+          p.style.color = '#666';
+          resultsContent.appendChild(p);
+          return;
+        }
+        
+        if (data.error) {
+          const p = document.createElement('p');
+          p.textContent = 'Error: ' + data.error;
+          p.style.color = 'red';
+          resultsContent.appendChild(p);
+          return;
+        }
         
         if (data.heating) {
           const p = document.createElement('p');
@@ -75,6 +91,7 @@
           
           resultsContent.appendChild(p);
         }
+
       } catch (error) {
         resultsContent.innerHTML = '';
         const p = document.createElement('p');

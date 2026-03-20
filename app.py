@@ -6151,7 +6151,9 @@ def scan_kasa_plugs():
         controller_id = 0
     try:
         from kasa import Discover
-        found_devices = asyncio.run(Discover.discover())
+        found_devices = _run_async_in_thread(
+            asyncio.wait_for(Discover.discover(), timeout=15), timeout=15
+        )
         devices = {str(addr): dev.alias for addr, dev in found_devices.items()}
     except Exception as e:
         devices = {}
@@ -6241,40 +6243,87 @@ def format_kasa_error(error_msg, device_url):
     return error_str
 
 
+def _run_async_in_thread(coro, timeout=10):
+    """
+    Run an async coroutine in a dedicated thread with its own event loop.
+
+    Using a dedicated thread guarantees that asyncio.run() never encounters an
+    already-running event loop (which can happen in some hosting environments)
+    and prevents the Flask request thread from being blocked while also
+    providing a clean shutdown path for the event loop.
+
+    Returns the coroutine result on success, raises the caught exception on
+    failure, or raises TimeoutError if the thread itself hangs past the
+    hard deadline.
+    """
+    result_holder = [None]
+    exc_holder = [None]
+
+    def _thread_target():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result_holder[0] = loop.run_until_complete(coro)
+        except Exception as e:
+            exc_holder[0] = e
+        finally:
+            try:
+                loop.close()
+            except Exception:
+                pass
+
+    t = threading.Thread(target=_thread_target, daemon=True)
+    t.start()
+    # Allow a small buffer beyond the coroutine's own timeout so the
+    # thread has time to clean up before we declare it stuck.
+    t.join(timeout=timeout + 5)
+
+    if t.is_alive():
+        raise TimeoutError(f"Async operation did not complete within {timeout} seconds")
+    if exc_holder[0] is not None:
+        raise exc_holder[0]
+    return result_holder[0]
+
+
 @app.route('/test_kasa_plugs', methods=['POST'])
 def test_kasa_plugs():
     """Test connection to configured KASA plugs"""
     try:
         data = request.get_json()
+        if data is None:
+            return jsonify({'error': 'Invalid JSON request'}), 400
         heating_url = data.get('heating_url', '').strip()
         cooling_url = data.get('cooling_url', '').strip()
-        
+
+        if not heating_url and not cooling_url:
+            return jsonify({'none_configured': True})
+
         results = {}
-        
+
         # Import once at function level
         try:
             from kasa.iot import IotPlug
         except ImportError:
             return jsonify({'error': 'KASA library not available'}), 500
-        
+
         # Test heating plug if URL is provided
         if heating_url:
             try:
                 plug = IotPlug(heating_url)
-                asyncio.run(asyncio.wait_for(plug.update(), timeout=6))
+                _run_async_in_thread(asyncio.wait_for(plug.update(), timeout=6), timeout=6)
                 results['heating'] = {'success': True, 'error': None}
             except Exception as e:
                 results['heating'] = {'success': False, 'error': format_kasa_error(e, heating_url)}
-        
+
         # Test cooling plug if URL is provided
         if cooling_url:
             try:
                 plug = IotPlug(cooling_url)
-                asyncio.run(asyncio.wait_for(plug.update(), timeout=6))
+                _run_async_in_thread(asyncio.wait_for(plug.update(), timeout=6), timeout=6)
                 results['cooling'] = {'success': True, 'error': None}
             except Exception as e:
                 results['cooling'] = {'success': False, 'error': format_kasa_error(e, cooling_url)}
-        
+
         return jsonify(results)
     except Exception as e:
         print(f"[LOG] Error testing KASA plugs: {e}")
