@@ -1068,6 +1068,18 @@ def get_active_tilts():
     
     return active_tilts
 
+def _find_controller_by_tilt(color):
+    """
+    Return the first controller whose ``tilt_color`` matches *color*, or ``None``.
+
+    Centralises the repeated linear search that would otherwise appear wherever a
+    tilt reading needs to be correlated with its owning temperature controller.
+    """
+    for ctrl in temp_cfg.get('controllers', []):
+        if ctrl.get('tilt_color') == color:
+            return ctrl
+    return None
+
 def get_control_tilt_color(controller):
     """
     Get the color of the Tilt currently being used for temperature control.
@@ -1250,12 +1262,8 @@ def log_tilt_reading(color, gravity, temp_f, rssi, mac="", is_pro=False):
     # - If tilt is assigned to temperature control: use system_cfg['update_interval'] for responsive control
     # - Otherwise: use system_cfg['tilt_logging_interval_minutes'] for fermentation tracking
     # Both intervals are configurable in System Settings page
-    # Multi-controller: search all controllers for one assigned to this tilt color
-    control_controller = None
-    for ctrl in temp_cfg.get('controllers', []):
-        if ctrl.get('tilt_color') == color:
-            control_controller = ctrl
-            break
+    # Multi-controller: use helper to find the controller owning this tilt (if any)
+    control_controller = _find_controller_by_tilt(color)
     is_control_tilt = control_controller is not None
     
     if is_control_tilt:
@@ -1304,7 +1312,7 @@ def log_tilt_reading(color, gravity, temp_f, rssi, mac="", is_pro=False):
     
     # Include temperature control limits in the payload if this is the control tilt
     # This ensures the control log has complete information for debugging and charting
-    if is_control_tilt and control_controller is not None:
+    if is_control_tilt:
         payload["low_limit"] = control_controller.get("low_limit")
         payload["high_limit"] = control_controller.get("high_limit")
     
@@ -1393,11 +1401,7 @@ def rotate_and_archive_old_history(color, old_brewid, old_cfg):
         # Only log mode change if we actually archived samples
         if moved > 0:
             # Find the controller assigned to this tilt color to get accurate limit data
-            ctrl_for_color = {}
-            for ctrl in temp_cfg.get('controllers', []):
-                if ctrl.get('tilt_color') == color:
-                    ctrl_for_color = ctrl
-                    break
+            ctrl_for_color = _find_controller_by_tilt(color) or {}
             append_control_log("temp_control_mode_changed", {"tilt_color": color, "low_limit": ctrl_for_color.get("low_limit"), "current_temp": ctrl_for_color.get("current_temp"), "high_limit": ctrl_for_color.get("high_limit")})
         return True
     except Exception as e:
@@ -1951,6 +1955,10 @@ def attempt_send_notifications(subject, body):
     mode = (system_cfg.get('warning_mode') or 'NONE').upper()
     success_any = False
     temp_cfg['notifications_trigger'] = True
+    # Propagate the in-progress state to all controller dicts so the UI
+    # can show a "sending" indicator while the notification is being delivered.
+    for ctrl in temp_cfg.get('controllers', []):
+        ctrl['notifications_trigger'] = True
     
     # Reset error flags before attempting
     temp_cfg['push_error'] = False
@@ -4185,9 +4193,10 @@ def build_offsite_payload(field_map=None):
             controllers_snapshot.append(entry)
             if first_active is None:
                 first_active = entry
-    if first_active is None and temp_cfg.get('controllers'):
+    controllers_list = temp_cfg.get('controllers') or []
+    if first_active is None and controllers_list:
         # No active controller – fall back to first configured controller
-        ctrl = temp_cfg['controllers'][0]
+        ctrl = controllers_list[0]
         first_active = {
             'controller_id': ctrl.get('controller_id', 0),
             'current_temp': ctrl.get('current_temp'),
@@ -4196,6 +4205,7 @@ def build_offsite_payload(field_map=None):
             'status': ctrl.get('status'),
             'tilt_color': ctrl.get('tilt_color', ''),
         }
+    # first_active is None only when no controllers are configured at all.
     payload = {
         'timestamp': datetime.utcnow().isoformat(),
         'temp_control': first_active or {},
