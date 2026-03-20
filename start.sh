@@ -153,8 +153,10 @@ if [ "$_svc_state" = "active" ] || [ "$_svc_state" = "activating" ]; then
         fi
         sleep 2
     done
-    show_notification "Fermentatorium" "Service is running but server is not responding — check logs." "critical"
-    exit 1
+    # Service is running but Flask is not responding — fall through to a fresh start.
+    # The kill_port calls below will free the port so a new instance can bind it.
+    show_notification "Fermentatorium" "Service unresponsive — attempting fresh start…" "normal"
+    echo "WARNING: systemd service active but Flask did not respond after $((30 * 2)) s. Falling through to fresh start."
 fi
 
 show_notification "Fermentatorium" "Starting up — please wait…" "normal"
@@ -177,10 +179,11 @@ source "$VENV_DIR/bin/activate"
 export PIP_DISABLE_PIP_VERSION_CHECK=1
 
 if [ -f "requirements.txt" ]; then
-    if ! "$VENV_DIR/bin/python3" -c "import flask, bleak" 2>/dev/null; then
-        if ! pip install --quiet --disable-pip-version-check -r requirements.txt 2>>app.log; then
+    # Use timeout to prevent hanging on bleak Bluetooth initialization or network issues
+    if ! timeout 30 "$VENV_DIR/bin/python3" -c "import flask, bleak" 2>/dev/null; then
+        if ! timeout 300 pip install --quiet --disable-pip-version-check -r requirements.txt 2>>app.log; then
             echo "WARNING: Failed to install dependencies"
-            if ! "$VENV_DIR/bin/python3" -c "import flask" 2>/dev/null; then
+            if ! timeout 10 "$VENV_DIR/bin/python3" -c "import flask" 2>/dev/null; then
                 echo "ERROR: Flask not available. Cannot start application."
                 exit 1
             fi
