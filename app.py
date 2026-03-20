@@ -560,7 +560,7 @@ def _format_control_log_entry(event_type, payload):
     brewid = None
     if tilt_color and 'tilt_cfg' in globals():
         try:
-            brewid = tilt_cfg.get(tilt_color, {}).get('brewid')
+            brewid = tilt_cfg.get(tilt_key_base(tilt_color), {}).get('brewid')
         except Exception:
             brewid = None
 
@@ -975,6 +975,10 @@ tilt_status = {}
 last_tilt_log_ts = {}
 batch_notification_state = {}  # Track notification state per tilt/brewid
 
+# Rate-limiter for tilt_table saves: epoch timestamp of last save (0 = never saved)
+_tilt_table_last_saved: float = 0
+_TILT_TABLE_SAVE_INTERVAL_SECONDS = 300  # Save at most every 5 minutes
+
 # Notification timing constants
 DAILY_REPORT_COOLDOWN_HOURS = 23  # Prevent duplicate daily reports (allows timing variance)
 DAILY_REPORT_WINDOW_MINUTES = 5   # Time window for daily report triggering
@@ -993,7 +997,51 @@ def generate_brewid(beer_name, batch_name, date_str):
     id_str = f"{beer_name}-{batch_name}-{date_str}"
     return hashlib.sha256(id_str.encode('utf-8')).hexdigest()[:8]
 
+# --- Tilt-key helpers -------------------------------------------------------
+# A tilt key is either:
+#   "Color"      – a plain color name, e.g. "Black"
+#   "Color:MAC"  – a color+MAC composite, e.g. "Black:AA:BB:CC:DD:EE:FF"
+# Composite keys let controllers target a specific physical Tilt device when
+# multiple devices of the same color (standard vs Pro/mini-pro) are present.
+
+def tilt_key_base(key: str) -> str:
+    """Return the base color from a tilt key that may be 'Color' or 'Color:MAC'."""
+    return key.split(':', 1)[0] if key else key
+
+def tilt_key_mac(key: str):
+    """Return the MAC portion from a composite tilt key 'Color:MAC', or None."""
+    if not key:
+        return None
+    parts = key.split(':', 1)
+    return parts[1] if len(parts) == 2 else None
+
+def get_tilt_color_hex(tilt_key: str) -> str:
+    """Return the CSS hex colour for a tilt_key (plain color OR 'Color:MAC' composite)."""
+    return COLOR_MAP.get(tilt_key_base(tilt_key), '#888') if tilt_key else '#888'
+
+def tilt_display_label(tilt_key: str, live_info: dict = None) -> str:
+    """Return a human-readable label for a tilt key.
+
+    Examples:
+        "Black"                    → "Black"
+        "Black:AA:BB:CC:DD:EE:FF"  → "Black (Pro) — AA:BB:CC:DD:EE:FF"
+    """
+    if not tilt_key:
+        return ''
+    base = tilt_key_base(tilt_key)
+    mac  = tilt_key_mac(tilt_key)
+    if not mac:
+        return base
+    type_label = ''
+    if live_info is not None:
+        if live_info.get('is_pro'):
+            type_label = ' (Pro)'
+        else:
+            type_label = ' (Standard)'
+    return f"{base}{type_label} \u2014 {mac}"
+
 def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=False):
+    global _tilt_table_last_saved
     cfg = tilt_cfg.get(color, {})
     # Preserve existing MAC address if a new (non-None, non-empty) one is not provided
     existing_mac = live_tilts.get(color, {}).get("mac_address", "")
@@ -1011,7 +1059,7 @@ def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=Fals
     adj_temp_f  = round(temp_f    + temp_variance,    1) if temp_f    is not None else None
     adj_gravity = round(raw_gravity + gravity_variance, 3) if raw_gravity is not None else None
 
-    live_tilts[color] = {
+    tilt_entry = {
         "gravity": round(gravity, 3) if gravity is not None else None,
         "temp_f": temp_f,
         "rssi": rssi,
@@ -1035,6 +1083,44 @@ def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=Fals
         "adj_gravity":      adj_gravity,
     }
 
+    # Write to the plain color key (backward compatibility, used when no MAC qualifier set)
+    live_tilts[color] = tilt_entry
+
+    # Also write to the MAC-qualified composite key so controllers that reference a
+    # specific physical device (e.g. tilt_color = "Black:AA:BB:CC:DD:EE:FF") can
+    # look up temperature readings directly.
+    if resolved_mac:
+        mac_n = normalize_mac(resolved_mac)
+        if mac_n:
+            live_tilts[f"{color}:{mac_n}"] = tilt_entry
+
+    # Populate the MAC-keyed tilt_table so per-device calibration persists.
+    # upsert_device_from_reading() is the single place that creates/updates table entries;
+    # it was previously imported but never called from the BLE read path.
+    if resolved_mac:
+        try:
+            uuid_str = next((k for k, v in TILT_UUIDS.items() if v == color), "")
+            tilt_type = "pro" if is_pro else "standard"
+            rec = upsert_device_from_reading(
+                tilt_table,
+                mac=resolved_mac,
+                tilt_color=color,
+                uuid=uuid_str,
+                rssi=rssi,
+                temp_f=temp_f,
+                gravity=gravity,
+            )
+            # Store detected type on the record (upsert_device_from_reading preserves it if set)
+            if rec.get("tilt_type", "unknown") == "unknown":
+                rec["tilt_type"] = tilt_type
+            # Rate-limited save: at most every _TILT_TABLE_SAVE_INTERVAL_SECONDS
+            now_ts = time.time()
+            if now_ts - _tilt_table_last_saved >= _TILT_TABLE_SAVE_INTERVAL_SECONDS:
+                save_tilt_table(tilt_table)
+                _tilt_table_last_saved = now_ts
+        except Exception as e:
+            print(f"[LOG] Error updating tilt_table for {color}/{resolved_mac}: {e}")
+
 def get_active_tilts():
     """
     Filter live_tilts to only include tilts that have sent data recently.
@@ -1048,6 +1134,11 @@ def get_active_tilts():
     active_tilts = {}
     
     for color, info in live_tilts.items():
+        # Composite-key entries (e.g. "Black:AA:BB:CC:DD:EE:FF") are internal lookups
+        # for MAC-qualified controllers.  Exclude them from the display dict — the
+        # plain-color entry already represents that device for UI/dashboard purposes.
+        if ':' in color:
+            continue
         timestamp_str = info.get('timestamp')
         if not timestamp_str:
             # No timestamp means we can't determine activity - exclude for safety
@@ -1068,16 +1159,40 @@ def get_active_tilts():
     
     return active_tilts
 
-def _find_controller_by_tilt(color):
+def _find_controller_by_tilt(color, mac=None):
     """
-    Return the first controller whose ``tilt_color`` matches *color*, or ``None``.
+    Return the controller whose tilt matches *color* (and optionally *mac*), or ``None``.
 
-    Centralises the repeated linear search that would otherwise appear wherever a
-    tilt reading needs to be correlated with its owning temperature controller.
+    Match priority (highest to lowest):
+    1. Exact composite key match: controller.tilt_color == "Color:MAC"
+       (used when a controller is configured for a specific physical device)
+    2. Exact plain-color match: controller.tilt_color == "Color"
+       (backward compat: any device of this color)
+    3. Prefix match when no MAC is supplied: controller.tilt_color starts with "Color:"
+       (for callers that only have the color, finds a MAC-qualified controller)
     """
+    mac_n = normalize_mac(mac) if mac else None
+    composite_key = f"{color}:{mac_n}" if mac_n else None
+
+    # Pass 1: exact composite-key match (MAC-specific assignment)
+    if composite_key:
+        for ctrl in temp_cfg.get('controllers', []):
+            if ctrl.get('tilt_color') == composite_key:
+                return ctrl
+
+    # Pass 2: exact plain-color match (any device of this color)
     for ctrl in temp_cfg.get('controllers', []):
         if ctrl.get('tilt_color') == color:
             return ctrl
+
+    # Pass 3: prefix match — when only color is known, still find a MAC-qualified controller
+    # (This helps when legacy callers don't pass a MAC, e.g. some notification paths)
+    if not mac_n:
+        for ctrl in temp_cfg.get('controllers', []):
+            tc = ctrl.get('tilt_color', '')
+            if tc.startswith(f"{color}:"):
+                return ctrl
+
     return None
 
 def get_control_tilt_color(controller):
@@ -1262,8 +1377,9 @@ def log_tilt_reading(color, gravity, temp_f, rssi, mac="", is_pro=False):
     # - If tilt is assigned to temperature control: use system_cfg['update_interval'] for responsive control
     # - Otherwise: use system_cfg['tilt_logging_interval_minutes'] for fermentation tracking
     # Both intervals are configurable in System Settings page
-    # Multi-controller: use helper to find the controller owning this tilt (if any)
-    control_controller = _find_controller_by_tilt(color)
+    # Multi-controller: use helper to find the controller owning this tilt (if any).
+    # Pass the MAC address so a MAC-qualified controller is found first.
+    control_controller = _find_controller_by_tilt(color, mac=mac)
     is_control_tilt = control_controller is not None
     
     if is_control_tilt:
@@ -5228,7 +5344,36 @@ def temp_config():
     cooling_url = current_controller.get("cooling_plug", "")
     heating_last_activity = get_last_activity("heating") if heating_url else None
     cooling_last_activity = get_last_activity("cooling") if cooling_url else None
-    
+
+    # Build the list of MAC-specific device options for the tilt-selector dropdown.
+    # These supplement the plain-color options with entries for specific physical
+    # devices when more than one device of the same color is in range.
+    active_tilt_devices = []
+    seen_keys = set()
+    for tilt_key, info in live_tilts.items():
+        if ':' not in tilt_key:
+            continue  # skip plain-color entries — they're covered by report_colors
+        mac = tilt_key_mac(tilt_key)
+        if not mac or mac in seen_keys:
+            continue
+        seen_keys.add(mac)
+        base_color = tilt_key_base(tilt_key)
+        tilt_type = 'Pro/Mini-Pro' if info.get('is_pro') else 'Standard'
+        label = f"{base_color} ({tilt_type}) \u2014 {mac}"
+        active_tilt_devices.append({
+            'value': tilt_key,
+            'label': label,
+            'base_color': base_color,
+        })
+
+    # Human-readable label for the currently assigned tilt (shown next to the toggle)
+    assigned_tilt_key = current_controller.get("tilt_color", "")
+    if assigned_tilt_key:
+        assigned_info = live_tilts.get(assigned_tilt_key)
+        assigned_tilt_label = tilt_display_label(assigned_tilt_key, live_info=assigned_info)
+    else:
+        assigned_tilt_label = ''
+
     return render_template('temp_control_config.html',
         temp_control=current_controller,
         controller_id=controller_id,
@@ -5238,6 +5383,8 @@ def temp_config():
         batch_cfg=tilt_cfg,
         report_colors=report_colors,
         live_tilts=active_tilts,
+        active_tilt_devices=active_tilt_devices,
+        assigned_tilt_label=assigned_tilt_label,
         heating_last_activity=heating_last_activity,
         cooling_last_activity=cooling_last_activity
     )
@@ -5502,8 +5649,9 @@ def temp_report():
 
 
     filtered = []
-    brewid = tilt_cfg.get(tilt_color, {}).get('brewid')
-    tc = tilt_cfg.get(tilt_color, {}) or {}
+    _tilt_base_color = tilt_key_base(tilt_color)
+    brewid = tilt_cfg.get(_tilt_base_color, {}).get('brewid')
+    tc = tilt_cfg.get(_tilt_base_color, {}) or {}
     for p in entries:
         if brewid:
             if p.get('brewid') == brewid:
@@ -5994,7 +6142,7 @@ def scan_kasa_plugs():
         heating_plug = ctrl.get('heating_plug', '').strip()
         cooling_plug = ctrl.get('cooling_plug', '').strip()
         tilt_color = ctrl.get('tilt_color', '')
-        color_code = COLOR_MAP.get(tilt_color, '#888') if tilt_color else '#888'
+        color_code = get_tilt_color_hex(tilt_color)
         cid = ctrl.get('controller_id', 0)
         if heating_plug:
             assignments.setdefault(heating_plug, []).append({
@@ -6026,7 +6174,7 @@ def temp_summary(controller_id):
     else:
         controller = {"controller_id": controller_id, "mode": "Off", "status": "Not Configured"}
     tilt_color = controller.get('tilt_color', '')
-    color_code = COLOR_MAP.get(tilt_color, '#8B4513') if tilt_color else '#8B4513'
+    color_code = get_tilt_color_hex(tilt_color) if tilt_color else '#8B4513'
     return render_template('temp_summary.html',
                            controller=controller,
                            controller_id=controller_id,
@@ -6124,7 +6272,7 @@ def live_snapshot():
             "low_limit": controller.get("low_limit"),
             "high_limit": controller.get("high_limit"),
             "tilt_color": tilt_color,
-            "tilt_color_code": COLOR_MAP.get(tilt_color, ""),
+            "tilt_color_code": get_tilt_color_hex(tilt_color),
             "heater_on": controller.get("heater_on"),
             "cooler_on": controller.get("cooler_on"),
             "heater_pending": controller.get("heater_pending"),
@@ -6264,8 +6412,9 @@ def chart_plotly_index():
 
 @app.route('/chart_plotly/<tilt_color>')
 def chart_plotly_for(tilt_color):
-    # Allow "TempControl" as a special identifier for temperature control
-    if tilt_color and tilt_color != "TempControl" and tilt_color not in tilt_cfg:
+    # Allow "TempControl" as a special identifier for temperature control.
+    # Also allow composite keys ("Color:MAC") — resolve to the base color for config lookup.
+    if tilt_color and tilt_color != "TempControl" and tilt_key_base(tilt_color) not in tilt_cfg:
         abort(404)
     return render_template(
         'chart_plotly.html',
@@ -6406,10 +6555,12 @@ def chart_data_for(tilt_color):
         return jsonify({"tilt_color": tilt_color, "points": all_points, "truncated": truncated, "matched": matched})
 
     # Original tilt color logic
-    if tilt_color and tilt_color not in tilt_cfg:
+    # Support composite keys ("Color:MAC") by resolving to the base color for tilt_cfg lookups.
+    _tc_base = tilt_key_base(tilt_color)
+    if tilt_color and _tc_base not in tilt_cfg:
         return jsonify({"tilt_color": tilt_color, "points": [], "truncated": False, "matched": 0})
 
-    brewid = tilt_cfg.get(tilt_color, {}).get('brewid')
+    brewid = tilt_cfg.get(_tc_base, {}).get('brewid')
     
     # Sanitize brewid to prevent directory traversal attacks
     # Only allow alphanumeric characters, hyphens, and underscores
