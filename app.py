@@ -560,7 +560,7 @@ def _format_control_log_entry(event_type, payload):
     brewid = None
     if tilt_color and 'tilt_cfg' in globals():
         try:
-            brewid = tilt_cfg.get(tilt_color, {}).get('brewid')
+            brewid = tilt_cfg.get(tilt_key_base(tilt_color), {}).get('brewid')
         except Exception:
             brewid = None
 
@@ -975,6 +975,10 @@ tilt_status = {}
 last_tilt_log_ts = {}
 batch_notification_state = {}  # Track notification state per tilt/brewid
 
+# Rate-limiter for tilt_table saves: epoch timestamp of last save (0 = never saved)
+_tilt_table_last_saved: float = 0
+_TILT_TABLE_SAVE_INTERVAL_SECONDS = 300  # Save at most every 5 minutes
+
 # Notification timing constants
 DAILY_REPORT_COOLDOWN_HOURS = 23  # Prevent duplicate daily reports (allows timing variance)
 DAILY_REPORT_WINDOW_MINUTES = 5   # Time window for daily report triggering
@@ -993,7 +997,51 @@ def generate_brewid(beer_name, batch_name, date_str):
     id_str = f"{beer_name}-{batch_name}-{date_str}"
     return hashlib.sha256(id_str.encode('utf-8')).hexdigest()[:8]
 
+# --- Tilt-key helpers -------------------------------------------------------
+# A tilt key is either:
+#   "Color"      – a plain color name, e.g. "Black"
+#   "Color:MAC"  – a color+MAC composite, e.g. "Black:AA:BB:CC:DD:EE:FF"
+# Composite keys let controllers target a specific physical Tilt device when
+# multiple devices of the same color (standard vs Pro/mini-pro) are present.
+
+def tilt_key_base(key: str) -> str:
+    """Return the base color from a tilt key that may be 'Color' or 'Color:MAC'."""
+    return key.split(':', 1)[0] if key else key
+
+def tilt_key_mac(key: str):
+    """Return the MAC portion from a composite tilt key 'Color:MAC', or None."""
+    if not key:
+        return None
+    parts = key.split(':', 1)
+    return parts[1] if len(parts) == 2 else None
+
+def get_tilt_color_hex(tilt_key: str) -> str:
+    """Return the CSS hex color for a tilt_key (plain color OR 'Color:MAC' composite)."""
+    return COLOR_MAP.get(tilt_key_base(tilt_key), '#888') if tilt_key else '#888'
+
+def tilt_display_label(tilt_key: str, live_info: dict = None) -> str:
+    """Return a human-readable label for a tilt key.
+
+    Examples:
+        "Black"                    → "Black"
+        "Black:AA:BB:CC:DD:EE:FF"  → "Black (Pro) — AA:BB:CC:DD:EE:FF"
+    """
+    if not tilt_key:
+        return ''
+    base = tilt_key_base(tilt_key)
+    mac  = tilt_key_mac(tilt_key)
+    if not mac:
+        return base
+    type_label = ''
+    if live_info is not None:
+        if live_info.get('is_pro'):
+            type_label = ' (Pro)'
+        else:
+            type_label = ' (Standard)'
+    return f"{base}{type_label} \u2014 {mac}"
+
 def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=False):
+    global _tilt_table_last_saved
     cfg = tilt_cfg.get(color, {})
     # Preserve existing MAC address if a new (non-None, non-empty) one is not provided
     existing_mac = live_tilts.get(color, {}).get("mac_address", "")
@@ -1011,7 +1059,7 @@ def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=Fals
     adj_temp_f  = round(temp_f    + temp_variance,    1) if temp_f    is not None else None
     adj_gravity = round(raw_gravity + gravity_variance, 3) if raw_gravity is not None else None
 
-    live_tilts[color] = {
+    tilt_entry = {
         "gravity": round(gravity, 3) if gravity is not None else None,
         "temp_f": temp_f,
         "rssi": rssi,
@@ -1035,6 +1083,44 @@ def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=Fals
         "adj_gravity":      adj_gravity,
     }
 
+    # Write to the plain color key (backward compatibility, used when no MAC qualifier set)
+    live_tilts[color] = tilt_entry
+
+    # Also write to the MAC-qualified composite key so controllers that reference a
+    # specific physical device (e.g. tilt_color = "Black:AA:BB:CC:DD:EE:FF") can
+    # look up temperature readings directly.
+    if resolved_mac:
+        mac_n = normalize_mac(resolved_mac)
+        if mac_n:
+            live_tilts[f"{color}:{mac_n}"] = tilt_entry
+
+    # Populate the MAC-keyed tilt_table so per-device calibration persists.
+    # upsert_device_from_reading() is the single place that creates/updates table entries;
+    # it was previously imported but never called from the BLE read path.
+    if resolved_mac:
+        try:
+            uuid_str = next((k for k, v in TILT_UUIDS.items() if v == color), "")
+            tilt_type = "pro" if is_pro else "standard"
+            rec = upsert_device_from_reading(
+                tilt_table,
+                mac=resolved_mac,
+                tilt_color=color,
+                uuid=uuid_str,
+                rssi=rssi,
+                temp_f=temp_f,
+                gravity=gravity,
+            )
+            # Store detected type on the record (upsert_device_from_reading preserves it if set)
+            if rec.get("tilt_type", "unknown") == "unknown":
+                rec["tilt_type"] = tilt_type
+            # Rate-limited save: at most every _TILT_TABLE_SAVE_INTERVAL_SECONDS
+            now_ts = time.time()
+            if now_ts - _tilt_table_last_saved >= _TILT_TABLE_SAVE_INTERVAL_SECONDS:
+                save_tilt_table(tilt_table)
+                _tilt_table_last_saved = now_ts
+        except Exception as e:
+            print(f"[LOG] Error updating tilt_table for {color}/{resolved_mac}: {e}")
+
 def get_active_tilts():
     """
     Filter live_tilts to only include tilts that have sent data recently.
@@ -1048,6 +1134,11 @@ def get_active_tilts():
     active_tilts = {}
     
     for color, info in live_tilts.items():
+        # Composite-key entries (e.g. "Black:AA:BB:CC:DD:EE:FF") are internal lookups
+        # for MAC-qualified controllers.  Exclude them from the display dict — the
+        # plain-color entry already represents that device for UI/dashboard purposes.
+        if ':' in color:
+            continue
         timestamp_str = info.get('timestamp')
         if not timestamp_str:
             # No timestamp means we can't determine activity - exclude for safety
@@ -1067,6 +1158,42 @@ def get_active_tilts():
             print(f"[LOG] Error parsing timestamp for {color}: {e}, excluding from active tilts")
     
     return active_tilts
+
+def _find_controller_by_tilt(color, mac=None):
+    """
+    Return the controller whose tilt matches *color* (and optionally *mac*), or ``None``.
+
+    Match priority (highest to lowest):
+    1. Exact composite key match: controller.tilt_color == "Color:MAC"
+       (used when a controller is configured for a specific physical device)
+    2. Exact plain-color match: controller.tilt_color == "Color"
+       (backward compat: any device of this color)
+    3. Prefix match when no MAC is supplied: controller.tilt_color starts with "Color:"
+       (for callers that only have the color, finds a MAC-qualified controller)
+    """
+    mac_n = normalize_mac(mac) if mac else None
+    composite_key = f"{color}:{mac_n}" if mac_n else None
+
+    # Pass 1: exact composite-key match (MAC-specific assignment)
+    if composite_key:
+        for ctrl in temp_cfg.get('controllers', []):
+            if ctrl.get('tilt_color') == composite_key:
+                return ctrl
+
+    # Pass 2: exact plain-color match (any device of this color)
+    for ctrl in temp_cfg.get('controllers', []):
+        if ctrl.get('tilt_color') == color:
+            return ctrl
+
+    # Pass 3: prefix match — when only color is known, still find a MAC-qualified controller
+    # (This helps when legacy callers don't pass a MAC, e.g. some notification paths)
+    if not mac_n:
+        for ctrl in temp_cfg.get('controllers', []):
+            tc = ctrl.get('tilt_color', '')
+            if tc.startswith(f"{color}:"):
+                return ctrl
+
+    return None
 
 def get_control_tilt_color(controller):
     """
@@ -1250,8 +1377,10 @@ def log_tilt_reading(color, gravity, temp_f, rssi, mac="", is_pro=False):
     # - If tilt is assigned to temperature control: use system_cfg['update_interval'] for responsive control
     # - Otherwise: use system_cfg['tilt_logging_interval_minutes'] for fermentation tracking
     # Both intervals are configurable in System Settings page
-    control_tilt_color = temp_cfg.get("tilt_color")
-    is_control_tilt = (color == control_tilt_color)
+    # Multi-controller: use helper to find the controller owning this tilt (if any).
+    # Pass the MAC address so a MAC-qualified controller is found first.
+    control_controller = _find_controller_by_tilt(color, mac=mac)
+    is_control_tilt = control_controller is not None
     
     if is_control_tilt:
         # Use system_cfg['update_interval'] for temperature control tilt
@@ -1300,8 +1429,8 @@ def log_tilt_reading(color, gravity, temp_f, rssi, mac="", is_pro=False):
     # Include temperature control limits in the payload if this is the control tilt
     # This ensures the control log has complete information for debugging and charting
     if is_control_tilt:
-        payload["low_limit"] = temp_cfg.get("low_limit")
-        payload["high_limit"] = temp_cfg.get("high_limit")
+        payload["low_limit"] = control_controller.get("low_limit")
+        payload["high_limit"] = control_controller.get("high_limit")
     
     # Log to control log
     append_control_log("tilt_reading", payload)
@@ -1387,7 +1516,9 @@ def rotate_and_archive_old_history(color, old_brewid, old_cfg):
 
         # Only log mode change if we actually archived samples
         if moved > 0:
-            append_control_log("temp_control_mode_changed", {"tilt_color": color, "low_limit": temp_cfg.get("low_limit"), "current_temp": temp_cfg.get("current_temp"), "high_limit": temp_cfg.get("high_limit")})
+            # Find the controller assigned to this tilt color to get accurate limit data
+            ctrl_for_color = _find_controller_by_tilt(color) or {}
+            append_control_log("temp_control_mode_changed", {"tilt_color": color, "low_limit": ctrl_for_color.get("low_limit"), "current_temp": ctrl_for_color.get("current_temp"), "high_limit": ctrl_for_color.get("high_limit")})
         return True
     except Exception as e:
         print(f"[LOG] rotate_and_archive_old_history error: {e}")
@@ -1940,6 +2071,10 @@ def attempt_send_notifications(subject, body):
     mode = (system_cfg.get('warning_mode') or 'NONE').upper()
     success_any = False
     temp_cfg['notifications_trigger'] = True
+    # Propagate the in-progress state to all controller dicts so the UI
+    # can show a "sending" indicator while the notification is being delivered.
+    for ctrl in temp_cfg.get('controllers', []):
+        ctrl['notifications_trigger'] = True
     
     # Reset error flags before attempting
     temp_cfg['push_error'] = False
@@ -2031,11 +2166,22 @@ def attempt_send_notifications(subject, body):
     if success_any:
         temp_cfg['notification_last_sent'] = datetime.utcnow().isoformat()
         temp_cfg['notification_comm_failure'] = False
-        return True
     else:
         temp_cfg['notification_comm_failure'] = True
         # Don't disable notifications on failure - just track the failure
-        return False
+
+    # Propagate system-wide notification state to all controller dicts for UI display.
+    # push_error/email_error are set on temp_cfg by send_email()/send_push(); copy
+    # the final values so each controller card reflects the actual notification health.
+    for ctrl in temp_cfg.get('controllers', []):
+        ctrl['push_error'] = temp_cfg.get('push_error', False)
+        ctrl['email_error'] = temp_cfg.get('email_error', False)
+        ctrl['notifications_trigger'] = temp_cfg.get('notifications_trigger', False)
+        ctrl['notification_comm_failure'] = temp_cfg.get('notification_comm_failure', False)
+        if temp_cfg.get('notification_last_sent'):
+            ctrl['notification_last_sent'] = temp_cfg.get('notification_last_sent')
+
+    return success_any
 
 def send_warning(subject, body):
     mode = (system_cfg.get('warning_mode') or 'NONE').upper()
@@ -2046,6 +2192,7 @@ def send_warning(subject, body):
     except Exception:
         rate_limit = 3600
 
+    # Use the global notification_last_sent for rate limiting (system-wide)
     last = temp_cfg.get('notification_last_sent')
     if last:
         try:
@@ -2056,7 +2203,6 @@ def send_warning(subject, body):
         except Exception:
             pass
 
-    temp_cfg['notifications_trigger'] = True
     ok = attempt_send_notifications(subject, body)
     return ok
 
@@ -2126,7 +2272,15 @@ def send_safety_shutdown_notification(tilt_color, low_limit, high_limit):
         return
     
     brewery_name = system_cfg.get('brewery_name', 'Unknown Brewery')
-    timeout_minutes = int(system_cfg.get('tilt_inactivity_timeout_minutes', 30))
+    # Use the actual temp-control safety timeout (2 × update_interval), NOT the
+    # batch-monitoring signal-loss timeout (tilt_inactivity_timeout_minutes = 30 min).
+    # Reporting the wrong value caused users to believe the system hadn't seen a
+    # reading in 30 minutes when the real threshold is much shorter.
+    try:
+        update_interval_minutes = int(system_cfg.get("update_interval", 2))
+    except Exception:
+        update_interval_minutes = 2
+    timeout_minutes = update_interval_minutes * 2
     now = datetime.utcnow()
     
     subject = f"{brewery_name} - SAFETY SHUTDOWN: Control Tilt Offline"
@@ -2139,7 +2293,8 @@ Tilt Color: {tilt_color}
 
 SAFETY SHUTDOWN TRIGGERED
 
-The Tilt assigned to temperature control has not transmitted data for more than {timeout_minutes} minutes.
+The Tilt assigned to temperature control has not transmitted data within the
+safety timeout of {timeout_minutes} minutes ({update_interval_minutes}-minute update interval × 2).
 
 All Kasa plugs have been automatically turned OFF to prevent runaway heating/cooling.
 
@@ -4136,14 +4291,41 @@ def build_offsite_payload(field_map=None):
     }
     if not field_map:
         field_map = default_map
+    # Build temp_control summary from all active controllers (multi-controller support).
+    # For backward compatibility with single-value consumers, also expose the first
+    # active controller's data at the top level.
+    controllers_snapshot = []
+    first_active = None
+    for ctrl in temp_cfg.get('controllers', []):
+        if ctrl.get('temp_control_active'):
+            entry = {
+                'controller_id': ctrl.get('controller_id', 0),
+                'current_temp': ctrl.get('current_temp'),
+                'low_limit': ctrl.get('low_limit'),
+                'high_limit': ctrl.get('high_limit'),
+                'status': ctrl.get('status'),
+                'tilt_color': ctrl.get('tilt_color', ''),
+            }
+            controllers_snapshot.append(entry)
+            if first_active is None:
+                first_active = entry
+    controllers_list = temp_cfg.get('controllers') or []
+    if first_active is None and controllers_list:
+        # No active controller – fall back to first configured controller
+        ctrl = controllers_list[0]
+        first_active = {
+            'controller_id': ctrl.get('controller_id', 0),
+            'current_temp': ctrl.get('current_temp'),
+            'low_limit': ctrl.get('low_limit'),
+            'high_limit': ctrl.get('high_limit'),
+            'status': ctrl.get('status'),
+            'tilt_color': ctrl.get('tilt_color', ''),
+        }
+    # first_active is None only when no controllers are configured at all.
     payload = {
         'timestamp': datetime.utcnow().isoformat(),
-        'temp_control': {
-            'current_temp': temp_cfg.get("current_temp"),
-            'low_limit': temp_cfg.get("low_limit"),
-            'high_limit': temp_cfg.get("high_limit"),
-            'status': temp_cfg.get("status"),
-        },
+        'temp_control': first_active or {},
+        'temp_controllers': controllers_snapshot,
         'tilts': []
     }
     for color, info in live_tilts.items():
@@ -4345,14 +4527,6 @@ def ble_loop():
         await scanner.start()
         while True:
             await asyncio.sleep(5)
-            try:
-                temp = get_current_temp_for_control_tilt(temp_cfg)
-                if temp is not None:
-                    temp_cfg['current_temp'] = round(float(temp), 1)
-                    # Update timestamp when temperature is read
-                    temp_cfg['last_reading_time'] = datetime.utcnow().isoformat() + "Z"
-            except Exception as e:
-                print(f"[LOG] Error in ble_loop run_scanner: {e}")
     try:
         asyncio.run(run_scanner())
     except Exception as e:
@@ -4564,9 +4738,15 @@ def update_system_config():
     if old_warn.upper() == 'NONE' and new_warn.upper() in ('EMAIL','PUSH','BOTH'):
         temp_cfg['notifications_trigger'] = False
         temp_cfg['notification_comm_failure'] = False
+        for ctrl in temp_cfg.get('controllers', []):
+            ctrl['notifications_trigger'] = False
+            ctrl['notification_comm_failure'] = False
     elif new_warn.upper() == 'NONE':
         temp_cfg['notifications_trigger'] = False
         temp_cfg['notification_comm_failure'] = False
+        for ctrl in temp_cfg.get('controllers', []):
+            ctrl['notifications_trigger'] = False
+            ctrl['notification_comm_failure'] = False
 
     return redirect(f'/system_config?tab={active_tab}')
 
@@ -5164,7 +5344,36 @@ def temp_config():
     cooling_url = current_controller.get("cooling_plug", "")
     heating_last_activity = get_last_activity("heating") if heating_url else None
     cooling_last_activity = get_last_activity("cooling") if cooling_url else None
-    
+
+    # Build the list of MAC-specific device options for the tilt-selector dropdown.
+    # These supplement the plain-color options with entries for specific physical
+    # devices when more than one device of the same color is in range.
+    active_tilt_devices = []
+    seen_keys = set()
+    for tilt_key, info in live_tilts.items():
+        if ':' not in tilt_key:
+            continue  # skip plain-color entries — they're covered by report_colors
+        mac = tilt_key_mac(tilt_key)
+        if not mac or mac in seen_keys:
+            continue
+        seen_keys.add(mac)
+        base_color = tilt_key_base(tilt_key)
+        tilt_type = 'Pro/Mini-Pro' if info.get('is_pro') else 'Standard'
+        label = f"{base_color} ({tilt_type}) \u2014 {mac}"
+        active_tilt_devices.append({
+            'value': tilt_key,
+            'label': label,
+            'base_color': base_color,
+        })
+
+    # Human-readable label for the currently assigned tilt (shown next to the toggle)
+    assigned_tilt_key = current_controller.get("tilt_color", "")
+    if assigned_tilt_key:
+        assigned_info = live_tilts.get(assigned_tilt_key)
+        assigned_tilt_label = tilt_display_label(assigned_tilt_key, live_info=assigned_info)
+    else:
+        assigned_tilt_label = ''
+
     return render_template('temp_control_config.html',
         temp_control=current_controller,
         controller_id=controller_id,
@@ -5174,6 +5383,8 @@ def temp_config():
         batch_cfg=tilt_cfg,
         report_colors=report_colors,
         live_tilts=active_tilts,
+        active_tilt_devices=active_tilt_devices,
+        assigned_tilt_label=assigned_tilt_label,
         heating_last_activity=heating_last_activity,
         cooling_last_activity=cooling_last_activity
     )
@@ -5438,8 +5649,9 @@ def temp_report():
 
 
     filtered = []
-    brewid = tilt_cfg.get(tilt_color, {}).get('brewid')
-    tc = tilt_cfg.get(tilt_color, {}) or {}
+    _tilt_base_color = tilt_key_base(tilt_color)
+    brewid = tilt_cfg.get(_tilt_base_color, {}).get('brewid')
+    tc = tilt_cfg.get(_tilt_base_color, {}) or {}
     for p in entries:
         if brewid:
             if p.get('brewid') == brewid:
@@ -5930,7 +6142,7 @@ def scan_kasa_plugs():
         heating_plug = ctrl.get('heating_plug', '').strip()
         cooling_plug = ctrl.get('cooling_plug', '').strip()
         tilt_color = ctrl.get('tilt_color', '')
-        color_code = COLOR_MAP.get(tilt_color, '#888') if tilt_color else '#888'
+        color_code = get_tilt_color_hex(tilt_color)
         cid = ctrl.get('controller_id', 0)
         if heating_plug:
             assignments.setdefault(heating_plug, []).append({
@@ -5962,7 +6174,7 @@ def temp_summary(controller_id):
     else:
         controller = {"controller_id": controller_id, "mode": "Off", "status": "Not Configured"}
     tilt_color = controller.get('tilt_color', '')
-    color_code = COLOR_MAP.get(tilt_color, '#8B4513') if tilt_color else '#8B4513'
+    color_code = get_tilt_color_hex(tilt_color) if tilt_color else '#8B4513'
     return render_template('temp_summary.html',
                            controller=controller,
                            controller_id=controller_id,
@@ -6060,7 +6272,7 @@ def live_snapshot():
             "low_limit": controller.get("low_limit"),
             "high_limit": controller.get("high_limit"),
             "tilt_color": tilt_color,
-            "tilt_color_code": COLOR_MAP.get(tilt_color, ""),
+            "tilt_color_code": get_tilt_color_hex(tilt_color),
             "heater_on": controller.get("heater_on"),
             "cooler_on": controller.get("cooler_on"),
             "heater_pending": controller.get("heater_pending"),
@@ -6200,8 +6412,9 @@ def chart_plotly_index():
 
 @app.route('/chart_plotly/<tilt_color>')
 def chart_plotly_for(tilt_color):
-    # Allow "TempControl" as a special identifier for temperature control
-    if tilt_color and tilt_color != "TempControl" and tilt_color not in tilt_cfg:
+    # Allow "TempControl" as a special identifier for temperature control.
+    # Also allow composite keys ("Color:MAC") — resolve to the base color for config lookup.
+    if tilt_color and tilt_color != "TempControl" and tilt_key_base(tilt_color) not in tilt_cfg:
         abort(404)
     return render_template(
         'chart_plotly.html',
@@ -6342,10 +6555,12 @@ def chart_data_for(tilt_color):
         return jsonify({"tilt_color": tilt_color, "points": all_points, "truncated": truncated, "matched": matched})
 
     # Original tilt color logic
-    if tilt_color and tilt_color not in tilt_cfg:
+    # Support composite keys ("Color:MAC") by resolving to the base color for tilt_cfg lookups.
+    _tc_base = tilt_key_base(tilt_color)
+    if tilt_color and _tc_base not in tilt_cfg:
         return jsonify({"tilt_color": tilt_color, "points": [], "truncated": False, "matched": 0})
 
-    brewid = tilt_cfg.get(tilt_color, {}).get('brewid')
+    brewid = tilt_cfg.get(_tc_base, {}).get('brewid')
     
     # Sanitize brewid to prevent directory traversal attacks
     # Only allow alphanumeric characters, hyphens, and underscores
@@ -6443,7 +6658,17 @@ def reset_logs():
             backup_name = f"{LOG_PATH}.{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.bak"
             try:
                 os.rename(LOG_PATH, backup_name)
-                append_control_log("temp_control_mode_changed", {"low_limit": temp_cfg.get("low_limit"), "current_temp": temp_cfg.get("current_temp"), "high_limit": temp_cfg.get("high_limit"), "tilt_color": temp_cfg.get("tilt_color", "")})
+                # Log a mode-changed marker for every configured controller so the
+                # new log starts with accurate state entries (multi-controller aware).
+                for ctrl in temp_cfg.get('controllers', []):
+                    if ctrl.get('enable_heating') or ctrl.get('enable_cooling'):
+                        append_control_log("temp_control_mode_changed", {
+                            "controller_id": ctrl.get("controller_id", 0),
+                            "low_limit": ctrl.get("low_limit"),
+                            "current_temp": ctrl.get("current_temp"),
+                            "high_limit": ctrl.get("high_limit"),
+                            "tilt_color": ctrl.get("tilt_color", "")
+                        })
             except Exception as e:
                 print(f"[LOG] Could not backup log: {e}")
         open(LOG_PATH, 'w').close()
@@ -7400,28 +7625,30 @@ def exit_system():
     if request.method == 'POST':
         confirm = request.form.get('confirm', 'no')
         if confirm == 'yes':
-            # Set temp_control_active to False before shutdown
-            # This ensures the monitor starts OFF on next startup
+            # Set temp_control_active to False on every controller before shutdown
+            # so the monitors start OFF on next startup (multi-controller aware).
             try:
-                temp_cfg['temp_control_active'] = False
+                for ctrl in temp_cfg.get('controllers', []):
+                    ctrl['temp_control_active'] = False
                 save_json(TEMP_CFG_FILE, temp_cfg)
             except Exception as e:
                 print(f"[LOG] Error setting temp_control_active=False during shutdown - monitor may start ON at next startup: {e}")
             
-            # Turn off all plugs before shutdown
+            # Turn off all plugs across every controller before shutdown
             try:
-                heating_plug = temp_cfg.get("heating_plug", "")
-                cooling_plug = temp_cfg.get("cooling_plug", "")
-                
-                # Turn off heating plug if configured
-                if heating_plug and kasa_queue:
-                    kasa_queue.put({'mode': 'heating', 'url': heating_plug, 'action': 'off'})
-                    time.sleep(PLUG_COMMAND_DELAY)
-                
-                # Turn off cooling plug if configured
-                if cooling_plug and kasa_queue:
-                    kasa_queue.put({'mode': 'cooling', 'url': cooling_plug, 'action': 'off'})
-                    time.sleep(PLUG_COMMAND_DELAY)
+                for ctrl in temp_cfg.get('controllers', []):
+                    heating_plug = ctrl.get("heating_plug", "")
+                    cooling_plug = ctrl.get("cooling_plug", "")
+                    
+                    # Turn off heating plug if configured
+                    if heating_plug and kasa_queue:
+                        kasa_queue.put({'mode': 'heating', 'url': heating_plug, 'action': 'off'})
+                        time.sleep(PLUG_COMMAND_DELAY)
+                    
+                    # Turn off cooling plug if configured
+                    if cooling_plug and kasa_queue:
+                        kasa_queue.put({'mode': 'cooling', 'url': cooling_plug, 'action': 'off'})
+                        time.sleep(PLUG_COMMAND_DELAY)
             except Exception as e:
                 print(f"[LOG] Error turning off plugs during shutdown: {e}")
             
