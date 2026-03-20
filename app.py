@@ -3978,81 +3978,88 @@ def sync_plug_states_at_startup():
     """
     Synchronize stored plug states with actual plug states at startup.
     This prevents displaying stale state from the last shutdown.
-    
-    This function runs with a timeout to prevent blocking Flask startup.
-    If queries take too long, it keeps the current state and lets the
-    control loop handle synchronization.
+
+    All controllers start with heater_on=False and cooler_on=False.  The
+    function then queries each configured plug and updates accordingly.
+    If a query fails or times out the state remains False (off), which is
+    the safe default – the control loop will send the correct command once
+    it evaluates the current temperature.
     """
-    if kasa_query_state is None:
-        print("[LOG] kasa_query_state not available, skipping startup sync")
-        return
-    
-    heating_url = temp_cfg.get("heating_plug", "")
-    cooling_url = temp_cfg.get("cooling_plug", "")
-    enable_heating = temp_cfg.get("enable_heating", False)
-    enable_cooling = temp_cfg.get("enable_cooling", False)
-    
-    print("[LOG] Syncing plug states at startup...")
-    
+
     # Helper function to query plug state with timeout
-    async def query_plug_with_timeout(url, plug_name):
+    async def query_plug_with_timeout(url):
         """Query a plug's state with timeout. Returns (is_on, error) or raises TimeoutError."""
         # Timeout set to 7 seconds to allow internal kasa_query_state timeout (6s) to complete
         return await asyncio.wait_for(kasa_query_state(url), timeout=7.0)
-    
-    # Query heating plug state with timeout
-    if enable_heating and heating_url:
-        try:
-            is_on, error = asyncio.run(query_plug_with_timeout(heating_url, "heating"))
-            if error is None:
-                temp_cfg["heater_on"] = is_on
-                print(f"[LOG] Heating plug state synced: {'ON' if is_on else 'OFF'}")
-            else:
-                # If we can't query the state, keep current value and let control loop handle it
-                # Don't override to False as this causes UI flicker when network is slow
-                print(f"[LOG] Failed to query heating plug state: {error}, keeping current state")
-        except asyncio.TimeoutError:
-            # If query times out, keep current value and let control loop handle it
-            print(f"[LOG] Heating plug query timed out, keeping current state")
-        except Exception as e:
-            # If query fails, keep current value and let control loop handle it
-            print(f"[LOG] Error querying heating plug: {e}, keeping current state")
-    else:
-        # Only set to False if heating is not enabled
-        temp_cfg["heater_on"] = False
-    
-    # Query cooling plug state with timeout
-    if enable_cooling and cooling_url:
-        try:
-            is_on, error = asyncio.run(query_plug_with_timeout(cooling_url, "cooling"))
-            if error is None:
-                temp_cfg["cooler_on"] = is_on
-                print(f"[LOG] Cooling plug state synced: {'ON' if is_on else 'OFF'}")
-            else:
-                # If we can't query the state, keep current value and let control loop handle it
-                # Don't override to False as this causes UI flicker when network is slow
-                print(f"[LOG] Failed to query cooling plug state: {error}, keeping current state")
-        except asyncio.TimeoutError:
-            # If query times out, keep current value and let control loop handle it
-            print(f"[LOG] Cooling plug query timed out, keeping current state")
-        except Exception as e:
-            # If query fails, keep current value and let control loop handle it
-            print(f"[LOG] Error querying cooling plug: {e}, keeping current state")
-    else:
-        # Only set to False if cooling is not enabled
-        temp_cfg["cooler_on"] = False
-    
+
+    controllers = temp_cfg.get('controllers', [])
+    if not controllers:
+        print("[LOG] sync_plug_states_at_startup: no controllers found, skipping")
+        return
+
+    print("[LOG] Syncing plug states at startup...")
+
+    for controller in controllers:
+        cid = controller.get('controller_id', '?')
+
+        # Always reset to off first – stale True values from previous sessions
+        # must not be displayed or used to suppress real commands.
+        controller["heater_on"] = False
+        controller["cooler_on"] = False
+        controller["heater_pending"] = False
+        controller["cooler_pending"] = False
+        controller["heater_pending_since"] = None
+        controller["cooler_pending_since"] = None
+
+        if kasa_query_state is None:
+            print(f"[LOG] Controller {cid}: kasa_query_state not available, plugs reset to OFF")
+            continue
+
+        # Query heating plug
+        heating_url = controller.get("heating_plug", "")
+        enable_heating = controller.get("enable_heating", False)
+        if enable_heating and heating_url:
+            try:
+                is_on, error = asyncio.run(query_plug_with_timeout(heating_url))
+                if error is None:
+                    controller["heater_on"] = is_on
+                    print(f"[LOG] Controller {cid}: Heating plug state synced: {'ON' if is_on else 'OFF'}")
+                else:
+                    print(f"[LOG] Controller {cid}: Failed to query heating plug ({error}), defaulting to OFF")
+            except asyncio.TimeoutError:
+                print(f"[LOG] Controller {cid}: Heating plug query timed out, defaulting to OFF")
+            except Exception as e:
+                print(f"[LOG] Controller {cid}: Error querying heating plug ({e}), defaulting to OFF")
+
+        # Query cooling plug
+        cooling_url = controller.get("cooling_plug", "")
+        enable_cooling = controller.get("enable_cooling", False)
+        if enable_cooling and cooling_url:
+            try:
+                is_on, error = asyncio.run(query_plug_with_timeout(cooling_url))
+                if error is None:
+                    controller["cooler_on"] = is_on
+                    print(f"[LOG] Controller {cid}: Cooling plug state synced: {'ON' if is_on else 'OFF'}")
+                else:
+                    print(f"[LOG] Controller {cid}: Failed to query cooling plug ({error}), defaulting to OFF")
+            except asyncio.TimeoutError:
+                print(f"[LOG] Controller {cid}: Cooling plug query timed out, defaulting to OFF")
+            except Exception as e:
+                print(f"[LOG] Controller {cid}: Error querying cooling plug ({e}), defaulting to OFF")
+
     print("[LOG] Plug state synchronization complete")
-    
+
     # Log the startup sync to the control log
     try:
         append_control_log("startup_plug_sync", {
-            "heater_on": temp_cfg.get("heater_on"),
-            "cooler_on": temp_cfg.get("cooler_on"),
-            "enable_heating": enable_heating,
-            "enable_cooling": enable_cooling,
-            "heating_url": heating_url if enable_heating else "",
-            "cooling_url": cooling_url if enable_cooling else ""
+            "controllers": [
+                {
+                    "controller_id": c.get("controller_id"),
+                    "heater_on": c.get("heater_on"),
+                    "cooler_on": c.get("cooler_on"),
+                }
+                for c in controllers
+            ]
         })
     except Exception as e:
         print(f"[LOG] Failed to log startup sync: {e}")

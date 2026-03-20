@@ -104,18 +104,26 @@
       if (statusEl) statusEl.textContent = msg;
     }
 
+    function goToDashboard() {
+      // Signal that the dashboard should auto-enter fullscreen.
+      // The maindisplay page uses this localStorage key to restore fullscreen
+      // after navigating away from or to the dashboard.
+      try { localStorage.setItem('fermentatorium_wantFullscreen', '1'); } catch(e) {}
+      window.location.href = '/';
+    }
+
     function checkAppReady() {
       attempts++;
       if (attempts > MAX_ATTEMPTS) {
         setStatus('Taking longer than expected — redirecting…');
-        setTimeout(function() { window.location.href = '/'; }, 2000);
+        setTimeout(goToDashboard, 2000);
         return;
       }
       fetch('/', { cache: 'no-store' })
         .then(function(response) {
           if (response.ok) {
             setStatus('Dashboard ready — loading…');
-            window.location.href = '/';
+            goToDashboard();
           } else {
             setStatus('Server responded — warming up (' + attempts + ')…');
             setTimeout(checkAppReady, 2000);

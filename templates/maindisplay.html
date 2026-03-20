@@ -1276,9 +1276,12 @@
 
     function enterFullscreen() {
       var el = document.documentElement;
-      if      (el.requestFullscreen)       el.requestFullscreen();
-      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-      else if (el.mozRequestFullScreen)    el.mozRequestFullScreen();
+      var p;
+      if      (el.requestFullscreen)       p = el.requestFullscreen();
+      else if (el.webkitRequestFullscreen) p = el.webkitRequestFullscreen();
+      else if (el.mozRequestFullScreen)    p = el.mozRequestFullScreen();
+      // requestFullscreen returns a Promise; return it so callers can catch errors.
+      return p || Promise.resolve();
     }
 
     function exitFullscreen() {
@@ -1320,11 +1323,20 @@
     document.addEventListener('webkitfullscreenchange', syncIcon);
     document.addEventListener('mozfullscreenchange',    syncIcon);
 
-    // Auto-restore fullscreen after returning from settings pages.
-    // requestFullscreen() is permitted here because this page was opened by a
-    // user gesture (clicking a link on the settings page or the back button).
+    // Auto-restore fullscreen on every load of this page when the preference
+    // is set.  This covers two cases:
+    //   1. First launch via startup.html (which sets the LS_KEY before redirecting).
+    //   2. Returning from a settings page (navigation from a user gesture keeps
+    //      the transient user-activation context, allowing requestFullscreen()).
+    // A short setTimeout defers the call until after the browser has painted the
+    // page and the user-activation token is most reliably available.
     if (localStorage.getItem(LS_KEY) === '1' && !isFullscreen()) {
-      enterFullscreen();
+      setTimeout(function () {
+        if (!isFullscreen()) {
+          enterFullscreen().catch(function () {});
+        }
+        syncIcon();
+      }, 100);
     }
   }());
   </script>
