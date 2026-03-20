@@ -4546,14 +4546,24 @@ def periodic_batch_monitoring():
 
 # --- BLE scanner thread ---------------------------------------------------
 def ble_loop():
+    # Restart the scanner periodically so that BlueZ's duplicate-device filter is
+    # cleared and every Tilt (including those broadcasting stable values, such as the
+    # Orange mini-pro) is re-discovered at regular intervals.
+    _SCAN_RESTART_INTERVAL = 60  # seconds between scanner restarts
+
     async def run_scanner():
         if BleakScanner is None:
             print("[LOG] BleakScanner not available; BLE scanning disabled")
             return
-        scanner = BleakScanner(detection_callback)
-        await scanner.start()
         while True:
-            await asyncio.sleep(5)
+            try:
+                scanner = BleakScanner(detection_callback)
+                await scanner.start()
+                await asyncio.sleep(_SCAN_RESTART_INTERVAL)
+                await scanner.stop()
+            except Exception as e:
+                print(f"[LOG] BLE scanner cycle error: {e}")
+                await asyncio.sleep(5)
     try:
         asyncio.run(run_scanner())
     except Exception as e:
