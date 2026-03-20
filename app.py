@@ -6285,6 +6285,27 @@ def _run_async_in_thread(coro, timeout=10):
     return result_holder[0]
 
 
+def _clear_kasa_error_for_plug(mode, url):
+    """
+    Clear all error-tracking fields for every controller whose plug of the
+    given mode (``'heating'`` or ``'cooling'``) matches *url*.
+
+    Called after a direct connectivity test succeeds so that the TC card no
+    longer shows "Kasa Connection Lost" while the settings test shows
+    "Connected".  A successful ``plug.update()`` is the authoritative proof
+    that the plug is currently reachable; any prior error flag was set by a
+    past transient failure and is now stale.
+    """
+    plug_key = f'{mode}_plug'
+    for ctrl in temp_cfg.get('controllers', []):
+        if ctrl.get(plug_key, '') == url:
+            ctrl[f'{mode}_error'] = False
+            ctrl[f'{mode}_error_msg'] = ''
+            ctrl[f'{mode}_error_notified'] = False
+            ctrl[f'{mode}_kasa_error_since'] = 0
+            ctrl[f'{mode}_kasa_error_notified_at'] = 0
+
+
 @app.route('/test_kasa_plugs', methods=['POST'])
 def test_kasa_plugs():
     """Test connection to configured KASA plugs"""
@@ -6312,6 +6333,7 @@ def test_kasa_plugs():
                 plug = IotPlug(heating_url)
                 _run_async_in_thread(asyncio.wait_for(plug.update(), timeout=6), timeout=6)
                 results['heating'] = {'success': True, 'error': None}
+                _clear_kasa_error_for_plug('heating', heating_url)
             except Exception as e:
                 results['heating'] = {'success': False, 'error': format_kasa_error(e, heating_url)}
 
@@ -6321,6 +6343,7 @@ def test_kasa_plugs():
                 plug = IotPlug(cooling_url)
                 _run_async_in_thread(asyncio.wait_for(plug.update(), timeout=6), timeout=6)
                 results['cooling'] = {'success': True, 'error': None}
+                _clear_kasa_error_for_plug('cooling', cooling_url)
             except Exception as e:
                 results['cooling'] = {'success': False, 'error': format_kasa_error(e, cooling_url)}
 

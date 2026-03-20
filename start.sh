@@ -179,8 +179,8 @@ source "$VENV_DIR/bin/activate"
 export PIP_DISABLE_PIP_VERSION_CHECK=1
 
 if [ -f "requirements.txt" ]; then
-    # Use timeout to prevent hanging on bleak Bluetooth initialization or network issues
-    if ! timeout 30 "$VENV_DIR/bin/python3" -c "import flask, bleak" 2>/dev/null; then
+    # Check only flask (bleak BLE init is slow and not needed to gate startup)
+    if ! timeout 15 "$VENV_DIR/bin/python3" -c "import flask" 2>/dev/null; then
         if ! timeout 300 pip install --quiet --disable-pip-version-check -r requirements.txt 2>>app.log; then
             echo "WARNING: Failed to install dependencies"
             if ! timeout 10 "$VENV_DIR/bin/python3" -c "import flask" 2>/dev/null; then
@@ -190,9 +190,6 @@ if [ -f "requirements.txt" ]; then
         fi
     fi
 fi
-
-find "$SCRIPT_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-find "$SCRIPT_DIR" -type f -name "*.pyc" -delete 2>/dev/null || true
 
 kill_port 5000
 if [ "$FLASK_PORT" != "5000" ]; then
