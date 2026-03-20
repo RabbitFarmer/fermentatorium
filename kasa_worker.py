@@ -247,7 +247,8 @@ async def kasa_control(url, action, mode):
         
         try:
             plug = PlugClass(url)
-            # Initial update to refresh device state - critical for reliability
+            # Update device state before sending the command - wakes the plug
+            # and ensures we have a fresh baseline for state verification.
             await asyncio.wait_for(plug.update(), timeout=6)
             
         except Exception as e:
@@ -259,18 +260,17 @@ async def kasa_control(url, action, mode):
                 return last_error
 
         try:
-            # Wake up the plug immediately before sending the command
-            # This ensures the device is ready to receive and process the command
-            await asyncio.wait_for(plug.update(), timeout=6)
-            
             # Send the command
             if action == 'on':
                 await plug.turn_on()
             else:
                 await plug.turn_off()
 
-            # Brief pause to let state change propagate - important for reliability
-            await asyncio.sleep(0.5)
+            # Pause to let state change propagate before verifying.
+            # Some plugs (especially older models) take 1-2 s to reflect the
+            # new state in their update response; 0.5 s was too short and
+            # produced false "State mismatch" errors on otherwise healthy plugs.
+            await asyncio.sleep(1.5)
 
             # Refresh state to verify command succeeded
             try:
