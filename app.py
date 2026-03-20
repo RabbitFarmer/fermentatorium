@@ -1016,7 +1016,7 @@ def tilt_key_mac(key: str):
     return parts[1] if len(parts) == 2 else None
 
 def get_tilt_color_hex(tilt_key: str) -> str:
-    """Return the CSS hex colour for a tilt_key (plain color OR 'Color:MAC' composite)."""
+    """Return the CSS hex color for a tilt_key (plain color OR 'Color:MAC' composite)."""
     return COLOR_MAP.get(tilt_key_base(tilt_key), '#888') if tilt_key else '#888'
 
 def tilt_display_label(tilt_key: str, live_info: dict = None) -> str:
