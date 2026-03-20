@@ -960,6 +960,12 @@ kasa_queue = None
 kasa_result_queue = None
 kasa_proc = None
 
+# Event set by _background_startup_sync when the initial plug-state query has
+# finished (success or failure).  periodic_temp_control waits on this before
+# running its first control cycle so that we don't issue kasa commands before
+# we know the actual plug states.
+_startup_sync_complete = threading.Event()
+
 # --- Tilt Pro / mini-pro detection constants -------------------------------
 # Tilt Pro and Tilt mini-pro broadcast gravity in 10000x encoding (vs standard 1000x).
 # A raw gravity value above this threshold identifies a Pro device.
@@ -4224,13 +4230,21 @@ def sync_plug_states_at_startup():
 def _background_startup_sync():
     """Run startup sync in background to avoid blocking Flask"""
     try:
-        # Small delay (0.5s) to let kasa_result_listener thread initialize
-        # This is a minimal delay chosen to ensure basic thread startup without
-        # significantly delaying the sync. The sync will handle failures gracefully.
-        time.sleep(0.5)
+        # Wait a few seconds so the kasa_worker process has time to fully
+        # initialize its asyncio event loop and network socket before the first
+        # direct plug query.  On a freshly booted system the kernel network
+        # stack (routing tables, ARP) also needs a moment to settle even after
+        # the network interface is up, so a small delay here avoids spurious
+        # "Failed to contact plug" errors at startup.
+        time.sleep(5)
         sync_plug_states_at_startup()
     except Exception as e:
         print(f"[LOG] Exception in background startup sync: {e}")
+    finally:
+        # Always signal completion so periodic_temp_control is not blocked
+        # indefinitely regardless of whether the sync succeeded or failed.
+        _startup_sync_complete.set()
+        print("[LOG] Startup sync event set — temperature control may now proceed")
 
 # NOTE: _background_startup_sync thread is started in if __name__ == '__main__' block
 # after kasa components are initialized
@@ -4344,6 +4358,13 @@ def push_offsite_snapshot():
 
 # --- Periodic temp control thread -----------------------------------------
 def periodic_temp_control():
+    # Wait for the startup plug-state sync to finish before the first control
+    # cycle.  This prevents sending kasa commands (which set heater_pending /
+    # cooler_pending) before we know the actual physical plug states, which
+    # would cause spurious "pending → failure" sequences visible on the UI.
+    # Timeout of 120 s prevents a permanent block if startup sync never fires.
+    if not _startup_sync_complete.wait(timeout=120):
+        print("[LOG] WARNING: Startup sync did not complete within 120 s — proceeding with temperature control; plug states may be unknown and initial kasa commands could fail")
     while True:
         try:
             file_cfg = load_json(TEMP_CFG_FILE, {})
