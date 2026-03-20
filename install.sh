@@ -87,8 +87,8 @@ install_systemd_service() {
   cat > "${SERVICE_PATH}" <<UNIT
 [Unit]
 Description=Fermentatorium (Tilt Temperature Controller and Fermentation Monitor)
-After=network.target bluetooth.service
-Wants=bluetooth.service
+After=network-online.target network.target bluetooth.service
+Wants=network-online.target bluetooth.service
 
 [Service]
 Type=simple

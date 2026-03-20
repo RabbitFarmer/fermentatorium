@@ -130,6 +130,33 @@ if curl -s --max-time 2 "http://127.0.0.1:$FLASK_PORT/" > /dev/null 2>&1; then
     exit 0
 fi
 
+# ── Systemd service already managing the process? ─────────────────────────────
+# On systems where both the fermentatorium systemd service and the desktop
+# autostart are enabled, both launch paths fire on reboot: systemd starts
+# run.sh → app.py, and the desktop autostart fires this script.  Because the
+# HTTP check above only passes once Flask is listening (which takes a few
+# seconds), both paths can race past it and start a second app.py before the
+# first one has bound the port.
+#
+# If the systemd service is already active (or activating), we know app.py is
+# coming up via that path — we just need to wait for it to be ready and then
+# open the browser.  We must NOT start another instance.
+_svc_state=$(systemctl show fermentatorium.service --property=ActiveState 2>/dev/null | cut -d= -f2)
+if [ "$_svc_state" = "active" ] || [ "$_svc_state" = "activating" ]; then
+    show_notification "Fermentatorium" "Service is starting — please wait…" "normal"
+    _svc_retries=30
+    for i in $(seq 1 $_svc_retries); do
+        if curl -s --max-time 2 "http://127.0.0.1:$FLASK_PORT/" > /dev/null 2>&1; then
+            show_notification "Fermentatorium" "Ready! Opening dashboard…" "normal"
+            open_browser_fullscreen "http://127.0.0.1:$FLASK_PORT/startup"
+            exit 0
+        fi
+        sleep 2
+    done
+    show_notification "Fermentatorium" "Service is running but server is not responding — check logs." "critical"
+    exit 1
+fi
+
 show_notification "Fermentatorium" "Starting up — please wait…" "normal"
 
 VENV_DIR=""
