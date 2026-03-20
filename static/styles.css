@@ -31,8 +31,10 @@
   --metric-number-size: 32px;
   --temp-number-size: 48px;
   --card-height: 394px;
-  padding: 10px 14px 20px;
+  padding: 10px 14px 10px;
 }
+
+.display-mode-3 .tiltcards-wrapper { margin-bottom: 0; }
 
 /* Body background */
 body, body.page-bg {
