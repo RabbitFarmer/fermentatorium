@@ -871,6 +871,10 @@ def ensure_temp_defaults_for_controller(controller):
     controller.setdefault("cooling_error", False)
     controller.setdefault("heating_error_notified", False)
     controller.setdefault("cooling_error_notified", False)
+    controller.setdefault("heating_kasa_error_since", 0)       # epoch when heating error first started (0 = no error)
+    controller.setdefault("cooling_kasa_error_since", 0)       # epoch when cooling error first started (0 = no error)
+    controller.setdefault("heating_kasa_error_notified_at", 0) # epoch of last heating error notification
+    controller.setdefault("cooling_kasa_error_notified_at", 0) # epoch of last cooling error notification
     controller.setdefault("notifications_trigger", False)
     controller.setdefault("notification_last_sent", None)
     controller.setdefault("notification_comm_failure", False)
@@ -2275,22 +2279,25 @@ This is a safety feature to prevent uncontrolled temperature changes."""
         color=tilt_color
     )
 
-def send_kasa_error_notification(mode, url, error_msg):
+def send_kasa_error_notification(mode, url, error_msg, controller=None):
     """
     Send notifications for Kasa plug connection failures if enabled in settings.
     Uses the pending queue system with deduplication to prevent duplicate alerts.
-    Only sends ONE notification per continuous failure period (resets when plug works again).
+
+    When called with a controller dict, uses per-controller time-based tracking so
+    that a persistent failure re-notifies the user every _KASA_ERROR_RENOTIFY_INTERVAL
+    seconds (default 1 hour).  This ensures the user is kept informed if the
+    connection is never restored.
+
+    When called without a controller (legacy path), falls back to the old boolean
+    flag on temp_cfg so as not to break callers that don't have a controller ref.
     
     Args:
         mode: 'heating' or 'cooling'
         url: IP address or hostname of the Kasa plug
         error_msg: Error message from the connection failure
-        
-    Note:
-        This function accesses temp_cfg which is shared across threads. While there's a 
-        theoretical race condition, the impact is minimal: worst case is a duplicate 
-        notification might be queued (which the pending queue will deduplicate anyway).
-        The alternative of adding locks would add complexity and potential deadlocks.
+        controller: Optional per-controller state dict; when provided gives
+                    correct per-controller deduplication and periodic re-notification.
     """
     # Get temp control notification settings
     temp_notif_cfg = system_cfg.get('temp_control_notifications', {})
@@ -2299,23 +2306,44 @@ def send_kasa_error_notification(mode, url, error_msg):
     if not temp_notif_cfg.get('enable_kasa_error', True):
         return
     
-    # Check if we've already notified about this error
-    # This prevents repeated notifications for the same continuous failure
-    notified_flag = f"{mode}_error_notified"
-    if temp_cfg.get(notified_flag, False):
-        # Already notified about this error, don't send again
-        return
-    
-    # Set the notified flag to prevent duplicate notifications
-    # This flag is reset in kasa_result_listener when the plug starts working again
-    temp_cfg[notified_flag] = True
+    if controller is not None:
+        # Per-controller time-based tracking.
+        # Re-notify after _KASA_ERROR_RENOTIFY_INTERVAL seconds so that a
+        # permanent failure keeps alerting the user, not just the first occurrence.
+        notified_at_key = f"{mode}_kasa_error_notified_at"
+        last_notified_at = controller.get(notified_at_key, 0)
+        if time.time() - last_notified_at < _KASA_ERROR_RENOTIFY_INTERVAL:
+            return  # Notified recently enough; wait until the interval has passed
+        controller[notified_at_key] = time.time()
+        tilt_color = controller.get('tilt_color', '')
+    else:
+        # Legacy boolean-flag path for callers that don't pass a controller.
+        notified_flag = f"{mode}_error_notified"
+        if temp_cfg.get(notified_flag, False):
+            # Already notified about this error, don't send again
+            return
+        # Set the notified flag to prevent duplicate notifications
+        temp_cfg[notified_flag] = True
+        tilt_color = temp_cfg.get('tilt_color', '')
     
     brewery_name = system_cfg.get('brewery_name', 'Unknown Brewery')
-    tilt_color = temp_cfg.get('tilt_color', '')
     now = datetime.utcnow()
     
     mode_name = 'Heating' if mode == 'heating' else 'Cooling'
-    
+
+    # Build a human-readable duration string if the error has been ongoing
+    duration_note = ""
+    if controller is not None:
+        error_since = controller.get(f"{mode}_kasa_error_since")
+        if error_since:
+            elapsed = int(time.time() - error_since)
+            if elapsed >= 3600:
+                hours = elapsed // 3600
+                mins  = (elapsed % 3600) // 60
+                duration_note = f"\nConnection has been lost for {hours}h {mins}m."
+            elif elapsed >= 60:
+                duration_note = f"\nConnection has been lost for {elapsed // 60}m."
+
     subject = f"{brewery_name} - Kasa Plug Connection Failure"
     body = f"""Brewery Name: {brewery_name}
 Date: {now.strftime('%Y-%m-%d')}
@@ -2324,7 +2352,7 @@ Tilt Color: {tilt_color}
 Mode: {mode_name}
 Plug URL: {url}
 
-Failed to connect to Kasa plug.
+Failed to connect to Kasa plug.{duration_note}
 Error: {error_msg}"""
     
     # Queue notification with 10-second delay for deduplication
@@ -2943,6 +2971,9 @@ _KASA_RATE_LIMIT_SECONDS = int(system_cfg.get("kasa_rate_limit_seconds", 10) or 
 # With 3 attempts and inter-attempt delays of 0, 1, 2 s: worst case ≈ 38 s.
 # Default of 90 s gives a safe margin and avoids false timeouts on slow networks.
 _KASA_PENDING_TIMEOUT_SECONDS = int(system_cfg.get("kasa_pending_timeout_seconds", 90) or 90)
+# How often (in seconds) to re-send a Kasa error notification while the failure persists.
+# Default: 3600 s (1 hour). Keeps the user informed without flooding their inbox.
+_KASA_ERROR_RENOTIFY_INTERVAL = int(system_cfg.get("kasa_error_renotify_interval", 3600) or 3600)
 
 def _is_redundant_command(url, action, current_state):
     """
@@ -3806,8 +3837,10 @@ def kasa_result_listener():
                     controller["heater_on"] = new_state
                     controller["heating_error"] = False
                     controller["heating_error_msg"] = ""
-                    # Reset the notified flag when plug starts working again
+                    # Reset notification tracking when plug starts working again
                     controller["heating_error_notified"] = False
+                    controller["heating_kasa_error_since"] = 0
+                    controller["heating_kasa_error_notified_at"] = 0
                     
                     # Track baseline temperature when heating turns ON
                     if new_state and not previous_state:
@@ -3851,11 +3884,16 @@ def kasa_result_listener():
                     # Also DO NOT record the command, allowing immediate retry
                     controller["heating_error"] = True
                     controller["heating_error_msg"] = error or ''
+                    # Record when the error first started (preserve across repeated failures)
+                    if controller.get("heating_kasa_error_since", 0) == 0:
+                        controller["heating_kasa_error_since"] = time.time()
                     print(f"[KASA_RESULT] ✗ Controller {controller.get('controller_id', 0)}: Heating plug {action.upper()} FAILED - error: {error}")
                     # Log error to kasa_errors.log
                     log_error(f"Controller {controller.get('controller_id', 0)}: HEATING plug {action.upper()} failed at {url}: {error}")
-                    # Send notification for Kasa connection failure if enabled (only once per failure)
-                    send_kasa_error_notification('heating', url, error)
+                    # Send notification for Kasa connection failure if enabled.
+                    # Passes controller for per-controller time-based deduplication and
+                    # periodic re-notification while the failure persists.
+                    send_kasa_error_notification('heating', url, error, controller=controller)
             elif mode == 'cooling':
                 controller["cooler_pending"] = False
                 controller["cooler_pending_since"] = None
@@ -3867,8 +3905,10 @@ def kasa_result_listener():
                     controller["cooler_on"] = new_state
                     controller["cooling_error"] = False
                     controller["cooling_error_msg"] = ""
-                    # Reset the notified flag when plug starts working again
+                    # Reset notification tracking when plug starts working again
                     controller["cooling_error_notified"] = False
+                    controller["cooling_kasa_error_since"] = 0
+                    controller["cooling_kasa_error_notified_at"] = 0
                     
                     # Track baseline temperature when cooling turns ON
                     if new_state and not previous_state:
@@ -3912,11 +3952,16 @@ def kasa_result_listener():
                     # Also DO NOT record the command, allowing immediate retry
                     controller["cooling_error"] = True
                     controller["cooling_error_msg"] = error or ''
+                    # Record when the error first started (preserve across repeated failures)
+                    if controller.get("cooling_kasa_error_since", 0) == 0:
+                        controller["cooling_kasa_error_since"] = time.time()
                     print(f"[KASA_RESULT] ✗ Controller {controller.get('controller_id', 0)}: Cooling plug {action.upper()} FAILED - error: {error}")
                     # Log error to kasa_errors.log
                     log_error(f"Controller {controller.get('controller_id', 0)}: COOLING plug {action.upper()} failed at {url}: {error}")
-                    # Send notification for Kasa connection failure if enabled (only once per failure)
-                    send_kasa_error_notification('cooling', url, error)
+                    # Send notification for Kasa connection failure if enabled.
+                    # Passes controller for per-controller time-based deduplication and
+                    # periodic re-notification while the failure persists.
+                    send_kasa_error_notification('cooling', url, error, controller=controller)
         except queue.Empty:
             # Timeout waiting for result - this is normal, just continue
             continue
@@ -4128,6 +4173,8 @@ def periodic_temp_control():
                     'heating_error', 'cooling_error',    # Error states
                     'heating_error_msg', 'cooling_error_msg',  # Error messages
                     'heating_error_notified', 'cooling_error_notified',  # Notification flags
+                    'heating_kasa_error_since', 'cooling_kasa_error_since',  # Error start times
+                    'heating_kasa_error_notified_at', 'cooling_kasa_error_notified_at',  # Last notification times
                     # Swapped plug detection runtime state
                     'heater_baseline_temp', 'heater_baseline_time',
                     'cooler_baseline_temp', 'cooler_baseline_time',
