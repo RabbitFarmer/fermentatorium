@@ -62,14 +62,23 @@ async def _scan_tilts(scan_seconds: float) -> List[dict]:
             return
 
         # Tilt encoding:
-        # major = temperature (°F)
-        # minor = gravity * 1000
-        temp_f = pkt["major"]
-        gravity = pkt["minor"] / 1000.0
+        # Standard Tilt:  major = temperature (°F whole),   minor = gravity * 1000
+        # Tilt mini-pro:  major = temperature * 10 (0.1 °F), minor = gravity * 10000
+        # A minor value > 5000 indicates the higher-precision mini-pro format.
+        MINI_PRO_THRESHOLD = 5000
+        minor = pkt["minor"]
+        major = pkt["major"]
+        is_mini_pro = minor > MINI_PRO_THRESHOLD
+        if is_mini_pro:
+            temp_f = major / 10.0
+            gravity = minor / 10000.0
+        else:
+            temp_f = float(major)
+            gravity = minor / 1000.0
 
         addr = getattr(device, "address", None) or ""
 
-# Prefer AdvertisementData.rssi (Bleak deprecates BLEDevice.rssi)
+        # Prefer AdvertisementData.rssi (Bleak deprecates BLEDevice.rssi)
         rssi = getattr(adv, "rssi", None)
         if rssi is None:
             rssi = getattr(device, "rssi", None)
@@ -83,7 +92,7 @@ async def _scan_tilts(scan_seconds: float) -> List[dict]:
             "temp_f": float(temp_f),
             "gravity": float(gravity),
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "model": 1,
+            "model": 2 if is_mini_pro else 1,  # 1 = standard, 2 = mini-pro
         }
 
     scanner = BleakScanner(detection_callback=cb)

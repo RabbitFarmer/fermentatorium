@@ -1456,7 +1456,13 @@ def detection_callback(device, advertisement_data):
         mfg_data = advertisement_data.manufacturer_data
         if not mfg_data:
             return
-        raw = list(mfg_data.values())[0]
+        # Tilt uses Apple iBeacon format: manufacturer ID 0x004C (76).
+        # Explicitly look up the Apple entry rather than taking the first dict
+        # value, so that devices with multiple manufacturer data entries
+        # (e.g. Tilt mini-pro) are still decoded correctly.
+        raw = mfg_data.get(76)
+        if not raw:
+            return
         if len(raw) < 22:
             return
         uuid = raw[2:18].hex()

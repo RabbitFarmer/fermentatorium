@@ -75,6 +75,10 @@
         <span class="status-badge status-heating">🔥 Heating Operational</span>
       {% elif controller.get('enable_cooling') and controller.get('cooler_on') %}
         <span class="status-badge status-cooling">❄ Cooling Operational</span>
+      {% elif controller.get('status') == 'In Range' %}
+        <span class="status-badge" style="background:#d4edda; color:#155724;">✓ Temperature In Range</span>
+      {% elif controller.get('status') == 'Idle' %}
+        <span class="status-badge" style="background:#d4edda; color:#155724;">✓ Idle — Temperature Controlled</span>
       {% elif controller.get('enable_heating') %}
         <span class="status-badge status-heating" style="opacity:0.7;">Heating Enabled (standby)</span>
       {% elif controller.get('enable_cooling') %}

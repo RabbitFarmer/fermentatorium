@@ -466,17 +466,20 @@
         {# ── 1. Tilts WITH a temperature controller (active TC first, then inactive) ── #}
         {% for controller in controllers | sort(attribute='temp_control_active', reverse=true) %}
           {% set tilt_color = controller.tilt_color %}
-          {% if tilt_color and tilt_color in live_tilts %}
-            {% set tilt   = live_tilts[tilt_color] %}
-            {% set safe   = tilt_color.replace(' ', '_') %}
+          {# Support composite keys like "Orange:AA:BB:CC:DD:EE:FF" by falling back
+             to the plain base colour when the full key is not in live_tilts. #}
+          {% set tilt_base = tilt_color.split(':')[0] if ':' in tilt_color else tilt_color %}
+          {% set tilt = live_tilts.get(tilt_color) or live_tilts.get(tilt_base) %}
+          {% if tilt_color and tilt %}
+            {% set safe   = tilt_base.replace(' ', '_') %}
             {% set cid    = controller.controller_id %}
             {% set use_dark_text = tilt.color_code in ['#ffff00','#ffc0cb','#00ff00'] %}
-            <article class="tilt-card" data-tilt="{{ tilt_color }}" data-controller="{{ cid }}">
+            <article class="tilt-card" data-tilt="{{ tilt_base }}" data-controller="{{ cid }}">
 
               <!-- Tilt banner: beer name + batch name -->
               <div class="tilt-banner"
                    style="background-color:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};"
-                   data-tilt-color="{{ tilt_color | e }}"
+                   data-tilt-color="{{ tilt_base | e }}"
                    {% if tilt.brewid %}data-brewid="{{ tilt.brewid | e }}" title="View fermentation chart"{% endif %}>
                 <div class="beer-name">{{ tilt.beer_name or 'Unnamed Beer' }}</div>
                 <div class="tilt-batch-name">Batch: {{ tilt.batch_name or 'Unnamed Batch' }}</div>
@@ -546,7 +549,8 @@
         {% for color, tilt in live_tilts.items() %}
           {% set is_assigned = namespace(value=false) %}
           {% for controller in controllers %}
-            {% if controller.tilt_color == color %}{% set is_assigned.value = true %}{% endif %}
+            {# Match both plain-colour keys ("Orange") and composite keys ("Orange:AA:BB:CC") #}
+            {% if controller.tilt_color == color or controller.tilt_color.split(':')[0] == color %}{% set is_assigned.value = true %}{% endif %}
           {% endfor %}
           {% if not is_assigned.value %}
             {% set safe = color.replace(' ', '_') %}
@@ -624,13 +628,15 @@
         {#    Same sort order as the tilt cards above (active first, then inactive).        #}
         {% for controller in controllers | sort(attribute='temp_control_active', reverse=true) %}
           {% set tilt_color = controller.tilt_color %}
-          {% if tilt_color and tilt_color in live_tilts %}
-            {% set tilt = live_tilts[tilt_color] %}
+          {# Support composite keys like "Orange:AA:BB:CC:DD:EE:FF" — fall back to base colour #}
+          {% set tilt_base = tilt_color.split(':')[0] if ':' in tilt_color else tilt_color %}
+          {% set tilt = live_tilts.get(tilt_color) or live_tilts.get(tilt_base) %}
+          {% if tilt_color and tilt %}
             {% set cid  = controller.controller_id %}
             {% set use_dark_text = tilt.color_code in ['#ffff00','#ffc0cb','#00ff00'] %}
             <article class="tilt-card temp-ctrl-card"
                      data-controller="{{ cid }}"
-                     data-for-tilt="{{ tilt_color }}">
+                     data-for-tilt="{{ tilt_base }}">
 
               <!-- Coloured header (mirrors the tilt banner colour; clickable → temp summary) -->
               <div class="tc-header"
@@ -1048,12 +1054,15 @@
         if (highLimitEl) highLimitEl.textContent = (tc.high_limit != null) ? Number(tc.high_limit).toFixed(1) : '--';
         if (lowLimitEl)  lowLimitEl.textContent  = (tc.low_limit  != null) ? Number(tc.low_limit).toFixed(1)  : '--';
 
-        // Current temp — prefer controller reading, fall back to tilt sensor
+        // Current temp — prefer controller reading, fall back to tilt sensor.
+        // When tilt_color is a composite key ("Orange:AA:BB:CC") live_tilts only
+        // has the plain base colour ("Orange"), so try both.
         let tempVal = null;
         if (tc.current_temp != null && !isNaN(Number(tc.current_temp))) {
           tempVal = Number(tc.current_temp);
-        } else if (tc.tilt_color && liveTilts[tc.tilt_color]) {
-          const t = liveTilts[tc.tilt_color];
+        } else if (tc.tilt_color) {
+          const tiltBase = tc.tilt_color.split(':')[0];
+          const t = liveTilts[tc.tilt_color] || liveTilts[tiltBase];
           if (t && t.temp_f != null && !isNaN(Number(t.temp_f))) tempVal = Number(t.temp_f);
         }
         if (curBox) curBox.textContent = (tempVal != null) ? tempVal.toFixed(1) : '--';
@@ -1268,6 +1277,20 @@
     var btn = document.getElementById('fullscreenBtn');
     var LS_KEY = 'fermentatorium_wantFullscreen';
 
+    // When start.sh opens the browser directly to /?autostart=1 (skipping
+    // startup.html), set the fullscreen preference here and clean the URL.
+    (function () {
+      try {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('autostart') === '1') {
+          localStorage.setItem(LS_KEY, '1');
+          if (history && history.replaceState) {
+            history.replaceState({}, '', '/');
+          }
+        }
+      } catch (e) {}
+    }());
+
     function isFullscreen() {
       return !!(document.fullscreenElement ||
                 document.webkitFullscreenElement ||
@@ -1325,7 +1348,7 @@
 
     // Auto-restore fullscreen on every load of this page when the preference
     // is set.  This covers two cases:
-    //   1. First launch via startup.html (which sets the LS_KEY before redirecting).
+    //   1. Direct launch via start.sh (sets LS_KEY via ?autostart=1 above).
     //   2. Returning from a settings page (navigation from a user gesture keeps
     //      the transient user-activation context, allowing requestFullscreen()).
     // A short setTimeout defers the call until after the browser has painted the

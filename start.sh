@@ -148,7 +148,7 @@ if [ "$_svc_state" = "active" ] || [ "$_svc_state" = "activating" ]; then
     for i in $(seq 1 $_svc_retries); do
         if curl -s --max-time 2 "http://127.0.0.1:$FLASK_PORT/" > /dev/null 2>&1; then
             show_notification "Fermentatorium" "Ready! Opening dashboard…" "normal"
-            open_browser_fullscreen "http://127.0.0.1:$FLASK_PORT/startup"
+            open_browser_fullscreen "http://127.0.0.1:$FLASK_PORT/?autostart=1"
             exit 0
         fi
         sleep 2
@@ -231,7 +231,7 @@ done
 
 if [ "$APP_STARTED" = true ]; then
     show_notification "Fermentatorium" "Ready! Opening dashboard…" "normal"
-    open_browser_fullscreen "http://127.0.0.1:$FLASK_PORT/startup"
+    open_browser_fullscreen "http://127.0.0.1:$FLASK_PORT/?autostart=1"
 else
     echo "ERROR: Application did not respond after $((RETRIES * RETRY_DELAY)) seconds."
     echo "Last 30 lines of app.log:"
