@@ -1250,8 +1250,13 @@ def log_tilt_reading(color, gravity, temp_f, rssi, mac="", is_pro=False):
     # - If tilt is assigned to temperature control: use system_cfg['update_interval'] for responsive control
     # - Otherwise: use system_cfg['tilt_logging_interval_minutes'] for fermentation tracking
     # Both intervals are configurable in System Settings page
-    control_tilt_color = temp_cfg.get("tilt_color")
-    is_control_tilt = (color == control_tilt_color)
+    # Multi-controller: search all controllers for one assigned to this tilt color
+    control_controller = None
+    for ctrl in temp_cfg.get('controllers', []):
+        if ctrl.get('tilt_color') == color:
+            control_controller = ctrl
+            break
+    is_control_tilt = control_controller is not None
     
     if is_control_tilt:
         # Use system_cfg['update_interval'] for temperature control tilt
@@ -1299,9 +1304,9 @@ def log_tilt_reading(color, gravity, temp_f, rssi, mac="", is_pro=False):
     
     # Include temperature control limits in the payload if this is the control tilt
     # This ensures the control log has complete information for debugging and charting
-    if is_control_tilt:
-        payload["low_limit"] = temp_cfg.get("low_limit")
-        payload["high_limit"] = temp_cfg.get("high_limit")
+    if is_control_tilt and control_controller is not None:
+        payload["low_limit"] = control_controller.get("low_limit")
+        payload["high_limit"] = control_controller.get("high_limit")
     
     # Log to control log
     append_control_log("tilt_reading", payload)
@@ -1387,7 +1392,13 @@ def rotate_and_archive_old_history(color, old_brewid, old_cfg):
 
         # Only log mode change if we actually archived samples
         if moved > 0:
-            append_control_log("temp_control_mode_changed", {"tilt_color": color, "low_limit": temp_cfg.get("low_limit"), "current_temp": temp_cfg.get("current_temp"), "high_limit": temp_cfg.get("high_limit")})
+            # Find the controller assigned to this tilt color to get accurate limit data
+            ctrl_for_color = {}
+            for ctrl in temp_cfg.get('controllers', []):
+                if ctrl.get('tilt_color') == color:
+                    ctrl_for_color = ctrl
+                    break
+            append_control_log("temp_control_mode_changed", {"tilt_color": color, "low_limit": ctrl_for_color.get("low_limit"), "current_temp": ctrl_for_color.get("current_temp"), "high_limit": ctrl_for_color.get("high_limit")})
         return True
     except Exception as e:
         print(f"[LOG] rotate_and_archive_old_history error: {e}")
@@ -2031,11 +2042,22 @@ def attempt_send_notifications(subject, body):
     if success_any:
         temp_cfg['notification_last_sent'] = datetime.utcnow().isoformat()
         temp_cfg['notification_comm_failure'] = False
-        return True
     else:
         temp_cfg['notification_comm_failure'] = True
         # Don't disable notifications on failure - just track the failure
-        return False
+
+    # Propagate system-wide notification state to all controller dicts for UI display.
+    # push_error/email_error are set on temp_cfg by send_email()/send_push(); copy
+    # the final values so each controller card reflects the actual notification health.
+    for ctrl in temp_cfg.get('controllers', []):
+        ctrl['push_error'] = temp_cfg.get('push_error', False)
+        ctrl['email_error'] = temp_cfg.get('email_error', False)
+        ctrl['notifications_trigger'] = temp_cfg.get('notifications_trigger', False)
+        ctrl['notification_comm_failure'] = temp_cfg.get('notification_comm_failure', False)
+        if temp_cfg.get('notification_last_sent'):
+            ctrl['notification_last_sent'] = temp_cfg.get('notification_last_sent')
+
+    return success_any
 
 def send_warning(subject, body):
     mode = (system_cfg.get('warning_mode') or 'NONE').upper()
@@ -2046,6 +2068,7 @@ def send_warning(subject, body):
     except Exception:
         rate_limit = 3600
 
+    # Use the global notification_last_sent for rate limiting (system-wide)
     last = temp_cfg.get('notification_last_sent')
     if last:
         try:
@@ -2056,7 +2079,6 @@ def send_warning(subject, body):
         except Exception:
             pass
 
-    temp_cfg['notifications_trigger'] = True
     ok = attempt_send_notifications(subject, body)
     return ok
 
@@ -2126,7 +2148,15 @@ def send_safety_shutdown_notification(tilt_color, low_limit, high_limit):
         return
     
     brewery_name = system_cfg.get('brewery_name', 'Unknown Brewery')
-    timeout_minutes = int(system_cfg.get('tilt_inactivity_timeout_minutes', 30))
+    # Use the actual temp-control safety timeout (2 × update_interval), NOT the
+    # batch-monitoring signal-loss timeout (tilt_inactivity_timeout_minutes = 30 min).
+    # Reporting the wrong value caused users to believe the system hadn't seen a
+    # reading in 30 minutes when the real threshold is much shorter.
+    try:
+        update_interval_minutes = int(system_cfg.get("update_interval", 2))
+    except Exception:
+        update_interval_minutes = 2
+    timeout_minutes = update_interval_minutes * 2
     now = datetime.utcnow()
     
     subject = f"{brewery_name} - SAFETY SHUTDOWN: Control Tilt Offline"
@@ -2139,7 +2169,8 @@ Tilt Color: {tilt_color}
 
 SAFETY SHUTDOWN TRIGGERED
 
-The Tilt assigned to temperature control has not transmitted data for more than {timeout_minutes} minutes.
+The Tilt assigned to temperature control has not transmitted data within the
+safety timeout of {timeout_minutes} minutes ({update_interval_minutes}-minute update interval × 2).
 
 All Kasa plugs have been automatically turned OFF to prevent runaway heating/cooling.
 
@@ -4136,14 +4167,39 @@ def build_offsite_payload(field_map=None):
     }
     if not field_map:
         field_map = default_map
+    # Build temp_control summary from all active controllers (multi-controller support).
+    # For backward compatibility with single-value consumers, also expose the first
+    # active controller's data at the top level.
+    controllers_snapshot = []
+    first_active = None
+    for ctrl in temp_cfg.get('controllers', []):
+        if ctrl.get('temp_control_active'):
+            entry = {
+                'controller_id': ctrl.get('controller_id', 0),
+                'current_temp': ctrl.get('current_temp'),
+                'low_limit': ctrl.get('low_limit'),
+                'high_limit': ctrl.get('high_limit'),
+                'status': ctrl.get('status'),
+                'tilt_color': ctrl.get('tilt_color', ''),
+            }
+            controllers_snapshot.append(entry)
+            if first_active is None:
+                first_active = entry
+    if first_active is None and temp_cfg.get('controllers'):
+        # No active controller – fall back to first configured controller
+        ctrl = temp_cfg['controllers'][0]
+        first_active = {
+            'controller_id': ctrl.get('controller_id', 0),
+            'current_temp': ctrl.get('current_temp'),
+            'low_limit': ctrl.get('low_limit'),
+            'high_limit': ctrl.get('high_limit'),
+            'status': ctrl.get('status'),
+            'tilt_color': ctrl.get('tilt_color', ''),
+        }
     payload = {
         'timestamp': datetime.utcnow().isoformat(),
-        'temp_control': {
-            'current_temp': temp_cfg.get("current_temp"),
-            'low_limit': temp_cfg.get("low_limit"),
-            'high_limit': temp_cfg.get("high_limit"),
-            'status': temp_cfg.get("status"),
-        },
+        'temp_control': first_active or {},
+        'temp_controllers': controllers_snapshot,
         'tilts': []
     }
     for color, info in live_tilts.items():
@@ -4345,14 +4401,6 @@ def ble_loop():
         await scanner.start()
         while True:
             await asyncio.sleep(5)
-            try:
-                temp = get_current_temp_for_control_tilt(temp_cfg)
-                if temp is not None:
-                    temp_cfg['current_temp'] = round(float(temp), 1)
-                    # Update timestamp when temperature is read
-                    temp_cfg['last_reading_time'] = datetime.utcnow().isoformat() + "Z"
-            except Exception as e:
-                print(f"[LOG] Error in ble_loop run_scanner: {e}")
     try:
         asyncio.run(run_scanner())
     except Exception as e:
@@ -4564,9 +4612,15 @@ def update_system_config():
     if old_warn.upper() == 'NONE' and new_warn.upper() in ('EMAIL','PUSH','BOTH'):
         temp_cfg['notifications_trigger'] = False
         temp_cfg['notification_comm_failure'] = False
+        for ctrl in temp_cfg.get('controllers', []):
+            ctrl['notifications_trigger'] = False
+            ctrl['notification_comm_failure'] = False
     elif new_warn.upper() == 'NONE':
         temp_cfg['notifications_trigger'] = False
         temp_cfg['notification_comm_failure'] = False
+        for ctrl in temp_cfg.get('controllers', []):
+            ctrl['notifications_trigger'] = False
+            ctrl['notification_comm_failure'] = False
 
     return redirect(f'/system_config?tab={active_tab}')
 
@@ -6443,7 +6497,17 @@ def reset_logs():
             backup_name = f"{LOG_PATH}.{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.bak"
             try:
                 os.rename(LOG_PATH, backup_name)
-                append_control_log("temp_control_mode_changed", {"low_limit": temp_cfg.get("low_limit"), "current_temp": temp_cfg.get("current_temp"), "high_limit": temp_cfg.get("high_limit"), "tilt_color": temp_cfg.get("tilt_color", "")})
+                # Log a mode-changed marker for every configured controller so the
+                # new log starts with accurate state entries (multi-controller aware).
+                for ctrl in temp_cfg.get('controllers', []):
+                    if ctrl.get('enable_heating') or ctrl.get('enable_cooling'):
+                        append_control_log("temp_control_mode_changed", {
+                            "controller_id": ctrl.get("controller_id", 0),
+                            "low_limit": ctrl.get("low_limit"),
+                            "current_temp": ctrl.get("current_temp"),
+                            "high_limit": ctrl.get("high_limit"),
+                            "tilt_color": ctrl.get("tilt_color", "")
+                        })
             except Exception as e:
                 print(f"[LOG] Could not backup log: {e}")
         open(LOG_PATH, 'w').close()
@@ -7400,28 +7464,30 @@ def exit_system():
     if request.method == 'POST':
         confirm = request.form.get('confirm', 'no')
         if confirm == 'yes':
-            # Set temp_control_active to False before shutdown
-            # This ensures the monitor starts OFF on next startup
+            # Set temp_control_active to False on every controller before shutdown
+            # so the monitors start OFF on next startup (multi-controller aware).
             try:
-                temp_cfg['temp_control_active'] = False
+                for ctrl in temp_cfg.get('controllers', []):
+                    ctrl['temp_control_active'] = False
                 save_json(TEMP_CFG_FILE, temp_cfg)
             except Exception as e:
                 print(f"[LOG] Error setting temp_control_active=False during shutdown - monitor may start ON at next startup: {e}")
             
-            # Turn off all plugs before shutdown
+            # Turn off all plugs across every controller before shutdown
             try:
-                heating_plug = temp_cfg.get("heating_plug", "")
-                cooling_plug = temp_cfg.get("cooling_plug", "")
-                
-                # Turn off heating plug if configured
-                if heating_plug and kasa_queue:
-                    kasa_queue.put({'mode': 'heating', 'url': heating_plug, 'action': 'off'})
-                    time.sleep(PLUG_COMMAND_DELAY)
-                
-                # Turn off cooling plug if configured
-                if cooling_plug and kasa_queue:
-                    kasa_queue.put({'mode': 'cooling', 'url': cooling_plug, 'action': 'off'})
-                    time.sleep(PLUG_COMMAND_DELAY)
+                for ctrl in temp_cfg.get('controllers', []):
+                    heating_plug = ctrl.get("heating_plug", "")
+                    cooling_plug = ctrl.get("cooling_plug", "")
+                    
+                    # Turn off heating plug if configured
+                    if heating_plug and kasa_queue:
+                        kasa_queue.put({'mode': 'heating', 'url': heating_plug, 'action': 'off'})
+                        time.sleep(PLUG_COMMAND_DELAY)
+                    
+                    # Turn off cooling plug if configured
+                    if cooling_plug and kasa_queue:
+                        kasa_queue.put({'mode': 'cooling', 'url': cooling_plug, 'action': 'off'})
+                        time.sleep(PLUG_COMMAND_DELAY)
             except Exception as e:
                 print(f"[LOG] Error turning off plugs during shutdown: {e}")
             
