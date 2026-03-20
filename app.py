@@ -3071,18 +3071,26 @@ def _should_send_kasa_command(url, action, controller):
     
     # Check for redundant commands based on current state
     # This prevents sending ON when already ON, or OFF when already OFF
-    # Exception: Allow resending after timeout period to recover from out-of-sync state
+    # Exception: Skip redundant check when there is an active error - the plug's physical
+    # state is uncertain (e.g. the plug may have power-cycled and reset to OFF while the
+    # system still thinks it is ON), so we must re-send the command to resync.
     if url == controller.get("heating_plug"):
-        heater_on = controller.get("heater_on", False)
-        if _is_redundant_command(url, action, heater_on):
-            print(f"[TEMP_CONTROL] Blocking heating {action} command (redundant - heater already {('ON' if heater_on else 'OFF')})")
-            return False
+        if controller.get("heating_error"):
+            print(f"[TEMP_CONTROL] Allowing heating {action} command (error state - bypassing redundant check to resync plug)")
+        else:
+            heater_on = controller.get("heater_on", False)
+            if _is_redundant_command(url, action, heater_on):
+                print(f"[TEMP_CONTROL] Blocking heating {action} command (redundant - heater already {('ON' if heater_on else 'OFF')})")
+                return False
 
     if url == controller.get("cooling_plug"):
-        cooler_on = controller.get("cooler_on", False)
-        if _is_redundant_command(url, action, cooler_on):
-            print(f"[TEMP_CONTROL] Blocking cooling {action} command (redundant - cooler already {('ON' if cooler_on else 'OFF')})")
-            return False
+        if controller.get("cooling_error"):
+            print(f"[TEMP_CONTROL] Allowing cooling {action} command (error state - bypassing redundant check to resync plug)")
+        else:
+            cooler_on = controller.get("cooler_on", False)
+            if _is_redundant_command(url, action, cooler_on):
+                print(f"[TEMP_CONTROL] Blocking cooling {action} command (redundant - cooler already {('ON' if cooler_on else 'OFF')})")
+                return False
     
     # Rate limiting: prevent the same command from being sent too frequently
     last = _last_kasa_command.get(url)
