@@ -213,32 +213,32 @@ body, body.page-bg {
 }
 
 .tilt-banner { padding: 16px; text-align: center; font-weight: 900; font-size: 22px; }
-.tilt-body   { padding: 12px; flex: 1; min-height: 0; overflow: hidden; }
+.tilt-body   { padding: 8px 12px; flex: 1; min-height: 0; overflow: hidden; }
 
 /* Metrics table */
 .tilt-metrics.restore { width: 100%; border-collapse: collapse; }
 .tilt-metrics.restore th.right-header {
   text-align: right;
   font-weight: 700;
-  padding: 6px;
+  padding: 4px 6px;
   font-size: 14px;
 }
 .tilt-metrics.restore .label {
   color: #444;
   font-size: 18px;
-  padding: 6px;
+  padding: 4px 6px;
   text-align: left;
   vertical-align: middle;
 }
-.tilt-metrics.restore .value,
-.tilt-metrics.restore .value .metric-number {
+.tilt-metrics.restore .value {
   font-family: monospace;
   font-weight: 900;
   font-size: var(--metric-number-size);
-  padding: 6px;
+  padding: 4px 6px;
   text-align: right;
   vertical-align: middle;
 }
+.tilt-metrics.restore .value .metric-number { padding: 0; }
 .metric-number { display: inline-block; }
 
 /* 3-across display mode: larger text */
