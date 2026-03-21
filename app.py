@@ -238,14 +238,6 @@ def stop_other_app_py():
                 except Exception:
                     continue
 
-            # Separate parents from children so we kill parents first; the
-            # children are explicitly cleaned up so they don't linger as orphans.
-            target_pids = {p.pid for p in targets}
-            parents = [p for p in targets if p.pid not in {
-                c.pid for p2 in targets for c in (p2.children() if p2.pid != p.pid else [])
-                if c.pid in target_pids
-            }]
-
             for proc in targets:
                 try:
                     # Grab children before terminating the parent (they become

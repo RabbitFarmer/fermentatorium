@@ -129,6 +129,12 @@ def kasa_worker(cmd_queue, result_queue):
                   pid=os.getpid(),
                   plug_class=PlugClass.__name__ if PlugClass else None)
 
+    # Timeout used for cmd_queue.get() calls.  A finite value (rather than an
+    # unlimited block) ensures that an orphaned worker — one whose parent app.py
+    # has been replaced — eventually exits cleanly when the queue pipe closes
+    # instead of spinning in a tight EOFError loop.
+    _QUEUE_GET_TIMEOUT = 30  # seconds
+
     if PlugClass is None:
         err = "kasa library not available"
         log_error(err)
@@ -136,7 +142,7 @@ def kasa_worker(cmd_queue, result_queue):
         # Drain commands and return failure results so the controller doesn't hang.
         while True:
             try:
-                cmd = cmd_queue.get(timeout=5)
+                cmd = cmd_queue.get(timeout=_QUEUE_GET_TIMEOUT)
                 if not isinstance(cmd, dict):
                     continue
                 result_queue.put({
@@ -211,7 +217,7 @@ def kasa_worker(cmd_queue, result_queue):
                 # Use a timeout so a broken parent pipe (orphaned worker)
                 # doesn't spin the CPU in a tight exception loop.
                 try:
-                    first = cmd_queue.get(timeout=30)
+                    first = cmd_queue.get(timeout=_QUEUE_GET_TIMEOUT)
                 except _queue.Empty:
                     continue
                 batch = []
