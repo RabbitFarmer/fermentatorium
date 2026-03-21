@@ -42,22 +42,30 @@
       {% endif %}
 
       <div class="section">
-        <div class="section-title">Temperature Control Log</div>
-        <div class="file-row">
-          <div class="file-info">
-            <div class="file-name">temp_control_log.jsonl</div>
-            <div class="file-size">{{ temp_log_size }}</div>
+        <div class="section-title">Temperature Control Logs</div>
+        {% if temp_logs %}
+          {% for log_file in temp_logs %}
+          <div class="file-row">
+            <div class="file-info">
+              <div class="file-name">{{ log_file.filename }}{% if log_file.label %} <span style="color:#666;font-weight:normal;">({{ log_file.label }})</span>{% endif %}</div>
+              <div class="file-size">{{ log_file.size }}</div>
+            </div>
+            <div class="file-actions">
+              <a href="/view_log?file={{ log_file.filename }}&type=temp" class="btn btn-view">[VIEW]</a>
+              <form action="/export_temp_control_csv" method="POST" style="display:inline;">
+                <input type="hidden" name="log_file" value="{{ log_file.filename }}">
+                <button type="submit" class="btn btn-export">Export CSV</button>
+              </form>
+              <form action="/archive_temp_log" method="POST" style="display:inline;" onsubmit="return confirm('Archive {{ log_file.filename }}? A backup will be created and the log will be reset.');">
+                <input type="hidden" name="log_file" value="{{ log_file.filename }}">
+                <button type="submit" class="btn btn-warning">Archive & Reset</button>
+              </form>
+            </div>
           </div>
-          <div class="file-actions">
-            <a href="/view_log?file=temp_control_log.jsonl&type=temp" class="btn btn-view">[VIEW]</a>
-            <form action="/export_temp_control_csv" method="POST" style="display:inline;">
-              <button type="submit" class="btn btn-export">Export CSV</button>
-            </form>
-            <form action="/archive_temp_log" method="POST" style="display:inline;" onsubmit="return confirm('Archive this log? A backup will be created and the log will be reset.');">
-              <button type="submit" class="btn btn-warning">Archive & Reset</button>
-            </form>
-          </div>
-        </div>
+          {% endfor %}
+        {% else %}
+          <p style="font-style:italic; color:#999; text-align:center; padding:20px;">No temperature control log files found.</p>
+        {% endif %}
       </div>
 
       <div class="section">
