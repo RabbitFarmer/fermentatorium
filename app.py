@@ -481,16 +481,12 @@ def attempt_to_free_port(port, host='0.0.0.0'):
         print(f"[ERROR] Could not free port {port}: {kill_result.get('error')}")
         return False
 
-try:
-    stopped_info = stop_other_app_py()
-    
-    # If we stopped any processes, wait for the port to be released
-    if stopped_info.get('stopped'):
-        # We'll check the port later after config is loaded
-        pass
-    
-except Exception as e:
-    print(f"[WARNING] Error during startup process cleanup: {e}")
+# stop_other_app_py() is called inside if __name__ == '__main__' to prevent
+# it from running in spawned worker subprocesses (e.g. the kasa_manager
+# worker).  When multiprocessing uses the 'spawn' start method, Python
+# re-imports this module (app.py) in the child process.  Any module-level
+# code that kills processes would kill the parent Flask process.
+stopped_info = {"stopped": [], "errors": []}
 
 # --- Utilities --------------------------------------------------------------
 def load_json(path, fallback):
@@ -8134,6 +8130,15 @@ if __name__ == '__main__':
         os.makedirs(BATCHES_DIR, exist_ok=True)
     except Exception:
         pass
+
+    # Stop other app.py instances before starting.  This MUST run inside the
+    # __main__ guard so that it is skipped when multiprocessing's 'spawn'
+    # start method re-imports this module in a worker subprocess.
+    try:
+        stopped_info = stop_other_app_py()
+    except Exception as e:
+        stopped_info = {"stopped": [], "errors": []}
+        print(f"[WARNING] Error during startup process cleanup: {e}")
 
     # Remove legacy ~/chartdata directory if it exists (no longer used)
     try:
