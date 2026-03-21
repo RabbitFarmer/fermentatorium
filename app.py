@@ -219,6 +219,13 @@ def stop_other_app_py():
     errors = []
     if psutil:
         try:
+            # Collect matching processes first, then kill them together with
+            # their children.  On Linux, 'fork'-spawned kasa_worker processes
+            # inherit the parent's cmdline ("python3 app.py"), so they would
+            # match the same filter.  We kill the *parent* app.py process first
+            # and then explicitly terminate its children (forked workers) rather
+            # than letting them become long-lived orphans.
+            targets = []
             for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
                 try:
                     pid = proc.info['pid']
@@ -227,18 +234,51 @@ def stop_other_app_py():
                     cmdline = proc.info.get('cmdline') or []
                     name = proc.info.get('name') or ''
                     if any('app.py' in str(p) for p in cmdline) or 'app.py' in name:
-                        try:
-                            proc.terminate()
-                            proc.wait(timeout=5)
-                            stopped.append(pid)
-                        except Exception:
-                            try:
-                                proc.kill()
-                                stopped.append(pid)
-                            except Exception as e:
-                                errors.append((pid, str(e)))
+                        targets.append(proc)
                 except Exception:
                     continue
+
+            # Separate parents from children so we kill parents first; the
+            # children are explicitly cleaned up so they don't linger as orphans.
+            target_pids = {p.pid for p in targets}
+            parents = [p for p in targets if p.pid not in {
+                c.pid for p2 in targets for c in (p2.children() if p2.pid != p.pid else [])
+                if c.pid in target_pids
+            }]
+
+            for proc in targets:
+                try:
+                    # Grab children before terminating the parent (they become
+                    # un-findable as children once the parent is gone).
+                    try:
+                        children = proc.children(recursive=True)
+                    except Exception:
+                        children = []
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except Exception:
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+                    stopped.append(proc.pid)
+                    # Also terminate any forked worker children that inherited
+                    # the same cmdline and would otherwise become orphans.
+                    for child in children:
+                        if child.pid == current_pid:
+                            continue
+                        try:
+                            child.terminate()
+                            child.wait(timeout=2)
+                        except Exception:
+                            try:
+                                child.kill()
+                            except Exception as e:
+                                errors.append((child.pid, str(e)))
+                        stopped.append(child.pid)
+                except Exception as e:
+                    errors.append((proc.pid, str(e)))
             return {"stopped": stopped, "errors": errors}
         except Exception as e:
             errors.append(("psutil_iter", str(e)))
@@ -7937,14 +7977,16 @@ def exit_system():
     """
     Handle system exit:
     - GET: Show confirmation page
-    - POST with confirm=yes: Turn off all plugs, show goodbye page, and shut down
+    - POST with confirm=yes: Turn off all plugs and shut down.
+      Returns 204 No Content so fetch()-based callers stay on the current
+      page (no navigation to goodbye.html).
     - POST with confirm=no: Return to main page
     """
     # Timing constants for shutdown sequence
     PLUG_COMMAND_DELAY = 0.5  # seconds to wait for plug command to be processed
-    GOODBYE_DISPLAY_TIME = 2  # seconds to display goodbye page before shutdown
+    SHUTDOWN_DELAY = 1        # seconds to wait after response before shutting down
     PROCESS_TERMINATION_TIMEOUT = 2  # seconds to wait for process to terminate
-    
+
     if request.method == 'POST':
         confirm = request.form.get('confirm', 'no')
         if confirm == 'yes':
@@ -7956,7 +7998,7 @@ def exit_system():
                 save_json(TEMP_CFG_FILE, temp_cfg)
             except Exception as e:
                 print(f"[LOG] Error setting temp_control_active=False during shutdown - monitor may start ON at next startup: {e}")
-            
+
             # Turn off all plugs across every controller before shutdown
             try:
                 for ctrl in temp_cfg.get('controllers', []):
@@ -7976,13 +8018,10 @@ def exit_system():
                         time.sleep(PLUG_COMMAND_DELAY)
             except Exception as e:
                 print(f"[LOG] Error turning off plugs during shutdown: {e}")
-            
-            # Show goodbye page
-            response = make_response(render_template('goodbye.html', brewery_name=system_cfg.get('brewery_name', 'ThreeControl')))
-            
-            # Schedule shutdown after response is sent
+
+            # Schedule shutdown after response is delivered
             def shutdown_system():
-                time.sleep(GOODBYE_DISPLAY_TIME)
+                time.sleep(SHUTDOWN_DELAY)
                 try:
                     # Terminate all per-controller kasa worker processes
                     for cid in range(_NUM_KASA_CONTROLLERS):
@@ -7995,20 +8034,21 @@ def exit_system():
                                 pass
                 except Exception as e:
                     print(f"[LOG] Error during process cleanup: {e}")
-                
+
                 # Shutdown Flask
                 os.kill(os.getpid(), signal.SIGINT)
-            
+
             # Start shutdown in background thread
             shutdown_thread = threading.Thread(target=shutdown_system)
             shutdown_thread.daemon = True
             shutdown_thread.start()
-            
-            return response
+
+            # Return 204 No Content — fetch() callers stay on their current page
+            return ('', 204)
         else:
             # User cancelled, return to main page
             return redirect('/')
-    
+
     # GET request: show confirmation page
     return render_template('exit_system.html')
 

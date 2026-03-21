@@ -766,10 +766,6 @@
   <!-- Kiosk exit button: two-click confirmation then POST to /exit_system.
        Alt+F4 is always available as an OS-level escape route. -->
   <button class="kiosk-exit-btn" id="kioskExitBtn" title="Exit kiosk — click twice to confirm (Alt+F4 may also work at the OS level)">✕ Exit</button>
-  <!-- Hidden form used by the kiosk exit button to POST shutdown confirmation -->
-  <form id="kioskExitForm" method="post" action="/exit_system" style="display:none;">
-    <input type="hidden" name="confirm" value="yes">
-  </form>
 
   <!-- Session-selection modal (New vs Existing when turning on temp control) -->
   <div id="sessionModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
@@ -1381,17 +1377,13 @@
   // ── Kiosk exit button ──────────────────────────────────────────────────
   // Two-click confirmation prevents accidental exits.
   //   • 1st click  → button turns red and shows "Confirm exit?" for 3 s.
-  //   • 2nd click  → POSTs to /exit_system (confirm=yes) to shut down.
+  //   • 2nd click  → POSTs to /exit_system (confirm=yes) via fetch so the
+  //                  browser never navigates away from this page.
   //   • No 2nd click within 3 s → button resets to normal.
   // Alt+F4 (OS-level) may also work depending on the window manager.
-  //
-  // NOTE: window.close() is NOT used — it is blocked by Chromium when the
-  // page was not opened via window.open().  Posting to /exit_system ensures
-  // the Flask shutdown sequence (plug off → goodbye page → SIGINT) always runs.
   (function () {
     var btn  = document.getElementById('kioskExitBtn');
-    var form = document.getElementById('kioskExitForm');
-    if (!btn || !form) return;
+    if (!btn) return;
 
     // Clean up any ?autostart=1 query parameter left by start.sh
     try {
@@ -1405,10 +1397,18 @@
 
     btn.addEventListener('click', function () {
       if (confirmTimer) {
-        // Second click within the confirmation window → shut down
+        // Second click within the confirmation window → shut down in place
         clearTimeout(confirmTimer);
         confirmTimer = null;
-        form.submit();
+        btn.disabled = true;
+        btn.textContent = '✕ Shutting down…';
+        // POST shutdown via fetch so we stay on this page (no navigation)
+        var body = new URLSearchParams();
+        body.append('confirm', 'yes');
+        fetch('/exit_system', { method: 'POST', body: body })
+          .catch(function () {
+            // Server gone — expected once Flask shuts down
+          });
       } else {
         // First click → arm the confirmation state
         btn.classList.add('confirming');

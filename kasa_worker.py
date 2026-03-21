@@ -110,6 +110,20 @@ def kasa_worker(cmd_queue, result_queue):
     asyncio.run() creates a new event loop for each command in multiprocessing workers.
     """
 
+    # ── Prevent atexit cascade ────────────────────────────────────────────
+    # Python's 'fork' start method copies the parent's multiprocessing
+    # _children registry into every child.  When a child exits its atexit
+    # handler would call .terminate() on every Process object inherited from
+    # the parent — i.e. on sibling kasa_worker processes — killing them all
+    # whenever any single worker exits.  Clearing _children here breaks that
+    # cascade.  This must run before any other code so the atexit handler
+    # has nothing to clean up.
+    try:
+        from multiprocessing.process import _children as _mp_children
+        _mp_children.clear()
+    except Exception:
+        pass
+
     # Worker started - minimal diagnostic output
     log_kasa_diag('info', 'kasa_worker process started',
                   pid=os.getpid(),
@@ -122,7 +136,7 @@ def kasa_worker(cmd_queue, result_queue):
         # Drain commands and return failure results so the controller doesn't hang.
         while True:
             try:
-                cmd = cmd_queue.get()
+                cmd = cmd_queue.get(timeout=5)
                 if not isinstance(cmd, dict):
                     continue
                 result_queue.put({
@@ -132,6 +146,8 @@ def kasa_worker(cmd_queue, result_queue):
                     'url': cmd.get('url', ''),
                     'error': err
                 })
+            except _queue.Empty:
+                pass
             except Exception:
                 time.sleep(0.5)
         # unreachable
@@ -191,8 +207,13 @@ def kasa_worker(cmd_queue, result_queue):
     try:
         while True:
             try:
-                # Block until at least one command arrives
-                first = cmd_queue.get()
+                # Block until at least one command arrives.
+                # Use a timeout so a broken parent pipe (orphaned worker)
+                # doesn't spin the CPU in a tight exception loop.
+                try:
+                    first = cmd_queue.get(timeout=30)
+                except _queue.Empty:
+                    continue
                 batch = []
                 if isinstance(first, dict):
                     batch.append(first)

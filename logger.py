@@ -1,6 +1,10 @@
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    ZoneInfo = None  # Python < 3.9 fallback
 
 # ---------------------------------------------------------------------------
 # Kasa diagnostic logging
@@ -16,13 +20,35 @@ from datetime import datetime
 LOG_DIR    = "logs"
 _KASA_LOG  = os.path.join(LOG_DIR, 'kasa_errors.log')
 
+# Path to system config — read directly so this module works in subprocesses
+_SYSTEM_CONFIG_PATH = os.path.join("config", "system_config.json")
+
+
+def _get_configured_tz():
+    """Return a tzinfo for the timezone set in system_config.json, or UTC."""
+    try:
+        with open(_SYSTEM_CONFIG_PATH, 'r', encoding='utf-8') as _f:
+            _cfg = json.load(_f)
+        tz_name = _cfg.get('timezone', '').strip()
+        if tz_name and ZoneInfo is not None:
+            return ZoneInfo(tz_name)
+    except Exception:
+        pass
+    return timezone.utc
+
+
+def _now_ts() -> str:
+    """Return an ISO-8601 timestamp string in the configured local timezone."""
+    tz = _get_configured_tz()
+    return datetime.now(tz=tz).isoformat()
+
 
 def _write_kasa_log(level, msg, **extra):
     """Append one JSON line to kasa_errors.log."""
     try:
         os.makedirs(LOG_DIR, exist_ok=True)
         entry = {
-            'ts':    datetime.utcnow().isoformat() + 'Z',
+            'ts':    _now_ts(),
             'level': level,
             'msg':   msg,
         }
@@ -86,8 +112,7 @@ def log_kasa_command(mode, url, action, success=None, error=None):
         log_file = os.path.join(LOG_DIR, 'kasa_activity_monitoring.jsonl')
         
         entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "local_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": _now_ts(),
             "mode": mode,
             "url": url,
             "action": action,
@@ -166,8 +191,7 @@ def log_to_temp_control_log(event_type, message, tilt_color=None):
             os.makedirs(d, exist_ok=True)
         
         entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "local_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": _now_ts(),
             "event_type": event_type,
             "message": message,
         }
@@ -194,8 +218,7 @@ def log_to_batch_log(event_type, message, tilt_color):
         batch_file = f"{BATCHES_DIR}/{brewid}.jsonl"
         
         entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "local_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": _now_ts(),
             "event_type": event_type,
             "message": message,
             "tilt_color": tilt_color,
@@ -210,7 +233,7 @@ def log_to_batch_log(event_type, message, tilt_color):
 def log_to_generic_log(event_type, message, tilt_color=None):
     """Log to generic /logs/{event_type}.log file"""
     ensure_log_dir()
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.now(tz=_get_configured_tz()).strftime("%Y-%m-%d %H:%M:%S %Z")
     filename = f"{LOG_DIR}/{event_type}.log"
     entry = f"[{timestamp}]"
     if tilt_color:
@@ -228,8 +251,7 @@ def log_notification(notification_type, subject, body, success, tilt_color=None,
         log_file = os.path.join(LOG_DIR, 'notifications_log.jsonl')
         
         entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "local_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": _now_ts(),
             "notification_type": notification_type,
             "subject": subject,
             "body": body,
