@@ -667,9 +667,8 @@
                    onclick="window.location='{{ url_for('temp_summary', controller_id=cid) }}'"
                    title="View Temperature Control summary and chart">
                 TEMP CONTROLLER #{{ cid + 1 }}
-                <div class="tc-header-sub">
-                  Last Reading:
-                  <span id="tc_hdr_timestamp_{{ cid }}">
+                <div class="tc-ftr-ts" style="margin-top:3px;">
+                  Last: <span id="tc_ftr_ts_{{ cid }}">
                     {%- if controller.last_reading_time %}{{ controller.last_reading_time | localtime }}{%- else %}--{%- endif %}
                   </span>
                 </div>
@@ -746,11 +745,6 @@
                      href="{{ url_for('chart_plotly_for', tilt_color='TempControl') }}"
                      style="color:{{ tilt.color_code }};">CHART</a>
                      {# 'TempControl' is the special identifier for the temperature control chart route #}
-                </div>
-                <div class="tc-ftr-ts">
-                  Last: <span id="tc_ftr_ts_{{ cid }}">
-                    {%- if controller.last_reading_time %}{{ controller.last_reading_time | localtime }}{%- else %}--{%- endif %}
-                  </span>
                 </div>
               </div>
 
@@ -1037,7 +1031,6 @@
       const lowLimitEl  = document.getElementById('tc_low_limit_'          + cid);
       const statusEl   = document.getElementById('temp_control_status_top_' + cid);
       const notifEl    = document.getElementById('tc_notifications_'        + cid);
-      const hdrTsEl    = document.getElementById('tc_hdr_timestamp_'        + cid);
       const ftrTsEl    = document.getElementById('tc_ftr_ts_'               + cid);
       const toggleEl   = document.getElementById('temp_control_toggle_'     + cid);
       const labelEl    = document.getElementById('toggle_label_'            + cid);
@@ -1051,14 +1044,7 @@
       if (toggleEl && toggleEl.checked !== isActive) toggleEl.checked = isActive;
       if (labelEl) labelEl.textContent = isActive ? 'Temp Control ON' : 'Temp Control OFF';
 
-      // Header timestamp
-      if (hdrTsEl && tc.last_reading_time) {
-        try {
-          const dt = new Date(tc.last_reading_time);
-          hdrTsEl.textContent = isNaN(dt.getTime()) ? tc.last_reading_time : dt.toLocaleString();
-        } catch(e) { hdrTsEl.textContent = tc.last_reading_time; }
-      }
-      // Footer timestamp
+      // Last reading timestamp (displayed under controller title)
       if (ftrTsEl && tc.last_reading_time) {
         try {
           const dt = new Date(tc.last_reading_time);
