@@ -3341,10 +3341,10 @@ def _record_kasa_command(url, action):
 
 def _check_and_restart_kasa_proc(cid):
     """
-    Watchdog: verify the kasa_worker subprocess for controller *cid* is alive.
+    Watchdog: verify the kasa_worker subprocess for controller *cid* has not exited.
 
-    If the process has died (crash, OOM, asyncio fault, etc.) this function
-    restarts it using the existing per-controller kasa_queues[cid] /
+    If the process has died (crash, OOM, asyncio fault, SIGTERM, etc.) this
+    function restarts it using the existing per-controller kasa_queues[cid] /
     kasa_result_queues[cid] so no plumbing changes are needed elsewhere.
 
     Called at the top of every periodic_temp_control cycle so a dead worker
@@ -3360,12 +3360,18 @@ def _check_and_restart_kasa_proc(cid):
 
     _kasa_proc_locks[cid] guards kasa_procs[cid] reads and writes so the
     Flask thread (exit_system) and this thread never race on the reference.
+
+    NOTE: exitcode is None while the process is still running; any other value
+    means the process has exited.  We use exitcode rather than is_alive() to
+    avoid the process-liveness check that previously caused spurious blocking
+    of plug commands when the check raced with process startup or SIGTERM
+    delivery.
     """
     with _kasa_proc_locks[cid]:
         if kasa_procs[cid] is None:
             return  # kasa_worker was never started for this controller
-        if kasa_procs[cid].is_alive():
-            return  # all good
+        if kasa_procs[cid].exitcode is None:
+            return  # process is still running — nothing to do
 
         log_kasa_diag('error', 'kasa_worker process has died — restarting',
                       controller_id=cid, pid=kasa_procs[cid].pid,
@@ -8217,13 +8223,13 @@ if __name__ == '__main__':
         time.sleep(1)
         for _cid in range(_NUM_KASA_CONTROLLERS):
             proc = kasa_procs[_cid]
-            if proc is not None and proc.is_alive():
+            if proc is not None and proc.exitcode is None:
                 print(f"[LOG] kasa_worker process for controller {_cid} is running and ready")
                 log_kasa_diag('info', 'kasa_worker process started and alive',
                               controller_id=_cid, pid=proc.pid)
             elif proc is not None:
                 print(f"[LOG] WARNING: kasa_worker process for controller {_cid} failed to start")
-                log_kasa_diag('error', 'kasa_worker process failed to start (not alive after 1 s)',
+                log_kasa_diag('error', 'kasa_worker process failed to start (process exited within 1 s)',
                               controller_id=_cid, exitcode=proc.exitcode)
     else:
         print("[LOG] kasa_worker not available — plug control disabled")
