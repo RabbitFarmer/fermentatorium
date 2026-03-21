@@ -78,14 +78,19 @@ except Exception as _kasa_iot_err:
             f"  Run:  pip install python-kasa  (inside your virtual environment)"
         )
 
-# Import application logger helper if available (non-blocking)
+# Import application logger helpers if available (non-blocking)
 try:
-    from logger import log_error
+    from logger import log_error, log_kasa_diag
 except Exception:
-    def log_error(msg):
-        # fallback logger
+    def log_error(msg, **extra):
         try:
             print(f"[kasa_worker][ERROR] {msg}")
+        except Exception:
+            pass
+    def log_kasa_diag(level, msg, **extra):
+        try:
+            extra_str = (' ' + str(extra)) if extra else ''
+            print(f"[kasa_worker][{level.upper()}] {msg}{extra_str}")
         except Exception:
             pass
 
@@ -106,9 +111,14 @@ def kasa_worker(cmd_queue, result_queue):
     """
 
     # Worker started - minimal diagnostic output
+    log_kasa_diag('info', 'kasa_worker process started',
+                  pid=os.getpid(),
+                  plug_class=PlugClass.__name__ if PlugClass else None)
+
     if PlugClass is None:
         err = "kasa library not available"
         log_error(err)
+        log_kasa_diag('error', 'kasa_worker: PlugClass is None — plug control disabled')
         # Drain commands and return failure results so the controller doesn't hang.
         while True:
             try:
@@ -141,11 +151,22 @@ def kasa_worker(cmd_queue, result_queue):
             log_error(f"{mode.upper()} plug operation skipped: {error}")
             result_queue.put({'mode': mode, 'action': action, 'success': False, 'url': url, 'error': error})
             return
+        t0 = time.time()
+        log_kasa_diag('info', f'kasa_worker: executing {mode} {action.upper()}',
+                      url=url, mode=mode, action=action)
         try:
             error = await kasa_control(url, action, mode)
         except Exception as e:
             error = str(e)
             log_error(f"{mode.upper()} kasa_control run failed: {error}")
+        elapsed_ms = round((time.time() - t0) * 1000)
+        if error is None:
+            log_kasa_diag('info', f'kasa_worker: {mode} {action.upper()} succeeded',
+                          url=url, mode=mode, action=action, elapsed_ms=elapsed_ms)
+        else:
+            log_kasa_diag('error', f'kasa_worker: {mode} {action.upper()} failed',
+                          url=url, mode=mode, action=action,
+                          error=error, elapsed_ms=elapsed_ms)
         result_queue.put({'mode': mode, 'action': action,
                           'success': (error is None), 'url': url, 'error': error})
 
@@ -186,7 +207,29 @@ def kasa_worker(cmd_queue, result_queue):
                         break
 
                 if batch:
-                    loop.run_until_complete(_run_batch(batch))
+                    # Wrap batch execution with an overall timeout so the loop
+                    # can never be blocked permanently even if individual command
+                    # timeouts are somehow bypassed.  Per-command worst case:
+                    # update(6s) + turn_on(10s) + sleep(1.5s) + verify(5s) ≈ 23s,
+                    # times 3 retries ≈ 69s.  Allow 120s for a full batch.
+                    async def _run_batch_with_timeout(b):
+                        try:
+                            await asyncio.wait_for(_run_batch(b), timeout=120)
+                        except asyncio.TimeoutError:
+                            log_error("kasa_worker: batch timed out after 120 s — returning errors for remaining commands")
+                            # Best-effort: put error results so pending flags are cleared
+                            for cmd in b:
+                                try:
+                                    result_queue.put_nowait({
+                                        'mode': cmd.get('mode', 'unknown'),
+                                        'action': cmd.get('action', 'off'),
+                                        'success': False,
+                                        'url': cmd.get('url', ''),
+                                        'error': 'Batch execution timed out',
+                                    })
+                                except Exception:
+                                    pass
+                    loop.run_until_complete(_run_batch_with_timeout(batch))
 
             except Exception as e:
                 # Defensive: log and sleep briefly, then continue
@@ -267,11 +310,16 @@ async def kasa_control(url, action, mode):
                 return last_error
 
         try:
-            # Send the command
+            # Send the command.
+            # asyncio.wait_for is required here: plug.turn_on/turn_off open a TCP
+            # connection to the plug and can hang indefinitely when the plug accepts
+            # the connection but never sends a response (firmware stall, network
+            # issue).  Without a timeout this blocks the entire kasa_worker event
+            # loop, preventing ALL subsequent commands from ever being processed.
             if action == 'on':
-                await plug.turn_on()
+                await asyncio.wait_for(plug.turn_on(), timeout=10)
             else:
-                await plug.turn_off()
+                await asyncio.wait_for(plug.turn_off(), timeout=10)
 
             # Pause to let state change propagate before verifying.
             # Some plugs (especially older models) take 1-2 s to reflect the
