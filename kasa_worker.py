@@ -63,13 +63,20 @@ try:
     # Prefer the new IOT API when available
     from kasa.iot import IotPlug as PlugClass  # type: ignore
     HAS_IOT = True
-except Exception:
+except Exception as _kasa_iot_err:
     try:
         from kasa import SmartPlug as PlugClass  # type: ignore
         HAS_IOT = False
-    except Exception:
+    except Exception as _kasa_smart_err:
         PlugClass = None
         HAS_IOT = False
+        # Print immediately so the error is visible in app.log / terminal output.
+        print(
+            f"[kasa_worker] WARNING: python-kasa not importable — plug control disabled.\n"
+            f"  IotPlug import error:  {_kasa_iot_err}\n"
+            f"  SmartPlug import error: {_kasa_smart_err}\n"
+            f"  Run:  pip install python-kasa  (inside your virtual environment)"
+        )
 
 # Import application logger helper if available (non-blocking)
 try:

@@ -59,8 +59,10 @@ open_browser_fullscreen() {
     done
     if [ -n "$browser" ]; then
         "$browser" --new-window --start-fullscreen "$url" >> app.log 2>&1 &
+        disown $! 2>/dev/null || true
     elif command -v xdg-open > /dev/null 2>&1; then
         xdg-open "$url" &
+        disown $! 2>/dev/null || true
     fi
 }
 
@@ -179,14 +181,15 @@ source "$VENV_DIR/bin/activate"
 export PIP_DISABLE_PIP_VERSION_CHECK=1
 
 if [ -f "requirements.txt" ]; then
-    # Check only flask (bleak BLE init is slow and not needed to gate startup)
-    if ! timeout 15 "$VENV_DIR/bin/python3" -c "import flask" 2>/dev/null; then
-        if ! timeout 300 pip install --quiet --disable-pip-version-check -r requirements.txt 2>>app.log; then
-            echo "WARNING: Failed to install dependencies"
-            if ! timeout 10 "$VENV_DIR/bin/python3" -c "import flask" 2>/dev/null; then
-                echo "ERROR: Flask not available. Cannot start application."
-                exit 1
-            fi
+    # Always run pip install so every package listed in requirements.txt is present.
+    # pip is a no-op for packages that are already installed and up-to-date, so this
+    # is fast on repeat runs while ensuring newly-added packages (e.g. python-kasa) are
+    # actually installed even when flask was already present from a previous run.
+    if ! timeout 300 pip install --quiet --disable-pip-version-check -r requirements.txt 2>>app.log; then
+        echo "WARNING: pip install failed; some packages may be missing"
+        if ! timeout 10 "$VENV_DIR/bin/python3" -c "import flask" 2>/dev/null; then
+            echo "ERROR: Flask not available. Cannot start application."
+            exit 1
         fi
     fi
 fi
@@ -199,7 +202,10 @@ fi
 PYTHON_PATH="$VENV_DIR/bin/python3"
 APP_PATH="$SCRIPT_DIR/app.py"
 
-nohup "$PYTHON_PATH" "$APP_PATH" > app.log 2>&1 &
+# SKIP_BROWSER_OPEN tells app.py not to open its own browser window.
+# start.sh is responsible for opening the browser (below), so we avoid
+# two windows racing to open the same URL.
+env SKIP_BROWSER_OPEN=1 nohup "$PYTHON_PATH" "$APP_PATH" > app.log 2>&1 &
 APP_PID=$!
 
 disown -h $APP_PID 2>/dev/null || true
