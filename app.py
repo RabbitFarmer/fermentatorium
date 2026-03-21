@@ -3219,8 +3219,11 @@ def _should_send_kasa_command(url, action, controller):
     if not url:
         print(f"[TEMP_CONTROL] Blocking command (no URL configured)")
         return False
-    if not kasa_manager or not kasa_manager.is_alive():
-        print(f"[TEMP_CONTROL] Blocking command (kasa_manager not available or not running)")
+    if kasa_manager is None:
+        print(f"[TEMP_CONTROL] Blocking command (kasa_manager not available)")
+        return False
+    if not kasa_manager.is_alive():
+        print(f"[TEMP_CONTROL] Blocking command (kasa_manager worker not running)")
         return False
     cid = controller.get('controller_id', 0)
     if not _is_valid_controller_id(cid):
@@ -4068,7 +4071,7 @@ def kasa_result_listener():
         try:
             rq = kasa_manager.result_queue if kasa_manager else None
             if rq is None:
-                import time as _t; _t.sleep(1)
+                time.sleep(1)
                 continue
             try:
                 result = rq.get(timeout=5)
@@ -4401,11 +4404,13 @@ def _background_startup_sync():
     """
     try:
         # Wait for the worker subprocess to be fully ready.
-        _WORKER_WAIT = 5  # seconds
-        for _ in range(_WORKER_WAIT * 10):
+        _WORKER_WAIT_S = 5          # maximum seconds to wait for worker to start
+        _POLL_INTERVAL_S = 0.1      # polling interval in seconds
+        _POLL_STEPS = int(_WORKER_WAIT_S / _POLL_INTERVAL_S)
+        for _ in range(_POLL_STEPS):
             if kasa_manager and kasa_manager.is_alive():
                 break
-            time.sleep(0.1)
+            time.sleep(_POLL_INTERVAL_S)
         sync_plug_states_at_startup()
     except Exception as e:
         print(f"[LOG] Exception in background startup sync: {e}")

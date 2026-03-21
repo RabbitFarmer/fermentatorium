@@ -18,6 +18,10 @@ import asyncio
 import time
 import queue as _queue
 
+# Module-level timeout constants (seconds).
+_MP_QUEUE_READ_TIMEOUT = 30   # blocking get() on the multiprocessing command queue
+_DRAIN_TIMEOUT = 30           # blocking get() when draining queue in unavailable mode
+
 # ── Defensive timezone environment ────────────────────────────────────────────
 os.environ.setdefault("TZ", "UTC")
 try:
@@ -99,7 +103,6 @@ def worker_main(cmd_queue, result_queue, query_result_queue):
 
 def _drain_unavailable(cmd_queue, result_queue, query_result_queue):
     """When kasa is unavailable, drain the command queue and return errors."""
-    _DRAIN_TIMEOUT = 30
     err = "kasa library not available"
     while True:
         try:
@@ -144,10 +147,9 @@ async def _async_main(cmd_queue, result_queue, query_result_queue, plug_query, p
 
     # ── Reader thread: blocking multiprocessing.Queue → asyncio.Queue ─────
     def _mp_reader():
-        _TIMEOUT = 30
         while True:
             try:
-                cmd = cmd_queue.get(timeout=_TIMEOUT)
+                cmd = cmd_queue.get(timeout=_MP_QUEUE_READ_TIMEOUT)
                 loop.call_soon_threadsafe(aio_cmd_q.put_nowait, cmd)
             except _queue.Empty:
                 continue

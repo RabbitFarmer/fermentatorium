@@ -19,6 +19,9 @@ except ImportError:
 
 KASA_AVAILABLE = PLUG_CLASS is not None
 
+# Retry delays (seconds) between consecutive attempts: immediate, then 1 s, then 2 s.
+_RETRY_DELAYS = [0, 1, 2]
+
 
 async def plug_query(url: str, timeout: float = 7.0):
     """Query the current on/off state of a plug.
@@ -57,7 +60,7 @@ async def plug_control(
     if PLUG_CLASS is None:
         return "kasa library not available"
 
-    retry_delays = [0, 1, 2]
+    retry_delays = _RETRY_DELAYS
     last_error = None
 
     for attempt in range(max_retries):
