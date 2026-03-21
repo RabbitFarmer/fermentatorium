@@ -344,7 +344,8 @@
       border: 1px solid rgba(0,0,0,0.08);
     }
     .gear-dropdown.open { display: block; }
-    .gear-dropdown a {
+    .gear-dropdown a,
+    .gear-dropdown button.fullscreen-link {
       display: block;
       padding: 12px 18px;
       color: #333;
@@ -354,8 +355,19 @@
       border-bottom: 1px solid #f0f0f0;
       transition: background 0.15s;
     }
+    .gear-dropdown button.fullscreen-link {
+      width: 100%;
+      background: none;
+      border-top: none;
+      border-left: none;
+      border-right: none;
+      cursor: pointer;
+      text-align: left;
+      font-family: inherit;
+    }
     .gear-dropdown a:last-child { border-bottom: none; }
-    .gear-dropdown a:hover { background: #f5f0eb; }
+    .gear-dropdown a:hover,
+    .gear-dropdown button.fullscreen-link:hover { background: #f5f0eb; }
     .gear-dropdown a.exit-link { color: #c91f1f; }
     .gear-dropdown a.exit-link:hover { background: #fff0f0; }
 
@@ -455,6 +467,7 @@
           <a href="{{ url_for('batch_settings') }}" role="menuitem">Batch Settings</a>
           <a href="{{ url_for('batch_history') }}" role="menuitem">Batch History</a>
           <a href="{{ url_for('log_management') }}" role="menuitem">Log Management</a>
+          <button id="fullscreenBtn" role="menuitem" class="fullscreen-link">⛶ Enter Fullscreen</button>
           <a href="{{ url_for('exit_system') }}" role="menuitem" class="exit-link">Exit System</a>
         </div>
       </div>
@@ -1283,6 +1296,84 @@
     }
     applyDisplayZoom();
     window.addEventListener('resize', applyDisplayZoom);
+  }());
+  </script>
+
+  <script>
+  // ── Fullscreen toggle ─────────────────────────────────────────────────
+  // Adds toggle behaviour to the ⛶ button in the gear dropdown.
+  // Preference is persisted in localStorage so fullscreen is restored:
+  //   • after navigating to a settings page and back
+  //   • on initial load when startup.html set the key before navigating here
+  // Pressing Escape (browser fullscreenchange fires with no element) clears
+  // the preference so the user stays in windowed mode on the next load.
+  (function () {
+    var fsBtn  = document.getElementById('fullscreenBtn');
+    var FS_KEY = 'fermentatorium_wantFullscreen';
+
+    function isFullscreen() {
+      return !!(document.fullscreenElement || document.webkitFullscreenElement);
+    }
+
+    function updateLabel() {
+      if (fsBtn) fsBtn.textContent = isFullscreen() ? '⛶ Exit Fullscreen' : '⛶ Enter Fullscreen';
+    }
+
+    function enterFullscreen() {
+      var el = document.documentElement;
+      if (el.requestFullscreen) {
+        el.requestFullscreen().catch(function () {});
+      } else if (el.webkitRequestFullscreen) {
+        el.webkitRequestFullscreen();
+      }
+    }
+
+    function exitFullscreen() {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(function () {});
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+      }
+    }
+
+    if (fsBtn) {
+      fsBtn.addEventListener('click', function () {
+        if (isFullscreen()) {
+          try { localStorage.removeItem(FS_KEY); } catch (e) {}
+          exitFullscreen();
+        } else {
+          try { localStorage.setItem(FS_KEY, '1'); } catch (e) {}
+          enterFullscreen();
+        }
+        // Close the dropdown after the action
+        var drop    = document.getElementById('gearDropdown');
+        var gearBtn = document.getElementById('gearBtn');
+        if (drop)    drop.classList.remove('open');
+        if (gearBtn) gearBtn.setAttribute('aria-expanded', 'false');
+      });
+    }
+
+    // When the browser exits fullscreen (e.g. user pressed Escape), clear the
+    // preference so the next page load stays windowed.
+    function onFullscreenChange() {
+      if (!isFullscreen()) {
+        try { localStorage.removeItem(FS_KEY); } catch (e) {}
+      }
+      updateLabel();
+    }
+    document.addEventListener('fullscreenchange',       onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+
+    // On page load: auto-enter fullscreen if the preference is set.
+    // This covers navigation back from settings pages and the initial
+    // startup.html → maindisplay.html transition (startup.html sets the key).
+    try {
+      if (localStorage.getItem(FS_KEY) === '1' && !isFullscreen()) {
+        enterFullscreen();
+      }
+    } catch (e) {}
+
+    updateLabel();
   }());
   </script>
 
