@@ -344,8 +344,7 @@
       border: 1px solid rgba(0,0,0,0.08);
     }
     .gear-dropdown.open { display: block; }
-    .gear-dropdown a,
-    .gear-dropdown button.fullscreen-link {
+    .gear-dropdown a {
       display: block;
       padding: 12px 18px;
       color: #333;
@@ -355,19 +354,8 @@
       border-bottom: 1px solid #f0f0f0;
       transition: background 0.15s;
     }
-    .gear-dropdown button.fullscreen-link {
-      width: 100%;
-      background: none;
-      border-top: none;
-      border-left: none;
-      border-right: none;
-      cursor: pointer;
-      text-align: left;
-      font-family: inherit;
-    }
     .gear-dropdown a:last-child { border-bottom: none; }
-    .gear-dropdown a:hover,
-    .gear-dropdown button.fullscreen-link:hover { background: #f5f0eb; }
+    .gear-dropdown a:hover { background: #f5f0eb; }
     .gear-dropdown a.exit-link { color: #c91f1f; }
     .gear-dropdown a.exit-link:hover { background: #fff0f0; }
 
@@ -419,36 +407,6 @@
     .modal-button.secondary          { background: #ddd; color: #333; }
     .modal-button.secondary:hover    { background: #ccc; }
 
-  /* ── Kiosk exit button ─────────────────────────────────────────────────
-     Fixed to the bottom-right corner.  Two-click confirmation prevents
-     accidental exits: first click arms it (turns red, shows "Confirm?"),
-     second click within 3 s closes the kiosk window.
-     Alt+F4 at the OS level is always an alternative escape route.
-  ── */
-  .kiosk-exit-btn {
-    position: fixed;
-    bottom: 18px;
-    right: 18px;
-    z-index: 2000;
-    background: var(--panel-brown);
-    color: white;
-    border: none;
-    border-radius: 20px;
-    padding: 6px 16px;
-    font-size: 15px;
-    cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.28);
-    transition: background 0.2s, opacity 0.2s;
-    opacity: 0.75;
-    line-height: 1.4;
-    user-select: none;
-    min-width: 80px;
-  }
-  .kiosk-exit-btn:hover { opacity: 1; background: rgba(101,67,33,0.95); }
-  .kiosk-exit-btn.confirming {
-    background: #c0392b;
-    opacity: 1;
-  }
   </style>
 </head>
 <body>
@@ -467,7 +425,6 @@
           <a href="{{ url_for('batch_settings') }}" role="menuitem">Batch Settings</a>
           <a href="{{ url_for('batch_history') }}" role="menuitem">Batch History</a>
           <a href="{{ url_for('log_management') }}" role="menuitem">Log Management</a>
-          <button id="fullscreenBtn" role="menuitem" class="fullscreen-link">⛶ Enter Fullscreen</button>
           <a href="{{ url_for('exit_system') }}" role="menuitem" class="exit-link">Exit System</a>
         </div>
       </div>
@@ -756,10 +713,6 @@
     </section>
 
   </div><!-- /.page-container -->
-
-  <!-- Kiosk exit button: two-click confirmation then POST to /exit_system.
-       Alt+F4 is always available as an OS-level escape route. -->
-  <button class="kiosk-exit-btn" id="kioskExitBtn" title="Exit kiosk — click twice to confirm (Alt+F4 may also work at the OS level)">✕ Exit</button>
 
   <!-- Session-selection modal (New vs Existing when turning on temp control) -->
   <div id="sessionModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
@@ -1281,132 +1234,6 @@
   }());
   </script>
 
-  <script>
-  // ── Fullscreen toggle ─────────────────────────────────────────────────
-  // Adds toggle behaviour to the ⛶ button in the gear dropdown.
-  // Preference is persisted in localStorage so fullscreen is restored:
-  //   • after navigating to a settings page and back
-  //   • on initial load when startup.html set the key before navigating here
-  // Pressing Escape (browser fullscreenchange fires with no element) clears
-  // the preference so the user stays in windowed mode on the next load.
-  (function () {
-    var fsBtn  = document.getElementById('fullscreenBtn');
-    var FS_KEY = 'fermentatorium_wantFullscreen';
 
-    function isFullscreen() {
-      return !!(document.fullscreenElement || document.webkitFullscreenElement);
-    }
-
-    function updateLabel() {
-      if (fsBtn) fsBtn.textContent = isFullscreen() ? '⛶ Exit Fullscreen' : '⛶ Enter Fullscreen';
-    }
-
-    function enterFullscreen() {
-      var el = document.documentElement;
-      if (el.requestFullscreen) {
-        el.requestFullscreen().catch(function () {});
-      } else if (el.webkitRequestFullscreen) {
-        el.webkitRequestFullscreen();
-      }
-    }
-
-    function exitFullscreen() {
-      if (document.exitFullscreen) {
-        document.exitFullscreen().catch(function () {});
-      } else if (document.webkitExitFullscreen) {
-        document.webkitExitFullscreen();
-      }
-    }
-
-    if (fsBtn) {
-      fsBtn.addEventListener('click', function () {
-        if (isFullscreen()) {
-          try { localStorage.removeItem(FS_KEY); } catch (e) {}
-          exitFullscreen();
-        } else {
-          try { localStorage.setItem(FS_KEY, '1'); } catch (e) {}
-          enterFullscreen();
-        }
-        // Close the dropdown after the action
-        var drop    = document.getElementById('gearDropdown');
-        var gearBtn = document.getElementById('gearBtn');
-        if (drop)    drop.classList.remove('open');
-        if (gearBtn) gearBtn.setAttribute('aria-expanded', 'false');
-      });
-    }
-
-    // When the browser exits fullscreen (e.g. user pressed Escape), clear the
-    // preference so the next page load stays windowed.
-    function onFullscreenChange() {
-      if (!isFullscreen()) {
-        try { localStorage.removeItem(FS_KEY); } catch (e) {}
-      }
-      updateLabel();
-    }
-    document.addEventListener('fullscreenchange',       onFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
-
-    // On page load: auto-enter fullscreen if the preference is set.
-    // This covers navigation back from settings pages and the initial
-    // startup.html → maindisplay.html transition (startup.html sets the key).
-    try {
-      if (localStorage.getItem(FS_KEY) === '1' && !isFullscreen()) {
-        enterFullscreen();
-      }
-    } catch (e) {}
-
-    updateLabel();
-  }());
-  </script>
-
-  <script>
-  // ── Kiosk exit button ──────────────────────────────────────────────────
-  // Two-click confirmation prevents accidental exits.
-  //   • 1st click  → button turns red and shows "Confirm exit?" for 3 s.
-  //   • 2nd click  → POSTs to /exit_system (confirm=yes) via fetch so the
-  //                  browser never navigates away from this page.
-  //   • No 2nd click within 3 s → button resets to normal.
-  // Alt+F4 (OS-level) may also work depending on the window manager.
-  (function () {
-    var btn  = document.getElementById('kioskExitBtn');
-    if (!btn) return;
-
-    // Clean up any ?autostart=1 query parameter left by start.sh
-    try {
-      var params = new URLSearchParams(window.location.search);
-      if (params.get('autostart') === '1' && history && history.replaceState) {
-        history.replaceState({}, '', '/');
-      }
-    } catch (e) {}
-
-    var confirmTimer = null;
-
-    btn.addEventListener('click', function () {
-      if (confirmTimer) {
-        // Second click within the confirmation window → shut down in place
-        clearTimeout(confirmTimer);
-        confirmTimer = null;
-        btn.disabled = true;
-        btn.textContent = '✕ Shutting down…';
-        // POST shutdown via fetch so we stay on this page (no navigation)
-        var body = new URLSearchParams();
-        body.append('confirm', 'yes');
-        fetch('/exit_system', { method: 'POST', body: body })
-          .catch(function () {
-            // Server gone — expected once Flask shuts down
-          });
-      } else {
-        // First click → arm the confirmation state
-        btn.classList.add('confirming');
-        btn.textContent = '✕ Confirm exit?';
-        confirmTimer = setTimeout(function () {
-          confirmTimer = null;
-          btn.classList.remove('confirming');
-          btn.textContent = '✕ Exit';
-        }, 3000);
-      }
-    });
-  }());
-  </script>
 </body>
 </html>
