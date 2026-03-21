@@ -186,7 +186,29 @@ def kasa_worker(cmd_queue, result_queue):
                         break
 
                 if batch:
-                    loop.run_until_complete(_run_batch(batch))
+                    # Wrap batch execution with an overall timeout so the loop
+                    # can never be blocked permanently even if individual command
+                    # timeouts are somehow bypassed.  Per-command worst case:
+                    # update(6s) + turn_on(10s) + sleep(1.5s) + verify(5s) ≈ 23s,
+                    # times 3 retries ≈ 69s.  Allow 120s for a full batch.
+                    async def _run_batch_with_timeout(b):
+                        try:
+                            await asyncio.wait_for(_run_batch(b), timeout=120)
+                        except asyncio.TimeoutError:
+                            log_error("kasa_worker: batch timed out after 120 s — returning errors for remaining commands")
+                            # Best-effort: put error results so pending flags are cleared
+                            for cmd in b:
+                                try:
+                                    result_queue.put_nowait({
+                                        'mode': cmd.get('mode', 'unknown'),
+                                        'action': cmd.get('action', 'off'),
+                                        'success': False,
+                                        'url': cmd.get('url', ''),
+                                        'error': 'Batch execution timed out',
+                                    })
+                                except Exception:
+                                    pass
+                    loop.run_until_complete(_run_batch_with_timeout(batch))
 
             except Exception as e:
                 # Defensive: log and sleep briefly, then continue
@@ -267,11 +289,16 @@ async def kasa_control(url, action, mode):
                 return last_error
 
         try:
-            # Send the command
+            # Send the command.
+            # asyncio.wait_for is required here: plug.turn_on/turn_off open a TCP
+            # connection to the plug and can hang indefinitely when the plug accepts
+            # the connection but never sends a response (firmware stall, network
+            # issue).  Without a timeout this blocks the entire kasa_worker event
+            # loop, preventing ALL subsequent commands from ever being processed.
             if action == 'on':
-                await plug.turn_on()
+                await asyncio.wait_for(plug.turn_on(), timeout=10)
             else:
-                await plug.turn_off()
+                await asyncio.wait_for(plug.turn_off(), timeout=10)
 
             # Pause to let state change propagate before verifying.
             # Some plugs (especially older models) take 1-2 s to reflect the

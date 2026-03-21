@@ -3166,6 +3166,9 @@ def _should_send_kasa_command(url, action, controller):
     if not kasa_worker:
         print(f"[TEMP_CONTROL] Blocking command (kasa_worker not available)")
         return False
+    if kasa_proc is None or not kasa_proc.is_alive():
+        print(f"[TEMP_CONTROL] Blocking command (kasa_worker process is not running)")
+        return False
     
     # Check for timed-out pending flags and clear them
     if url == controller.get("heating_plug") and controller.get("heater_pending"):
