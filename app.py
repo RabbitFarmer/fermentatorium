@@ -64,10 +64,11 @@ from tilt_table import (
 )
 
 try:
-    from kasa_worker import kasa_worker, kasa_query_state
+    from kasa_manager import KasaManager
+    _kasa_manager_available = True
 except Exception:
-    kasa_worker = None
-    kasa_query_state = None
+    KasaManager = None
+    _kasa_manager_available = False
 
 try:
     import requests
@@ -1003,22 +1004,12 @@ try:
 except Exception:
     pass
 
-# --- Per-controller inter-process queues and kasa worker startup -----------
-# Each of the 3 temperature controllers gets its own command queue, result
-# queue, subprocess, and lock.  This means a slow or dead plug on one
-# controller cannot stall or crash the others.
-#
-# Indexed by controller_id (0, 1, 2).  Initialized to None at module level
-# so they exist when the module is imported by the werkzeug reloader.
-# They will be properly initialized in the if __name__ == '__main__' block
-# after multiprocessing.set_start_method('fork') has been called.
+# --- Kasa manager (single subprocess for all controllers/plugs) -----------
+# KasaManager replaces the old per-controller kasa_queues[], kasa_result_queues[],
+# kasa_procs[], and _kasa_proc_locks[] arrays.  It is initialised in
+# __main__ after multiprocessing.set_start_method('spawn') is called.
 _NUM_KASA_CONTROLLERS = 3
-kasa_queues        = [None] * _NUM_KASA_CONTROLLERS  # cmd queues, one per controller
-kasa_result_queues = [None] * _NUM_KASA_CONTROLLERS  # result queues, one per controller
-kasa_procs         = [None] * _NUM_KASA_CONTROLLERS  # subprocess handles, one per controller
-# One lock per controller guards reads/writes of kasa_procs[i] so
-# _check_and_restart_kasa_proc and exit_system never race on the reference.
-_kasa_proc_locks   = [threading.Lock() for _ in range(_NUM_KASA_CONTROLLERS)]
+kasa_manager = KasaManager() if _kasa_manager_available else None
 
 # Event set by _background_startup_sync when the initial plug-state query has
 # finished (success or failure).  periodic_temp_control waits on this before
@@ -3221,15 +3212,18 @@ def _is_redundant_command(url, action, current_state):
     return command_matches_state
 
 def _is_valid_controller_id(cid):
-    """Return True if cid is a valid index into the per-controller kasa arrays."""
+    """Return True if cid is a valid controller_id (0–2)."""
     return isinstance(cid, int) and 0 <= cid < _NUM_KASA_CONTROLLERS
 
 def _should_send_kasa_command(url, action, controller):
     if not url:
         print(f"[TEMP_CONTROL] Blocking command (no URL configured)")
         return False
-    if not kasa_worker:
-        print(f"[TEMP_CONTROL] Blocking command (kasa_worker not available)")
+    if kasa_manager is None:
+        print(f"[TEMP_CONTROL] Blocking command (kasa_manager not available)")
+        return False
+    if not kasa_manager.is_alive():
+        print(f"[TEMP_CONTROL] Blocking command (kasa_manager worker not running)")
         return False
     cid = controller.get('controller_id', 0)
     if not _is_valid_controller_id(cid):
@@ -3371,76 +3365,32 @@ def _should_send_kasa_command(url, action, controller):
 def _record_kasa_command(url, action):
     _last_kasa_command[url] = {"action": action, "ts": time.time()}
 
-def _check_and_restart_kasa_proc(cid):
+def _check_and_restart_kasa_proc():
+    """Watchdog: verify the kasa_manager worker subprocess has not exited.
+
+    If the process has died, restarts it and clears all pending plug flags
+    for every controller so that new commands can be issued immediately.
+
+    Called at the top of every periodic_temp_control cycle.
     """
-    Watchdog: verify the kasa_worker subprocess for controller *cid* has not exited.
+    if kasa_manager is None:
+        return
+    if not kasa_manager.restart_if_dead():
+        return  # process is healthy — nothing to do
 
-    If the process has died (crash, OOM, asyncio fault, SIGTERM, etc.) this
-    function restarts it using the existing per-controller kasa_queues[cid] /
-    kasa_result_queues[cid] so no plumbing changes are needed elsewhere.
-
-    Called at the top of every periodic_temp_control cycle so a dead worker
-    is replaced before commands are sent for that cycle.
-
-    Side-effects when the worker is dead:
-    - Clears heater/cooler pending flags for the affected controller (the
-      dead process will never return results for them, causing 90-second
-      timeouts otherwise).
-    - Sets heating_error / cooling_error on the affected controller so the
-      UI shows a clear error state.
-    - Puts a diagnostic entry in kasa_errors.log.
-
-    _kasa_proc_locks[cid] guards kasa_procs[cid] reads and writes so the
-    Flask thread (exit_system) and this thread never race on the reference.
-
-    NOTE: exitcode is None while the process is still running; any other value
-    means the process has exited.  We use exitcode rather than is_alive() to
-    avoid the process-liveness check that previously caused spurious blocking
-    of plug commands when the check raced with process startup or SIGTERM
-    delivery.
-    """
-    with _kasa_proc_locks[cid]:
-        if kasa_procs[cid] is None:
-            return  # kasa_worker was never started for this controller
-        if kasa_procs[cid].exitcode is None:
-            return  # process is still running — nothing to do
-
-        log_kasa_diag('error', 'kasa_worker process has died — restarting',
-                      controller_id=cid, pid=kasa_procs[cid].pid,
-                      exitcode=kasa_procs[cid].exitcode)
-
-        try:
-            kasa_procs[cid].join(timeout=2)
-        except Exception:
-            pass
-
-        # Clear pending flags and mark an error for this controller only.
-        for ctrl in temp_cfg.get('controllers', []):
-            if ctrl.get('controller_id') != cid:
-                continue
-            ctrl['heater_pending']       = False
-            ctrl['heater_pending_since'] = None
-            ctrl['heater_pending_action'] = None
-            ctrl['cooler_pending']       = False
-            ctrl['cooler_pending_since'] = None
-            ctrl['cooler_pending_action'] = None
-            ctrl['heating_error']        = True
-            ctrl['heating_error_msg']    = 'kasa_worker process restarted — plug state unknown'
-            ctrl['cooling_error']        = True
-            ctrl['cooling_error_msg']    = 'kasa_worker process restarted — plug state unknown'
-            break  # only one controller matches cid
-
-        try:
-            new_proc = Process(target=kasa_worker,
-                               args=(kasa_queues[cid], kasa_result_queues[cid]))
-            new_proc.daemon = True
-            new_proc.start()
-            kasa_procs[cid] = new_proc
-            log_kasa_diag('info', 'kasa_worker process restarted successfully',
-                          controller_id=cid, pid=new_proc.pid)
-        except Exception as exc:
-            log_kasa_diag('error', f'Failed to restart kasa_worker process: {exc}',
-                          controller_id=cid)
+    # Worker died and was restarted: clear all pending flags and mark errors
+    # so the control loop can issue fresh commands on the next cycle.
+    for ctrl in temp_cfg.get('controllers', []):
+        ctrl['heater_pending']        = False
+        ctrl['heater_pending_since']  = None
+        ctrl['heater_pending_action'] = None
+        ctrl['cooler_pending']        = False
+        ctrl['cooler_pending_since']  = None
+        ctrl['cooler_pending_action'] = None
+        ctrl['heating_error']         = True
+        ctrl['heating_error_msg']     = 'kasa_manager worker restarted — plug state unknown'
+        ctrl['cooling_error']         = True
+        ctrl['cooling_error_msg']     = 'kasa_manager worker restarted — plug state unknown'
 
 # --- Control functions -----------------------------------------------------
 def control_heating(state, controller):
@@ -3530,7 +3480,7 @@ def control_heating(state, controller):
     log_kasa_command('heating', url, state)
     log_kasa_diag('info', f'Queuing heating {state.upper()} command',
                   url=url, controller_id=cid)
-    kasa_queues[cid].put({'mode': 'heating', 'url': url, 'action': state})
+    kasa_manager.send(cid, 'heating', url, state)
     # NOTE: _record_kasa_command is now called in kasa_result_listener only on success
     # This allows failed commands to be retried without rate limiting
     controller["heater_pending"] = True
@@ -3624,7 +3574,7 @@ def control_cooling(state, controller):
     log_kasa_command('cooling', url, state)
     log_kasa_diag('info', f'Queuing cooling {state.upper()} command',
                   url=url, controller_id=cid)
-    kasa_queues[cid].put({'mode': 'cooling', 'url': url, 'action': state})
+    kasa_manager.send(cid, 'cooling', url, state)
     # NOTE: _record_kasa_command is now called in kasa_result_listener only on success
     # This allows failed commands to be retried without rate limiting
     controller["cooler_pending"] = True
@@ -4110,45 +4060,65 @@ def send_swapped_plug_notification(plug_type, baseline_temp, current_temp, temp_
     )
 
 # --- kasa result listener (log confirmed ON/OFF events) --------------------
-def kasa_result_listener(cid):
-    """Listen on kasa_result_queues[cid] for results from that controller's worker."""
-    result_queue = kasa_result_queues[cid]
+def kasa_result_listener():
+    """Listen on the KasaManager result queue for on/off results from the worker.
+
+    This is a single thread that handles results for all controllers.
+    The result dict contains 'controller_id' and 'role' ('heating'|'cooling')
+    to identify which controller and plug the result belongs to.
+    """
     while True:
         try:
-            result = result_queue.get(timeout=5)
-            mode = result.get('mode')
-            action = result.get('action')
+            rq = kasa_manager.result_queue if kasa_manager else None
+            if rq is None:
+                time.sleep(1)
+                continue
+            try:
+                result = rq.get(timeout=5)
+            except Exception:
+                continue
+            role    = result.get('role') or result.get('mode')  # support both keys
+            action  = result.get('action')
             success = result.get('success', False)
-            url = result.get('url', '')
-            error = result.get('error', '')
-            
-            print(f"[KASA_RESULT] Received result: mode={mode}, action={action}, success={success}, url={url}, error={error}")
+            url     = result.get('url', '')
+            error   = result.get('error', '')
+            cid     = result.get('controller_id')
+
+            print(f"[KASA_RESULT] Received result: role={role}, action={action}, success={success}, url={url}, error={error}")
             # Write to kasa_errors.log so the user can trace what the worker did
             if success:
-                log_kasa_diag('info', f'Plug command result: {mode} {action} OK',
-                              url=url, mode=mode, action=action)
+                log_kasa_diag('info', f'Plug command result: {role} {action} OK',
+                              url=url, role=role, action=action)
             else:
-                log_kasa_diag('error', f'Plug command result: {mode} {action} FAILED',
-                              url=url, mode=mode, action=action, error=error)
-            
+                log_kasa_diag('error', f'Plug command result: {role} {action} FAILED',
+                              url=url, role=role, action=action, error=error)
+
             # Log the response to kasa_activity_monitoring.jsonl
-            log_kasa_command(mode, url, action, success=success, error=error if not success else None)
-            
+            log_kasa_command(role, url, action, success=success, error=error if not success else None)
+
             # Find the controller that owns this plug
             controller = None
-            for ctrl in temp_cfg.get('controllers', []):
-                if mode == 'heating' and url == ctrl.get("heating_plug"):
-                    controller = ctrl
-                    break
-                elif mode == 'cooling' and url == ctrl.get("cooling_plug"):
-                    controller = ctrl
-                    break
-            
+            # First try by controller_id if present
+            if cid is not None and _is_valid_controller_id(cid):
+                for ctrl in temp_cfg.get('controllers', []):
+                    if ctrl.get('controller_id') == cid:
+                        controller = ctrl
+                        break
+            # Fall back to URL-based lookup
             if controller is None:
-                print(f"[KASA_RESULT] WARNING: Could not find controller for {mode} plug at {url}")
+                for ctrl in temp_cfg.get('controllers', []):
+                    if role == 'heating' and url == ctrl.get("heating_plug"):
+                        controller = ctrl
+                        break
+                    elif role == 'cooling' and url == ctrl.get("cooling_plug"):
+                        controller = ctrl
+                        break
+
+            if controller is None:
+                print(f"[KASA_RESULT] WARNING: Could not find controller for {role} plug at {url}")
                 continue
-            
-            if mode == 'heating':
+
+            if role == 'heating':
                 controller["heater_pending"] = False
                 controller["heater_pending_since"] = None
                 controller["heater_pending_action"] = None
@@ -4216,7 +4186,7 @@ def kasa_result_listener(cid):
                     # Passes controller for per-controller time-based deduplication and
                     # periodic re-notification while the failure persists.
                     send_kasa_error_notification('heating', url, error, controller=controller)
-            elif mode == 'cooling':
+            elif role == 'cooling':
                 controller["cooler_pending"] = False
                 controller["cooler_pending_since"] = None
                 controller["cooler_pending_action"] = None
@@ -4289,11 +4259,10 @@ def kasa_result_listener(cid):
             continue
         except Exception as e:
             # Log unexpected exceptions to help with debugging
-            print(f"[LOG] Exception in kasa_result_listener (controller {cid}): {e}")
+            print(f"[LOG] Exception in kasa_result_listener: {e}")
             continue
 
-# NOTE: kasa_result_listener threads are started in if __name__ == '__main__' block
-# after kasa_result_queues are initialized to avoid NoneType errors
+# NOTE: kasa_result_listener thread is started in if __name__ == '__main__' block
 
 # --- Startup plug state synchronization -------------------------------------
 def sync_plug_states_at_startup():
@@ -4302,43 +4271,21 @@ def sync_plug_states_at_startup():
     This prevents displaying stale state from the last shutdown.
 
     All controllers start with heater_on=False and cooler_on=False.  The
-    function then queries each configured plug and updates accordingly.
-    If a query fails or times out the state remains False (off), which is
-    the safe default – the control loop will send the correct command once
-    it evaluates the current temperature.
+    function then queries each configured plug via the KasaManager worker and
+    updates accordingly.  If a query fails or times out the state remains
+    False (off), which is the safe default – the control loop will send the
+    correct command once it evaluates the current temperature.
     """
 
-    # Helper function to query plug state with timeout
-    async def query_plug_with_timeout(url):
-        """Query a plug's state with timeout. Returns (is_on, error) or raises TimeoutError."""
-        # Timeout set to 7 seconds to allow internal kasa_query_state timeout (6s) to complete
-        return await asyncio.wait_for(kasa_query_state(url), timeout=7.0)
-
     # Retry configuration for startup sync.  When app restarts, stop_other_app_py()
-    # terminates the previous instance's kasa_worker processes.  Those workers had
-    # open TCP connections to the kasa plugs; the plug firmware needs a few seconds
-    # to fully close that connection before it will accept a new one.  The initial
-    # 5-second delay in _background_startup_sync is not always enough, so we retry
-    # failed queries with a pause to give the plug time to recover.
+    # may close connections to kasa plugs; the plug firmware needs a few seconds
+    # to fully close those connections before accepting new ones.
     _STARTUP_SYNC_MAX_RETRIES = 2
     _STARTUP_SYNC_RETRY_DELAY_S = 8
-
-    def _query_once(url):
-        """One attempt to query a plug. Returns (is_on, error_str, elapsed_ms)."""
-        t0 = time.time()
-        try:
-            is_on, error = asyncio.run(query_plug_with_timeout(url))
-            elapsed_ms = round((time.time() - t0) * 1000)
-            return is_on, error, elapsed_ms
-        except asyncio.TimeoutError:
-            elapsed_ms = round((time.time() - t0) * 1000)
-            return None, 'TimeoutError', elapsed_ms
-        except Exception as e:
-            elapsed_ms = round((time.time() - t0) * 1000)
-            return None, str(e) or type(e).__name__, elapsed_ms
+    _QUERY_TIMEOUT = 20  # seconds per query attempt
 
     def _query_with_retry(url, cid, mode):
-        """Query a plug with up to _STARTUP_SYNC_MAX_RETRIES retries.
+        """Query a plug via kasa_manager.query_sync with retries.
         Returns (is_on, error_str, elapsed_ms) from the final attempt."""
         is_on, error, elapsed_ms = None, None, 0
         for attempt in range(_STARTUP_SYNC_MAX_RETRIES + 1):
@@ -4347,7 +4294,14 @@ def sync_plug_states_at_startup():
                               controller_id=cid, url=url,
                               retry=attempt, max_retries=_STARTUP_SYNC_MAX_RETRIES)
                 time.sleep(_STARTUP_SYNC_RETRY_DELAY_S)
-            is_on, error, elapsed_ms = _query_once(url)
+            t0 = time.time()
+            try:
+                is_on, error = kasa_manager.query_sync(url, controller_id=cid,
+                                                       role=mode, timeout=_QUERY_TIMEOUT)
+            except Exception as exc:
+                error = str(exc) or type(exc).__name__
+                is_on = None
+            elapsed_ms = round((time.time() - t0) * 1000)
             if error is None:
                 break
             if attempt < _STARTUP_SYNC_MAX_RETRIES:
@@ -4378,9 +4332,9 @@ def sync_plug_states_at_startup():
         controller["heater_pending_since"] = None
         controller["cooler_pending_since"] = None
 
-        if kasa_query_state is None:
-            print(f"[LOG] Controller {cid}: kasa_query_state not available, plugs reset to OFF")
-            log_kasa_diag('warn', 'Startup plug sync: kasa_query_state unavailable',
+        if kasa_manager is None or not kasa_manager.is_alive():
+            print(f"[LOG] Controller {cid}: kasa_manager not available, plugs reset to OFF")
+            log_kasa_diag('warn', 'Startup plug sync: kasa_manager unavailable',
                           controller_id=cid)
             continue
 
@@ -4443,15 +4397,20 @@ def sync_plug_states_at_startup():
 # Start sync in background thread to prevent blocking Flask startup
 # This allows the web server to start immediately even if plug queries are slow
 def _background_startup_sync():
-    """Run startup sync in background to avoid blocking Flask"""
+    """Run startup sync in background to avoid blocking Flask.
+
+    Waits for the kasa_manager worker subprocess to be alive before issuing
+    queries, so there is no direct asyncio loop in this thread.
+    """
     try:
-        # Wait a few seconds so the kasa_worker process has time to fully
-        # initialize its asyncio event loop and network socket before the first
-        # direct plug query.  On a freshly booted system the kernel network
-        # stack (routing tables, ARP) also needs a moment to settle even after
-        # the network interface is up, so a small delay here avoids spurious
-        # "Failed to contact plug" errors at startup.
-        time.sleep(5)
+        # Wait for the worker subprocess to be fully ready.
+        _WORKER_WAIT_S = 5          # maximum seconds to wait for worker to start
+        _POLL_INTERVAL_S = 0.1      # polling interval in seconds
+        _POLL_STEPS = int(_WORKER_WAIT_S / _POLL_INTERVAL_S)
+        for _ in range(_POLL_STEPS):
+            if kasa_manager and kasa_manager.is_alive():
+                break
+            time.sleep(_POLL_INTERVAL_S)
         sync_plug_states_at_startup()
     except Exception as e:
         print(f"[LOG] Exception in background startup sync: {e}")
@@ -4582,9 +4541,8 @@ def periodic_temp_control():
         print("[LOG] WARNING: Startup sync did not complete within 120 s — proceeding with temperature control; plug states may be unknown and initial kasa commands could fail")
     while True:
         try:
-            # Check each controller's kasa_worker process health; restart any that have died.
-            for cid in range(_NUM_KASA_CONTROLLERS):
-                _check_and_restart_kasa_proc(cid)
+            # Check whether the kasa_manager worker subprocess has died; restart if so.
+            _check_and_restart_kasa_proc()
 
             file_cfg = load_json(TEMP_CFG_FILE, {})
             
@@ -4696,7 +4654,7 @@ def periodic_temp_control():
         time.sleep(interval_seconds)
 
 # NOTE: periodic_temp_control thread is started in if __name__ == '__main__' block
-# after kasa_queues are initialized to avoid NoneType errors
+# after kasa_manager is initialized
 
 # --- Periodic batch monitoring thread -------------------------------------
 def periodic_batch_monitoring():
@@ -7770,6 +7728,7 @@ def backup_system():
             # Python program files
             'app.py',
             'kasa_worker.py',
+            'kasa_manager',
             'logger.py',
             'batch_history.py',
             'batch_storage.py',
@@ -7997,16 +7956,15 @@ def exit_system():
                     cid = ctrl.get('controller_id', 0)
                     heating_plug = ctrl.get("heating_plug", "")
                     cooling_plug = ctrl.get("cooling_plug", "")
-                    q = kasa_queues[cid] if _is_valid_controller_id(cid) else None
 
                     # Turn off heating plug if configured
-                    if heating_plug and q:
-                        q.put({'mode': 'heating', 'url': heating_plug, 'action': 'off'})
+                    if heating_plug and kasa_manager and _is_valid_controller_id(cid):
+                        kasa_manager.send(cid, 'heating', heating_plug, 'off')
                         time.sleep(PLUG_COMMAND_DELAY)
 
                     # Turn off cooling plug if configured
-                    if cooling_plug and q:
-                        q.put({'mode': 'cooling', 'url': cooling_plug, 'action': 'off'})
+                    if cooling_plug and kasa_manager and _is_valid_controller_id(cid):
+                        kasa_manager.send(cid, 'cooling', cooling_plug, 'off')
                         time.sleep(PLUG_COMMAND_DELAY)
             except Exception as e:
                 print(f"[LOG] Error turning off plugs during shutdown: {e}")
@@ -8015,17 +7973,11 @@ def exit_system():
             def shutdown_system():
                 time.sleep(SHUTDOWN_DELAY)
                 try:
-                    # Terminate all per-controller kasa worker processes
-                    for cid in range(_NUM_KASA_CONTROLLERS):
-                        proc = kasa_procs[cid]
-                        if proc is not None:
-                            try:
-                                proc.terminate()
-                                proc.join(timeout=PROCESS_TERMINATION_TIMEOUT)
-                            except Exception:
-                                pass
+                    # Terminate the kasa_manager worker subprocess
+                    if kasa_manager is not None:
+                        kasa_manager.stop()
                 except Exception as e:
-                    print(f"[LOG] Error during process cleanup: {e}")
+                    print(f"[LOG] Error during kasa_manager stop: {e}")
 
                 # Shutdown Flask
                 os.kill(os.getpid(), signal.SIGINT)
@@ -8195,80 +8147,48 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"[LOG] Could not remove ~/chartdata: {e}")
 
-    # Set multiprocessing start method to 'fork' for better network access in worker
-    # MUST be called in if __name__ == '__main__' block to avoid issues with werkzeug reloader
-    # The 'fork' method preserves the network stack and environment from parent process
-    # This is critical for KASA plug communication in the worker process
+    # Set multiprocessing start method to 'spawn' for clean kasa worker isolation.
+    # MUST be called in if __name__ == '__main__' block before any Process() calls.
+    # 'spawn' starts a fresh Python interpreter for each child process, so it does
+    # not inherit the parent's open file descriptors, asyncio state, or
+    # multiprocessing._children registry (which caused the SIGTERM cascade with fork).
     try:
-        # Check if 'fork' is available on this platform (not available on Windows)
-        available_methods = multiprocessing.get_all_start_methods()
-        if 'fork' in available_methods:
-            # Only set if not already set (avoid errors if called multiple times)
-            if multiprocessing.get_start_method(allow_none=True) is None:
-                multiprocessing.set_start_method('fork')
-                print("[LOG] Set multiprocessing start method to 'fork' for network access")
-            else:
-                current = multiprocessing.get_start_method()
-                print(f"[LOG] Multiprocessing start method already set to: {current}")
-                if current != 'fork':
-                    print(f"[LOG] WARNING: Using '{current}' instead of 'fork' - may affect KASA plug reliability")
+        if multiprocessing.get_start_method(allow_none=True) is None:
+            multiprocessing.set_start_method('spawn')
+            print("[LOG] Set multiprocessing start method to 'spawn'")
         else:
-            print(f"[LOG] WARNING: 'fork' method not available on this platform ({sys.platform})")
-            print(f"[LOG] Available methods: {available_methods}")
-            print(f"[LOG] KASA plug control may experience network issues")
+            current = multiprocessing.get_start_method()
+            print(f"[LOG] Multiprocessing start method already set to: {current}")
     except RuntimeError as e:
         print(f"[LOG] Could not set multiprocessing start method: {e}")
 
-    # Initialize per-controller kasa worker queues and processes.
-    # Done here (not at module level) to ensure multiprocessing.set_start_method('fork')
-    # is called first and to avoid issues with the werkzeug reloader.
-    # Each controller gets its own command queue, result queue, and subprocess so
-    # that a slow or crashed plug on one controller cannot affect the others.
-    for _cid in range(_NUM_KASA_CONTROLLERS):
-        kasa_queues[_cid]        = Queue()
-        kasa_result_queues[_cid] = Queue()
-    log_kasa_diag('info', 'per-controller kasa queues initialized',
-                  controller_count=_NUM_KASA_CONTROLLERS)
-
-    # Start one kasa_result_listener thread per controller
-    for _cid in range(_NUM_KASA_CONTROLLERS):
-        threading.Thread(target=kasa_result_listener, args=(_cid,), daemon=True).start()
-        print(f"[LOG] Started kasa_result_listener thread for controller {_cid}")
-    log_kasa_diag('info', 'kasa_result_listener threads started',
-                  controller_count=_NUM_KASA_CONTROLLERS)
-
-    if kasa_worker:
-        log_kasa_diag('info', 'kasa_worker module available — starting per-controller subprocesses')
-        for _cid in range(_NUM_KASA_CONTROLLERS):
-            try:
-                proc = Process(target=kasa_worker,
-                               args=(kasa_queues[_cid], kasa_result_queues[_cid]))
-                proc.daemon = True
-                proc.start()
-                kasa_procs[_cid] = proc
-                print(f"[LOG] Started kasa_worker process for controller {_cid}")
-            except Exception as e:
-                print(f"[LOG] Could not start kasa_worker for controller {_cid}:", e)
-                log_kasa_diag('error', f'kasa_worker process start exception: {e}',
-                              controller_id=_cid)
-        # Give all worker processes a moment to initialize before we query them.
-        time.sleep(1)
-        for _cid in range(_NUM_KASA_CONTROLLERS):
-            proc = kasa_procs[_cid]
-            if proc is not None and proc.exitcode is None:
-                print(f"[LOG] kasa_worker process for controller {_cid} is running and ready")
-                log_kasa_diag('info', 'kasa_worker process started and alive',
-                              controller_id=_cid, pid=proc.pid)
-            elif proc is not None:
-                print(f"[LOG] WARNING: kasa_worker process for controller {_cid} failed to start")
-                log_kasa_diag('error', 'kasa_worker process failed to start (process exited within 1 s)',
-                              controller_id=_cid, exitcode=proc.exitcode)
+    # Start the KasaManager (single subprocess for all controllers/plugs).
+    if kasa_manager is not None:
+        try:
+            kasa_manager.start()
+            print("[LOG] KasaManager started")
+            log_kasa_diag('info', 'KasaManager worker subprocess started',
+                          pid=kasa_manager.worker_pid)
+            # Give the worker a moment to initialize its asyncio event loop.
+            time.sleep(1)
+            if kasa_manager.is_alive():
+                log_kasa_diag('info', 'KasaManager worker alive and ready',
+                              pid=kasa_manager.worker_pid)
+            else:
+                log_kasa_diag('error', 'KasaManager worker failed to start within 1 s')
+        except Exception as _km_exc:
+            print(f"[LOG] KasaManager start failed: {_km_exc}")
+            log_kasa_diag('error', f'KasaManager start failed: {_km_exc}')
     else:
-        print("[LOG] kasa_worker not available — plug control disabled")
-        log_kasa_diag('warn', 'kasa_worker module not available — plug control disabled')
+        print("[LOG] KasaManager not available — plug control disabled")
+        log_kasa_diag('warn', 'kasa_manager module not available — plug control disabled')
+
+    # Start the single kasa_result_listener thread (serves all controllers).
+    threading.Thread(target=kasa_result_listener, daemon=True).start()
+    print("[LOG] Started kasa_result_listener thread")
 
     # Start all other background threads after kasa components are initialized
-    # These threads may use kasa_queues for temperature control
+    # These threads may use kasa_manager for temperature control
     threading.Thread(target=periodic_temp_control, daemon=True).start()
     print("[LOG] Started periodic_temp_control thread")
     
