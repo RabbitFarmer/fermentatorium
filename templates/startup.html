@@ -109,10 +109,6 @@
     }
 
     function goToDashboard() {
-      // Signal that the dashboard should auto-enter fullscreen.
-      // The maindisplay page uses this localStorage key to restore fullscreen
-      // after navigating away from or to the dashboard.
-      try { localStorage.setItem('fermentatorium_wantFullscreen', '1'); } catch(e) {}
       window.location.href = '/';
     }
 
