@@ -97,7 +97,11 @@
   </style>
   <script>
     var attempts = 0;
-    var MAX_ATTEMPTS = 45;  // ~90 s total wait time
+    // Poll every 500 ms for the first FAST_ATTEMPTS tries, then every 2 s.
+    // This catches a fast Flask start almost immediately while still being
+    // gentle on slower hardware once more time has passed.
+    var FAST_ATTEMPTS = 10;   // first ~5 s at 500 ms intervals
+    var MAX_ATTEMPTS  = 55;   // ~90 s total (10×0.5 s + 45×2 s)
     var statusEl;
 
     function setStatus(msg) {
@@ -119,6 +123,7 @@
         setTimeout(goToDashboard, 2000);
         return;
       }
+      var delay = attempts <= FAST_ATTEMPTS ? 500 : 2000;
       fetch('/', { cache: 'no-store' })
         .then(function(response) {
           if (response.ok) {
@@ -126,12 +131,12 @@
             goToDashboard();
           } else {
             setStatus('Server responded — warming up (' + attempts + ')…');
-            setTimeout(checkAppReady, 2000);
+            setTimeout(checkAppReady, delay);
           }
         })
         .catch(function() {
           setStatus('Waiting for server… (' + attempts + '/' + MAX_ATTEMPTS + ')');
-          setTimeout(checkAppReady, 2000);
+          setTimeout(checkAppReady, delay);
         });
     }
 
@@ -152,8 +157,8 @@
         });
       }
 
-      // Start polling quickly; the server is usually already up when this page loads.
-      setTimeout(checkAppReady, 500);
+      // Start polling immediately — Flask may already be up.
+      setTimeout(checkAppReady, 200);
     });
   </script>
 </head>
