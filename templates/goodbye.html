@@ -41,6 +41,22 @@
       margin: 30px auto;
       animation: bounce 2s infinite;
     }
+    .kiosk-exit-btn {
+      margin-top: 32px;
+      background: rgba(255,255,255,0.2);
+      color: white;
+      border: 2px solid rgba(255,255,255,0.6);
+      border-radius: 20px;
+      padding: 8px 20px;
+      font-size: 15px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .kiosk-exit-btn:hover { background: rgba(255,255,255,0.3); }
+    .kiosk-exit-btn.confirming {
+      background: #c0392b;
+      border-color: #c0392b;
+    }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     @keyframes slideDown {
       from { transform: translateY(-50px); opacity: 0; }
@@ -58,6 +74,32 @@
     <h1 class="goodbye-title">Goodbye!</h1>
     <p class="goodbye-message">{{ brewery_name }} is shutting down.</p>
     <p class="goodbye-message">See you next brew!</p>
+    <button class="kiosk-exit-btn" id="goodbyeExitBtn" title="Click twice to close the browser window">✕ Close Window</button>
   </div>
+  <script>
+  // Two-click confirmation to close the browser window from the goodbye page.
+  // The Flask server is shutting down so we use window.close() here rather
+  // than posting to /exit_system (which may already be offline).
+  (function () {
+    var btn = document.getElementById('goodbyeExitBtn');
+    if (!btn) return;
+    var confirmTimer = null;
+    btn.addEventListener('click', function () {
+      if (confirmTimer) {
+        clearTimeout(confirmTimer);
+        confirmTimer = null;
+        window.close();
+      } else {
+        btn.classList.add('confirming');
+        btn.textContent = '✕ Confirm close?';
+        confirmTimer = setTimeout(function () {
+          confirmTimer = null;
+          btn.classList.remove('confirming');
+          btn.textContent = '✕ Close Window';
+        }, 3000);
+      }
+    });
+  }());
+  </script>
 </body>
 </html>
