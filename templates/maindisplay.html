@@ -750,9 +750,13 @@
 
   </div><!-- /.page-container -->
 
-  <!-- Kiosk exit button: two-click confirmation then window.close().
+  <!-- Kiosk exit button: two-click confirmation then POST to /exit_system.
        Alt+F4 is always available as an OS-level escape route. -->
   <button class="kiosk-exit-btn" id="kioskExitBtn" title="Exit kiosk — click twice to confirm (Alt+F4 may also work at the OS level)">✕ Exit</button>
+  <!-- Hidden form used by the kiosk exit button to POST shutdown confirmation -->
+  <form id="kioskExitForm" method="post" action="/exit_system" style="display:none;">
+    <input type="hidden" name="confirm" value="yes">
+  </form>
 
   <!-- Session-selection modal (New vs Existing when turning on temp control) -->
   <div id="sessionModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
@@ -1286,17 +1290,17 @@
   // ── Kiosk exit button ──────────────────────────────────────────────────
   // Two-click confirmation prevents accidental exits.
   //   • 1st click  → button turns red and shows "Confirm exit?" for 3 s.
-  //   • 2nd click  → window.close() closes the kiosk browser window.
+  //   • 2nd click  → POSTs to /exit_system (confirm=yes) to shut down.
   //   • No 2nd click within 3 s → button resets to normal.
   // Alt+F4 (OS-level) may also work depending on the window manager.
   //
-  // NOTE: requestFullscreen() is NOT used here.  --kiosk (set in start.sh)
-  // makes Chromium fullscreen at launch; no JS fullscreen management needed.
-  // Removing those calls eliminates the repeated "Permissions check failed"
-  // browser errors that were logged to browser_warnings.log.
+  // NOTE: window.close() is NOT used — it is blocked by Chromium when the
+  // page was not opened via window.open().  Posting to /exit_system ensures
+  // the Flask shutdown sequence (plug off → goodbye page → SIGINT) always runs.
   (function () {
-    var btn = document.getElementById('kioskExitBtn');
-    if (!btn) return;
+    var btn  = document.getElementById('kioskExitBtn');
+    var form = document.getElementById('kioskExitForm');
+    if (!btn || !form) return;
 
     // Clean up any ?autostart=1 query parameter left by start.sh
     try {
@@ -1310,10 +1314,10 @@
 
     btn.addEventListener('click', function () {
       if (confirmTimer) {
-        // Second click within the confirmation window → exit
+        // Second click within the confirmation window → shut down
         clearTimeout(confirmTimer);
         confirmTimer = null;
-        window.close();
+        form.submit();
       } else {
         // First click → arm the confirmation state
         btn.classList.add('confirming');
