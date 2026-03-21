@@ -3203,14 +3203,7 @@ def _should_send_kasa_command(url, action, controller):
     if not _is_valid_controller_id(cid):
         print(f"[TEMP_CONTROL] Blocking command (invalid controller_id {cid})")
         return False
-    with _kasa_proc_locks[cid]:
-        proc_dead = kasa_procs[cid] is None or not kasa_procs[cid].is_alive()
-    if proc_dead:
-        log_kasa_diag('warn', 'Blocking plug command — kasa_worker process is not running',
-                      url=url, action=action, controller_id=cid)
-        print(f"[TEMP_CONTROL] Blocking command (kasa_worker process not running for controller {cid})")
-        return False
-    
+
     # Check for timed-out pending flags and clear them
     if url == controller.get("heating_plug") and controller.get("heater_pending"):
         pending_action = controller.get("heater_pending_action")
