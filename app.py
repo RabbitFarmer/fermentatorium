@@ -4276,6 +4276,49 @@ def sync_plug_states_at_startup():
         # Timeout set to 7 seconds to allow internal kasa_query_state timeout (6s) to complete
         return await asyncio.wait_for(kasa_query_state(url), timeout=7.0)
 
+    # Retry configuration for startup sync.  When app restarts, stop_other_app_py()
+    # terminates the previous instance's kasa_worker processes.  Those workers had
+    # open TCP connections to the kasa plugs; the plug firmware needs a few seconds
+    # to fully close that connection before it will accept a new one.  The initial
+    # 5-second delay in _background_startup_sync is not always enough, so we retry
+    # failed queries with a pause to give the plug time to recover.
+    _STARTUP_SYNC_MAX_RETRIES = 2
+    _STARTUP_SYNC_RETRY_DELAY_S = 8
+
+    def _query_once(url):
+        """One attempt to query a plug. Returns (is_on, error_str, elapsed_ms)."""
+        t0 = time.time()
+        try:
+            is_on, error = asyncio.run(query_plug_with_timeout(url))
+            elapsed_ms = round((time.time() - t0) * 1000)
+            return is_on, error, elapsed_ms
+        except asyncio.TimeoutError:
+            elapsed_ms = round((time.time() - t0) * 1000)
+            return None, 'TimeoutError', elapsed_ms
+        except Exception as e:
+            elapsed_ms = round((time.time() - t0) * 1000)
+            return None, str(e) or type(e).__name__, elapsed_ms
+
+    def _query_with_retry(url, cid, mode):
+        """Query a plug with up to _STARTUP_SYNC_MAX_RETRIES retries.
+        Returns (is_on, error_str, elapsed_ms) from the final attempt."""
+        is_on, error, elapsed_ms = None, None, 0
+        for attempt in range(_STARTUP_SYNC_MAX_RETRIES + 1):
+            if attempt > 0:
+                log_kasa_diag('info', f'Startup plug sync: retrying {mode} plug query',
+                              controller_id=cid, url=url,
+                              retry=attempt, max_retries=_STARTUP_SYNC_MAX_RETRIES)
+                time.sleep(_STARTUP_SYNC_RETRY_DELAY_S)
+            is_on, error, elapsed_ms = _query_once(url)
+            if error is None:
+                break
+            if attempt < _STARTUP_SYNC_MAX_RETRIES:
+                log_kasa_diag('warn',
+                              f'Startup plug sync: {mode} plug failed, will retry',
+                              controller_id=cid, url=url, error=error, elapsed_ms=elapsed_ms,
+                              attempt=attempt + 1, max_attempts=_STARTUP_SYNC_MAX_RETRIES + 1)
+        return is_on, error, elapsed_ms
+
     controllers = temp_cfg.get('controllers', [])
     if not controllers:
         print("[LOG] sync_plug_states_at_startup: no controllers found, skipping")
@@ -4307,67 +4350,39 @@ def sync_plug_states_at_startup():
         heating_url = controller.get("heating_plug", "")
         enable_heating = controller.get("enable_heating", False)
         if enable_heating and heating_url:
-            t0 = time.time()
             log_kasa_diag('info', 'Startup plug sync: querying heating plug',
                           controller_id=cid, url=heating_url)
-            try:
-                is_on, error = asyncio.run(query_plug_with_timeout(heating_url))
-                elapsed_ms = round((time.time() - t0) * 1000)
-                if error is None:
-                    controller["heater_on"] = is_on
-                    print(f"[LOG] Controller {cid}: Heating plug state synced: {'ON' if is_on else 'OFF'}")
-                    log_kasa_diag('info', 'Startup plug sync: heating plug OK',
-                                  controller_id=cid, url=heating_url,
-                                  state='ON' if is_on else 'OFF', elapsed_ms=elapsed_ms)
-                else:
-                    print(f"[LOG] Controller {cid}: Failed to query heating plug ({error}), defaulting to OFF")
-                    log_kasa_diag('error', 'Startup plug sync: heating plug query failed',
-                                  controller_id=cid, url=heating_url,
-                                  error=error, elapsed_ms=elapsed_ms)
-            except asyncio.TimeoutError:
-                elapsed_ms = round((time.time() - t0) * 1000)
-                print(f"[LOG] Controller {cid}: Heating plug query timed out, defaulting to OFF")
-                log_kasa_diag('error', 'Startup plug sync: heating plug query timed out',
-                              controller_id=cid, url=heating_url, elapsed_ms=elapsed_ms)
-            except Exception as e:
-                elapsed_ms = round((time.time() - t0) * 1000)
-                print(f"[LOG] Controller {cid}: Error querying heating plug ({e}), defaulting to OFF")
-                log_kasa_diag('error', 'Startup plug sync: heating plug exception',
+            is_on, error, elapsed_ms = _query_with_retry(heating_url, cid, 'heating')
+            if error is None:
+                controller["heater_on"] = is_on
+                print(f"[LOG] Controller {cid}: Heating plug state synced: {'ON' if is_on else 'OFF'}")
+                log_kasa_diag('info', 'Startup plug sync: heating plug OK',
                               controller_id=cid, url=heating_url,
-                              error=str(e), elapsed_ms=elapsed_ms)
+                              state='ON' if is_on else 'OFF', elapsed_ms=elapsed_ms)
+            else:
+                print(f"[LOG] Controller {cid}: Failed to query heating plug ({error}), defaulting to OFF")
+                log_kasa_diag('error', 'Startup plug sync: heating plug query failed',
+                              controller_id=cid, url=heating_url,
+                              error=error, elapsed_ms=elapsed_ms)
 
         # Query cooling plug
         cooling_url = controller.get("cooling_plug", "")
         enable_cooling = controller.get("enable_cooling", False)
         if enable_cooling and cooling_url:
-            t0 = time.time()
             log_kasa_diag('info', 'Startup plug sync: querying cooling plug',
                           controller_id=cid, url=cooling_url)
-            try:
-                is_on, error = asyncio.run(query_plug_with_timeout(cooling_url))
-                elapsed_ms = round((time.time() - t0) * 1000)
-                if error is None:
-                    controller["cooler_on"] = is_on
-                    print(f"[LOG] Controller {cid}: Cooling plug state synced: {'ON' if is_on else 'OFF'}")
-                    log_kasa_diag('info', 'Startup plug sync: cooling plug OK',
-                                  controller_id=cid, url=cooling_url,
-                                  state='ON' if is_on else 'OFF', elapsed_ms=elapsed_ms)
-                else:
-                    print(f"[LOG] Controller {cid}: Failed to query cooling plug ({error}), defaulting to OFF")
-                    log_kasa_diag('error', 'Startup plug sync: cooling plug query failed',
-                                  controller_id=cid, url=cooling_url,
-                                  error=error, elapsed_ms=elapsed_ms)
-            except asyncio.TimeoutError:
-                elapsed_ms = round((time.time() - t0) * 1000)
-                print(f"[LOG] Controller {cid}: Cooling plug query timed out, defaulting to OFF")
-                log_kasa_diag('error', 'Startup plug sync: cooling plug query timed out',
-                              controller_id=cid, url=cooling_url, elapsed_ms=elapsed_ms)
-            except Exception as e:
-                elapsed_ms = round((time.time() - t0) * 1000)
-                print(f"[LOG] Controller {cid}: Error querying cooling plug ({e}), defaulting to OFF")
-                log_kasa_diag('error', 'Startup plug sync: cooling plug exception',
+            is_on, error, elapsed_ms = _query_with_retry(cooling_url, cid, 'cooling')
+            if error is None:
+                controller["cooler_on"] = is_on
+                print(f"[LOG] Controller {cid}: Cooling plug state synced: {'ON' if is_on else 'OFF'}")
+                log_kasa_diag('info', 'Startup plug sync: cooling plug OK',
                               controller_id=cid, url=cooling_url,
-                              error=str(e), elapsed_ms=elapsed_ms)
+                              state='ON' if is_on else 'OFF', elapsed_ms=elapsed_ms)
+            else:
+                print(f"[LOG] Controller {cid}: Failed to query cooling plug ({error}), defaulting to OFF")
+                log_kasa_diag('error', 'Startup plug sync: cooling plug query failed',
+                              controller_id=cid, url=cooling_url,
+                              error=error, elapsed_ms=elapsed_ms)
 
     print("[LOG] Plug state synchronization complete")
     log_kasa_diag('info', 'Startup plug sync: complete')

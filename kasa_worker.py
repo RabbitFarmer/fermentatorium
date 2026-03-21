@@ -270,7 +270,7 @@ async def kasa_query_state(url):
             return None, "Unable to determine plug state"
         return is_on, None
     except Exception as e:
-        err = f"Failed to query plug at {url}: {e}"
+        err = f"Failed to query plug at {url}: {e or type(e).__name__}"
         log_error(err)
         return None, err
 
@@ -307,7 +307,7 @@ async def kasa_control(url, action, mode):
             await asyncio.wait_for(plug.update(), timeout=6)
             
         except Exception as e:
-            last_error = f"Failed to contact plug at {url}: {e}"
+            last_error = f"Failed to contact plug at {url}: {e or type(e).__name__}"
             if attempt < max_retries - 1:
                 continue
             else:
