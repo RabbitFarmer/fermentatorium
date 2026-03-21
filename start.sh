@@ -181,15 +181,27 @@ source "$VENV_DIR/bin/activate"
 export PIP_DISABLE_PIP_VERSION_CHECK=1
 
 if [ -f "requirements.txt" ]; then
-    # Always run pip install so every package listed in requirements.txt is present.
-    # pip is a no-op for packages that are already installed and up-to-date, so this
-    # is fast on repeat runs while ensuring newly-added packages (e.g. python-kasa) are
-    # actually installed even when flask was already present from a previous run.
-    if ! timeout 300 pip install --quiet --disable-pip-version-check -r requirements.txt 2>>app.log; then
-        echo "WARNING: pip install failed; some packages may be missing"
-        if ! timeout 10 "$VENV_DIR/bin/python3" -c "import flask" 2>/dev/null; then
-            echo "ERROR: Flask not available. Cannot start application."
-            exit 1
+    # Only run pip install when requirements.txt has actually changed.
+    # A hash of the file is stored in the cache directory; if it matches the
+    # current file we skip the install entirely, which saves 10-30 s on every
+    # repeat start (especially on slower hardware like Raspberry Pi).
+    REQ_HASH_FILE="$LOCK_DIR/requirements.hash"
+    current_hash=$(md5sum requirements.txt 2>/dev/null | cut -d' ' -f1)
+    stored_hash=$(cat "$REQ_HASH_FILE" 2>/dev/null || echo "")
+
+    if [ -n "$current_hash" ] && [ "$current_hash" = "$stored_hash" ]; then
+        echo "Requirements unchanged — skipping pip install."
+    else
+        echo "Installing/updating Python packages…"
+        if timeout 300 pip install --quiet --disable-pip-version-check -r requirements.txt 2>>app.log; then
+            # Record the hash only on success so a partial install is retried next time.
+            echo "$current_hash" > "$REQ_HASH_FILE"
+        else
+            echo "WARNING: pip install failed; some packages may be missing"
+            if ! timeout 10 "$VENV_DIR/bin/python3" -c "import flask" 2>/dev/null; then
+                echo "ERROR: Flask not available. Cannot start application."
+                exit 1
+            fi
         fi
     fi
 fi
@@ -210,18 +222,22 @@ APP_PID=$!
 
 disown -h $APP_PID 2>/dev/null || true
 
-sleep 2
+# Brief poll to confirm the process didn't die immediately (replaces a fixed sleep).
+_alive_checks=0
+while [ $_alive_checks -lt 4 ]; do
+    sleep 0.5
+    _alive_checks=$((_alive_checks + 1))
+    if ! ps -p $APP_PID > /dev/null 2>&1; then
+        echo "ERROR: Application process died immediately after launch!"
+        echo "Last 30 lines of app.log:"
+        tail -30 app.log 2>/dev/null || echo "  (no log file yet)"
+        show_notification "Fermentatorium" "Process died on launch — check app.log for details." "critical"
+        exit 1
+    fi
+done
 
-if ! ps -p $APP_PID > /dev/null 2>&1; then
-    echo "ERROR: Application process died immediately after launch!"
-    echo "Last 30 lines of app.log:"
-    tail -30 app.log 2>/dev/null || echo "  (no log file yet)"
-    show_notification "Fermentatorium" "Process died on launch — check app.log for details." "critical"
-    exit 1
-fi
-
-RETRIES=30
-RETRY_DELAY=2
+RETRIES=60
+RETRY_DELAY=1
 APP_STARTED=false
 
 for i in $(seq 1 $RETRIES); do
@@ -229,7 +245,7 @@ for i in $(seq 1 $RETRIES); do
         APP_STARTED=true
         break
     fi
-    if [ $((i % 5)) -eq 0 ]; then
+    if [ $((i % 10)) -eq 0 ]; then
         show_notification "Fermentatorium" "Still starting up… ($i/$RETRIES)" "normal"
     fi
     sleep $RETRY_DELAY

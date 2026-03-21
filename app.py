@@ -4276,8 +4276,8 @@ def sync_plug_states_at_startup():
     # Retry configuration for startup sync.  When app restarts, stop_other_app_py()
     # may close connections to kasa plugs; the plug firmware needs a few seconds
     # to fully close those connections before accepting new ones.
-    _STARTUP_SYNC_MAX_RETRIES = 2
-    _STARTUP_SYNC_RETRY_DELAY_S = 8
+    _STARTUP_SYNC_MAX_RETRIES = 1
+    _STARTUP_SYNC_RETRY_DELAY_S = 4
     _QUERY_TIMEOUT = 20  # seconds per query attempt
 
     def _query_with_retry(url, cid, mode):
@@ -8021,8 +8021,8 @@ def open_browser(port=5001):
             process = psutil.Process(os.getpid())
             uptime = time.time() - process.create_time()
             if uptime < 120:  # Process created less than 2 minutes ago
-                print("[LOG] Detected recent boot - waiting 5 seconds for desktop environment")
-                time.sleep(5)
+                print("[LOG] Detected recent boot - waiting 3 seconds for desktop environment")
+                time.sleep(3)
             else:
                 # Manual start - shorter delay
                 time.sleep(1)
@@ -8174,8 +8174,17 @@ if __name__ == '__main__':
             print("[LOG] KasaManager started")
             log_kasa_diag('info', 'KasaManager worker subprocess started',
                           pid=kasa_manager.worker_pid)
-            # Give the worker a moment to initialize its asyncio event loop.
-            time.sleep(1)
+            # Poll (up to 1 s in 50 ms steps) for the worker's asyncio event loop
+            # to initialise — avoids a hard 1 s sleep while still being safe on
+            # slow hardware.
+            _km_wait = 0.0
+            _km_limit = 1.0
+            _km_step  = 0.05
+            while _km_wait < _km_limit:
+                if kasa_manager.is_alive():
+                    break
+                time.sleep(_km_step)
+                _km_wait += _km_step
             if kasa_manager.is_alive():
                 log_kasa_diag('info', 'KasaManager worker alive and ready',
                               pid=kasa_manager.worker_pid)
