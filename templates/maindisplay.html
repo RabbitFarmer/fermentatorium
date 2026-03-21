@@ -624,11 +624,6 @@
                    onclick="window.location='{{ url_for('temp_summary', controller_id=cid) }}'"
                    title="View Temperature Control summary and chart">
                 TEMP CONTROLLER #{{ cid + 1 }}
-                <div class="tc-ftr-ts" style="margin-top:3px;">
-                  Last: <span id="tc_ftr_ts_{{ cid }}">
-                    {%- if controller.last_reading_time %}{{ controller.last_reading_time | localtime }}{%- else %}--{%- endif %}
-                  </span>
-                </div>
               </div>
 
               <!-- White body: limits / status / notifications (always visible; "--" when TC is off) -->
@@ -702,6 +697,11 @@
                      href="{{ url_for('chart_plotly_for', tilt_color='TempControl') }}"
                      style="color:{{ tilt.color_code }};">CHART</a>
                      {# 'TempControl' is the special identifier for the temperature control chart route #}
+                </div>
+                <div class="tc-ftr-ts">
+                  Last: <span id="tc_ftr_ts_{{ cid }}">
+                    {%- if controller.last_reading_time %}{{ controller.last_reading_time | localtime }}{%- else %}--{%- endif %}
+                  </span>
                 </div>
               </div>
 
