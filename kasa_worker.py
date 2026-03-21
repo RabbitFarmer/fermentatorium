@@ -78,14 +78,19 @@ except Exception as _kasa_iot_err:
             f"  Run:  pip install python-kasa  (inside your virtual environment)"
         )
 
-# Import application logger helper if available (non-blocking)
+# Import application logger helpers if available (non-blocking)
 try:
-    from logger import log_error
+    from logger import log_error, log_kasa_diag
 except Exception:
-    def log_error(msg):
-        # fallback logger
+    def log_error(msg, **extra):
         try:
             print(f"[kasa_worker][ERROR] {msg}")
+        except Exception:
+            pass
+    def log_kasa_diag(level, msg, **extra):
+        try:
+            extra_str = (' ' + str(extra)) if extra else ''
+            print(f"[kasa_worker][{level.upper()}] {msg}{extra_str}")
         except Exception:
             pass
 
@@ -106,9 +111,14 @@ def kasa_worker(cmd_queue, result_queue):
     """
 
     # Worker started - minimal diagnostic output
+    log_kasa_diag('info', 'kasa_worker process started',
+                  pid=os.getpid(),
+                  plug_class=PlugClass.__name__ if PlugClass else None)
+
     if PlugClass is None:
         err = "kasa library not available"
         log_error(err)
+        log_kasa_diag('error', 'kasa_worker: PlugClass is None — plug control disabled')
         # Drain commands and return failure results so the controller doesn't hang.
         while True:
             try:
@@ -141,11 +151,22 @@ def kasa_worker(cmd_queue, result_queue):
             log_error(f"{mode.upper()} plug operation skipped: {error}")
             result_queue.put({'mode': mode, 'action': action, 'success': False, 'url': url, 'error': error})
             return
+        t0 = time.time()
+        log_kasa_diag('info', f'kasa_worker: executing {mode} {action.upper()}',
+                      url=url, mode=mode, action=action)
         try:
             error = await kasa_control(url, action, mode)
         except Exception as e:
             error = str(e)
             log_error(f"{mode.upper()} kasa_control run failed: {error}")
+        elapsed_ms = round((time.time() - t0) * 1000)
+        if error is None:
+            log_kasa_diag('info', f'kasa_worker: {mode} {action.upper()} succeeded',
+                          url=url, mode=mode, action=action, elapsed_ms=elapsed_ms)
+        else:
+            log_kasa_diag('error', f'kasa_worker: {mode} {action.upper()} failed',
+                          url=url, mode=mode, action=action,
+                          error=error, elapsed_ms=elapsed_ms)
         result_queue.put({'mode': mode, 'action': action,
                           'success': (error is None), 'url': url, 'error': error})
 

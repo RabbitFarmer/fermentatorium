@@ -1,22 +1,59 @@
-import logging
 import os
 import json
 from datetime import datetime
 
-# --- Legacy Kasa error logging ---
-logging.basicConfig(
-    filename='logs/kasa_errors.log',
-    level=logging.ERROR,
-    format='%(asctime)s %(levelname)s %(message)s'
-)
+# ---------------------------------------------------------------------------
+# Kasa diagnostic logging
+# ---------------------------------------------------------------------------
+# kasa_errors.log stores structured JSON entries written exclusively by this
+# module.  We do NOT use logging.basicConfig() (which hooks the ROOT Python
+# logger) because that would route messages from every third-party library
+# (bleak, kasa, werkzeug, flask …) to the file, flooding it with unrelated
+# content.  Instead we write directly so only explicit log_error() /
+# log_kasa_diag() calls appear.
+# ---------------------------------------------------------------------------
 
-def log_error(msg):
+LOG_DIR    = "logs"
+_KASA_LOG  = os.path.join(LOG_DIR, 'kasa_errors.log')
+
+
+def _write_kasa_log(level, msg, **extra):
+    """Append one JSON line to kasa_errors.log."""
+    try:
+        os.makedirs(LOG_DIR, exist_ok=True)
+        entry = {
+            'ts':    datetime.utcnow().isoformat() + 'Z',
+            'level': level,
+            'msg':   msg,
+        }
+        entry.update(extra)
+        with open(_KASA_LOG, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(entry) + '\n')
+    except Exception as exc:
+        print(f"[LOG] Failed to write to kasa_errors.log: {exc}")
+
+
+def log_error(msg, **extra):
     """
-    Log Kasa-specific errors to kasa_errors.log and print to terminal.
-    Use this for legacy Kasa plug error logging.
+    Log a Kasa error to kasa_errors.log and print to terminal.
+    Optional keyword arguments are merged into the JSON entry for context
+    (e.g. url=, mode=, elapsed_ms=).
     """
-    print(msg)  # Terminal output
-    logging.error(msg)  # Log to kasa_errors.log
+    print(f"[KASA ERROR] {msg}")
+    _write_kasa_log('error', msg, **extra)
+
+
+def log_kasa_diag(level, msg, **extra):
+    """
+    Write a Kasa diagnostic / benchmark entry to kasa_errors.log.
+    level should be one of 'info', 'warn', or 'error'.
+    Optional keyword arguments are merged into the JSON entry.
+
+    Use this for startup benchmarks, per-command timing, proc health checks,
+    and any other Kasa-specific informational messages that help trace what
+    the temperature-control subsystem is doing with the plugs.
+    """
+    _write_kasa_log(level, msg, **extra)
 
 def log_kasa_command(mode, url, action, success=None, error=None):
     """
@@ -68,7 +105,6 @@ def log_kasa_command(mode, url, action, success=None, error=None):
         print(f"[LOG] Failed to log to kasa_activity_monitoring.jsonl: {e}")
 
 # --- General event logging and notifications ---
-LOG_DIR = "logs"
 BATCHES_DIR = "batches"
 TEMP_CONTROL_LOG = 'temp_control/temp_control_log.jsonl'
 

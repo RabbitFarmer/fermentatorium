@@ -407,8 +407,13 @@
     .modal-button.secondary          { background: #ddd; color: #333; }
     .modal-button.secondary:hover    { background: #ccc; }
 
-  /* ── Fullscreen button ── */
-  .fullscreen-btn {
+  /* ── Kiosk exit button ─────────────────────────────────────────────────
+     Fixed to the bottom-right corner.  Two-click confirmation prevents
+     accidental exits: first click arms it (turns red, shows "Confirm?"),
+     second click within 3 s closes the kiosk window.
+     Alt+F4 at the OS level is always an alternative escape route.
+  ── */
+  .kiosk-exit-btn {
     position: fixed;
     bottom: 18px;
     right: 18px;
@@ -417,16 +422,21 @@
     color: white;
     border: none;
     border-radius: 20px;
-    padding: 6px 14px;
-    font-size: 20px;
+    padding: 6px 16px;
+    font-size: 15px;
     cursor: pointer;
     box-shadow: 0 2px 8px rgba(0,0,0,0.28);
     transition: background 0.2s, opacity 0.2s;
-    opacity: 0.82;
-    line-height: 1;
+    opacity: 0.75;
+    line-height: 1.4;
     user-select: none;
+    min-width: 80px;
   }
-  .fullscreen-btn:hover { opacity: 1; background: rgba(101,67,33,0.95); }
+  .kiosk-exit-btn:hover { opacity: 1; background: rgba(101,67,33,0.95); }
+  .kiosk-exit-btn.confirming {
+    background: #c0392b;
+    opacity: 1;
+  }
   </style>
 </head>
 <body>
@@ -740,8 +750,9 @@
 
   </div><!-- /.page-container -->
 
-  <!-- Fullscreen toggle button -->
-  <button class="fullscreen-btn" id="fullscreenBtn" title="Toggle fullscreen (F11)">⛶</button>
+  <!-- Kiosk exit button: two-click confirmation then window.close().
+       Alt+F4 is always available as an OS-level escape route. -->
+  <button class="kiosk-exit-btn" id="kioskExitBtn" title="Exit kiosk — click twice to confirm (Alt+F4 may also work at the OS level)">✕ Exit</button>
 
   <!-- Session-selection modal (New vs Existing when turning on temp control) -->
   <div id="sessionModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
@@ -1272,95 +1283,48 @@
   </script>
 
   <script>
-  // ── Fullscreen toggle ──────────────────────────────────────────────────
+  // ── Kiosk exit button ──────────────────────────────────────────────────
+  // Two-click confirmation prevents accidental exits.
+  //   • 1st click  → button turns red and shows "Confirm exit?" for 3 s.
+  //   • 2nd click  → window.close() closes the kiosk browser window.
+  //   • No 2nd click within 3 s → button resets to normal.
+  // Alt+F4 (OS-level) may also work depending on the window manager.
+  //
+  // NOTE: requestFullscreen() is NOT used here.  --kiosk (set in start.sh)
+  // makes Chromium fullscreen at launch; no JS fullscreen management needed.
+  // Removing those calls eliminates the repeated "Permissions check failed"
+  // browser errors that were logged to browser_warnings.log.
   (function () {
-    var btn = document.getElementById('fullscreenBtn');
-    var LS_KEY = 'fermentatorium_wantFullscreen';
+    var btn = document.getElementById('kioskExitBtn');
+    if (!btn) return;
 
-    // When start.sh opens the browser directly to /?autostart=1 (skipping
-    // startup.html), set the fullscreen preference here and clean the URL.
-    (function () {
-      try {
-        var params = new URLSearchParams(window.location.search);
-        if (params.get('autostart') === '1') {
-          localStorage.setItem(LS_KEY, '1');
-          if (history && history.replaceState) {
-            history.replaceState({}, '', '/');
-          }
-        }
-      } catch (e) {}
-    }());
-
-    function isFullscreen() {
-      return !!(document.fullscreenElement ||
-                document.webkitFullscreenElement ||
-                document.mozFullScreenElement);
-    }
-
-    function enterFullscreen() {
-      var el = document.documentElement;
-      var p;
-      if      (el.requestFullscreen)       p = el.requestFullscreen();
-      else if (el.webkitRequestFullscreen) p = el.webkitRequestFullscreen();
-      else if (el.mozRequestFullScreen)    p = el.mozRequestFullScreen();
-      // requestFullscreen returns a Promise; return it so callers can catch errors.
-      return p || Promise.resolve();
-    }
-
-    function exitFullscreen() {
-      if      (document.exitFullscreen)       document.exitFullscreen();
-      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-      else if (document.mozCancelFullScreen)  document.mozCancelFullScreen();
-    }
-
-    function toggleFullscreen() {
-      if (isFullscreen()) {
-        localStorage.removeItem(LS_KEY);
-        exitFullscreen();
-      } else {
-        localStorage.setItem(LS_KEY, '1');
-        enterFullscreen();
+    // Clean up any ?autostart=1 query parameter left by start.sh
+    try {
+      var params = new URLSearchParams(window.location.search);
+      if (params.get('autostart') === '1' && history && history.replaceState) {
+        history.replaceState({}, '', '/');
       }
-    }
+    } catch (e) {}
 
-    function syncIcon() {
-      if (btn) btn.textContent = isFullscreen() ? '✕' : '⛶';
-    }
+    var confirmTimer = null;
 
-    if (btn) btn.addEventListener('click', toggleFullscreen);
-
-    // F11 → toggle fullscreen; ESC → exit fullscreen
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'F11') {
-        e.preventDefault();
-        toggleFullscreen();
-      } else if (e.key === 'Escape' && isFullscreen()) {
-        e.preventDefault();
-        localStorage.removeItem(LS_KEY);
-        exitFullscreen();
+    btn.addEventListener('click', function () {
+      if (confirmTimer) {
+        // Second click within the confirmation window → exit
+        clearTimeout(confirmTimer);
+        confirmTimer = null;
+        window.close();
+      } else {
+        // First click → arm the confirmation state
+        btn.classList.add('confirming');
+        btn.textContent = '✕ Confirm exit?';
+        confirmTimer = setTimeout(function () {
+          confirmTimer = null;
+          btn.classList.remove('confirming');
+          btn.textContent = '✕ Exit';
+        }, 3000);
       }
     });
-
-    // Keep icon in sync when fullscreen state changes (e.g. ESC to exit)
-    document.addEventListener('fullscreenchange',       syncIcon);
-    document.addEventListener('webkitfullscreenchange', syncIcon);
-    document.addEventListener('mozfullscreenchange',    syncIcon);
-
-    // Auto-restore fullscreen on every load of this page when the preference
-    // is set.  This covers two cases:
-    //   1. Direct launch via start.sh (sets LS_KEY via ?autostart=1 above).
-    //   2. Returning from a settings page (navigation from a user gesture keeps
-    //      the transient user-activation context, allowing requestFullscreen()).
-    // A short setTimeout defers the call until after the browser has painted the
-    // page and the user-activation token is most reliably available.
-    if (localStorage.getItem(LS_KEY) === '1' && !isFullscreen()) {
-      setTimeout(function () {
-        if (!isFullscreen()) {
-          enterFullscreen().catch(function () {});
-        }
-        syncIcon();
-      }, 100);
-    }
   }());
   </script>
 </body>
