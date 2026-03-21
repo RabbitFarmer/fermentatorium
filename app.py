@@ -938,8 +938,11 @@ def ensure_temp_defaults_for_controller(controller):
     # New flag to turn on/off the entire temp-control UI and behavior:
     controller.setdefault("temp_control_enabled", True)
     # New flag to control active monitoring/recording (user-controlled switch):
-    # Always start with monitor OFF for safety and consistency
-    controller["temp_control_active"] = False
+    # Preserve the saved state so that controllers that were ON before an
+    # unplanned interruption (power failure, crash) restart automatically.
+    # Graceful shutdown (exit_system) sets this to False before exiting, so
+    # controllers always start OFF after a normal shutdown.
+    controller.setdefault("temp_control_active", False)
     # Trigger states for event-based logging:
     controller.setdefault("in_range_trigger_armed", True)
     controller.setdefault("above_limit_trigger_armed", True)
@@ -7974,6 +7977,28 @@ def exit_system():
                         kasa_manager.stop()
                 except Exception as e:
                     print(f"[LOG] Error during kasa_manager stop: {e}")
+
+                # Spawn a detached process that kills the browser and powers off
+                # the machine after Flask has exited.  Using start_new_session=True
+                # ensures the child survives the Flask process termination.
+                try:
+                    subprocess.Popen(
+                        [
+                            'sh', '-c',
+                            'sleep 5'
+                            ' && pkill chromium-browser 2>/dev/null || true'
+                            ' && pkill chromium 2>/dev/null || true'
+                            ' && pkill google-chrome 2>/dev/null || true'
+                            ' ; sudo poweroff 2>/dev/null || true'
+                        ],
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+                    print("[LOG] Browser kill and poweroff scheduled")
+                except Exception as e:
+                    print(f"[LOG] Error scheduling browser kill / poweroff: {e}")
 
                 # Shutdown Flask
                 os.kill(os.getpid(), signal.SIGINT)
