@@ -135,6 +135,28 @@ def add_header(response):
 # running the program from any working directory (or from a different copy
 # of the project) always reads/writes the correct files.
 LOG_PATH    = os.path.join(_HERE, 'temp_control', 'temp_control_log.jsonl')
+TEMP_CONTROL_DIR = os.path.dirname(LOG_PATH)  # temp_control/ directory
+
+# Regex that matches any valid per-color (or legacy shared) temp-control log filename.
+# Valid: temp_control_log.jsonl, temp_control_log_orange.jsonl, temp_control_log_black.jsonl …
+_TEMP_CONTROL_LOG_RE = re.compile(r'^temp_control_log[a-z_]*\.jsonl$')
+
+def _get_control_log_path(tilt_color):
+    """Return the per-color temp control log path; falls back to LOG_PATH if no color."""
+    if tilt_color:
+        safe = tilt_color.lower().replace(' ', '_')
+        return os.path.join(TEMP_CONTROL_DIR, f'temp_control_log_{safe}.jsonl')
+    return LOG_PATH
+
+def _list_all_control_log_files():
+    """Return sorted list of all per-color (and fallback) temp control log paths that exist."""
+    found = []
+    if os.path.exists(TEMP_CONTROL_DIR):
+        for fname in sorted(os.listdir(TEMP_CONTROL_DIR)):
+            # Exclude backup copies (contain '.bak' anywhere in the name)
+            if _TEMP_CONTROL_LOG_RE.match(fname) and '.bak' not in fname:
+                found.append(os.path.join(TEMP_CONTROL_DIR, fname))
+    return found
 BATCHES_DIR = os.path.join(_HERE, 'batches')
 PER_PAGE = 30
 
@@ -595,11 +617,11 @@ def append_control_log(event_type, payload):
         return
     
     try:
-        d = os.path.dirname(LOG_PATH)
-        if d and not os.path.exists(d):
-            os.makedirs(d, exist_ok=True)
         entry = _format_control_log_entry(event_type, payload or {})
-        with open(LOG_PATH, 'a') as f:
+        tilt_color = entry.get("tilt_color", "")
+        log_path = _get_control_log_path(tilt_color)
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, 'a') as f:
             f.write(json.dumps(entry) + "\n")
     except Exception as e:
         print(f"[LOG] Failed to append to control log: {e}")
@@ -1505,8 +1527,9 @@ def rotate_and_archive_old_history(color, old_brewid, old_cfg):
         safe_archive = os.path.join(BATCHES_DIR, archive_name.replace(' ', '_'))
         moved = 0
         remaining_lines = []
-        if os.path.exists(LOG_PATH):
-            with open(LOG_PATH, 'r') as f:
+        color_log_path = _get_control_log_path(color)
+        if os.path.exists(color_log_path):
+            with open(color_log_path, 'r') as f:
                 for line in f:
                     try:
                         obj = json.loads(line)
@@ -1524,10 +1547,10 @@ def rotate_and_archive_old_history(color, old_brewid, old_cfg):
                     else:
                         remaining_lines.append(line)
         try:
-            with open(LOG_PATH, 'w') as f:
+            with open(color_log_path, 'w') as f:
                 f.writelines(remaining_lines)
         except Exception as e:
-            print(f"[LOG] Error rewriting main log after archive: {e}")
+            print(f"[LOG] Error rewriting log after archive: {e}")
 
         # Only log mode change if we actually archived samples
         if moved > 0:
@@ -1707,10 +1730,10 @@ def append_sample_to_batch_jsonl(color, brewid, sample_payload, created_date_mmd
 def write_normalized_tilt_reading(payload, event_name="tilt_reading"):
     try:
         entry = {"event": event_name, "payload": payload}
-        dirname = os.path.dirname(LOG_PATH)
-        if dirname and not os.path.exists(dirname):
-            os.makedirs(dirname, exist_ok=True)
-        with open(LOG_PATH, "a", encoding="utf-8") as f:
+        tilt_color = payload.get("tilt_color", "") if isinstance(payload, dict) else ""
+        log_path = _get_control_log_path(tilt_color)
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
         return True
     except Exception as e:
@@ -5368,7 +5391,7 @@ def batch_settings():
 
 def get_last_activity(activity_type):
     """
-    Get the last heating or cooling activity from the temp_control_log.jsonl.
+    Get the last heating or cooling activity across all per-color temp control logs.
     
     Args:
         activity_type: Either "heating" or "cooling"
@@ -5376,47 +5399,44 @@ def get_last_activity(activity_type):
     Returns:
         Dictionary with 'timestamp', 'date', 'time', and 'action' (On/Off) or None if not found
     """
-    if not os.path.exists(LOG_PATH):
-        return None
-    
     # Events to look for based on activity type
     if activity_type == "heating":
-        events = ["heating_on", "heating_off"]
+        events = ["heating_on", "heating_off",
+                  "HEATING-PLUG TURNED ON", "HEATING-PLUG TURNED OFF"]
     elif activity_type == "cooling":
-        events = ["cooling_on", "cooling_off"]
+        events = ["cooling_on", "cooling_off",
+                  "COOLING-PLUG TURNED ON", "COOLING-PLUG TURNED OFF"]
     else:
         return None
-    
+
     last_activity = None
     try:
-        with open(LOG_PATH, 'r') as f:
-            for line in f:
-                try:
-                    entry = json.loads(line.strip())
-                    event_type = entry.get("event")
-                    
-                    # Check if this is a heating/cooling event
-                    if event_type in events:
-                        # Extract timestamp and determine action (On/Off)
-                        timestamp = entry.get("timestamp", "")
-                        date = entry.get("date", "")
-                        time_str = entry.get("time", "")
-                        
-                        # Determine if it was an On or Off action
-                        action = "On" if event_type.endswith("_on") else "Off"
-                        
-                        last_activity = {
-                            "timestamp": timestamp,
-                            "date": date,
-                            "time": time_str,
-                            "action": action
-                        }
-                except (json.JSONDecodeError, ValueError):
-                    continue
+        for log_path in _list_all_control_log_files():
+            if not os.path.exists(log_path):
+                continue
+            with open(log_path, 'r') as f:
+                for line in f:
+                    try:
+                        entry = json.loads(line.strip())
+                        event_type = entry.get("event")
+
+                        if event_type in events:
+                            timestamp = entry.get("timestamp", "")
+                            date = entry.get("date", "")
+                            time_str = entry.get("time", "")
+                            action = "On" if (event_type.endswith("_on") or "TURNED ON" in event_type) else "Off"
+                            last_activity = {
+                                "timestamp": timestamp,
+                                "date": date,
+                                "time": time_str,
+                                "action": action
+                            }
+                    except (json.JSONDecodeError, ValueError):
+                        continue
     except Exception as e:
         print(f"[LOG] Error reading last {activity_type} activity: {e}")
         return None
-    
+
     return last_activity
 
 @app.route('/temp_config')
@@ -5713,19 +5733,20 @@ def toggle_temp_control():
         # If turning ON and new_session is requested, archive the existing log
         if new_state and new_session:
             try:
-                if os.path.exists(LOG_PATH):
+                tilt_color = controller.get("tilt_color", "unknown")
+                color_log_path = _get_control_log_path(tilt_color)
+                if os.path.exists(color_log_path):
                     # Create logs directory if it doesn't exist
                     logs_dir = 'logs'
                     os.makedirs(logs_dir, exist_ok=True)
                     
                     # Generate archive filename with timestamp
                     timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-                    tilt_color = controller.get("tilt_color", "unknown")
                     archive_name = f"temp_control_controller{controller_id}_{tilt_color}_{timestamp}.jsonl"
                     archive_path = os.path.join(logs_dir, archive_name)
                     
-                    # Move the existing log to archive
-                    shutil.move(LOG_PATH, archive_path)
+                    # Move the existing per-color log to archive
+                    shutil.move(color_log_path, archive_path)
                     print(f"[LOG] Controller {controller_id}: Archived temp control log to {archive_path}")
             except Exception as e:
                 print(f"[LOG] Error archiving temp control log: {e}")
@@ -5792,8 +5813,9 @@ def temp_report():
 
     entries = []
     try:
-        if os.path.exists(LOG_PATH):
-            with open(LOG_PATH, 'r') as f:
+        color_log_path = _get_control_log_path(tilt_color)
+        if os.path.exists(color_log_path):
+            with open(color_log_path, 'r') as f:
                 for line in f:
                     try:
                         obj = json.loads(line)
@@ -6234,46 +6256,59 @@ def export_temp_control_csv():
     try:
         import csv
         from datetime import datetime
-        
+
         # Create export directory if it doesn't exist
         export_dir = 'export'
         os.makedirs(export_dir, exist_ok=True)
-        
-        # Generate filename with timestamp
+
+        # Determine which log file(s) to export.
+        # When a specific log_file is posted, export just that one; otherwise export all.
+        requested_file = os.path.basename(request.form.get('log_file', '').strip())
+        if requested_file:
+            if not _TEMP_CONTROL_LOG_RE.match(requested_file):
+                return jsonify({'success': False, 'error': 'Invalid log file name'}), 400
+            log_paths = [os.path.join(TEMP_CONTROL_DIR, requested_file)]
+            csv_label = requested_file.replace('.jsonl', '')
+        else:
+            log_paths = _list_all_control_log_files()
+            csv_label = 'temp_control_all'
+
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f'temp_control_{timestamp}.csv'
+        filename = f'{csv_label}_{timestamp}.csv'
         filepath = os.path.join(export_dir, filename)
-        
-        # Read data from temp_control_log.jsonl
+
+        # Read data from the selected log file(s)
         data_rows = []
-        if os.path.exists(LOG_PATH):
-            with open(LOG_PATH, 'r') as f:
+        for log_path in log_paths:
+            if not os.path.exists(log_path):
+                continue
+            with open(log_path, 'r') as f:
                 for line in f:
                     if not line.strip():
                         continue
                     try:
                         obj = json.loads(line)
-                        # Only include events that are in ALLOWED_EVENTS
                         if obj.get('event') in ALLOWED_EVENT_VALUES:
                             data_rows.append(obj)
                     except Exception as e:
                         print(f"[LOG] Error parsing line in export: {e}")
                         continue
-        
+
         # Write to CSV
         if data_rows:
             with open(filepath, 'w', newline='') as csvfile:
-                # Define fieldnames from the data
-                fieldnames = ['timestamp', 'date', 'time', 'tilt_color', 'brewid', 'low_limit', 'current_temp', 'temp_f', 'gravity', 'high_limit', 'event']
+                fieldnames = ['timestamp', 'date', 'time', 'tilt_color', 'brewid',
+                              'low_limit', 'current_temp', 'temp_f', 'gravity',
+                              'high_limit', 'event']
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction='ignore')
                 writer.writeheader()
                 for row in data_rows:
                     writer.writerow(row)
-            
+
             return jsonify({'success': True, 'filename': filename, 'rows': len(data_rows)})
         else:
             return jsonify({'success': False, 'error': 'No data to export'})
-            
+
     except Exception as e:
         print(f"[LOG] Error exporting temp control CSV: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -6699,10 +6734,12 @@ def chart_data_for(tilt_color):
         all_points = []
         matched = 0
         
-        # First, read event-based entries from file (heating_on, cooling_off, etc.)
-        if os.path.exists(LOG_PATH):
+        # First, read event-based entries from all per-color log files
+        for _log_path in _list_all_control_log_files():
+            if not os.path.exists(_log_path):
+                continue
             try:
-                with open(LOG_PATH, 'r') as f:
+                with open(_log_path, 'r') as f:
                     for line in f:
                         if not line:
                             continue
@@ -6755,7 +6792,7 @@ def chart_data_for(tilt_color):
                         }
                         all_points.append(entry)
             except Exception as e:
-                print(f"[LOG] Error reading temp control log for chart_data: {e}")
+                print(f"[LOG] Error reading temp control log {_log_path} for chart_data: {e}")
         
         # Add in-memory periodic readings
         for reading in temp_reading_buffer:
@@ -6882,27 +6919,28 @@ def chart_data_for(tilt_color):
 @app.route('/reset_logs', methods=['POST'])
 def reset_logs():
     """
-    Reset (clear) the main temp_control_log.jsonl file after backing it up.
+    Reset (clear) all per-color temp control log files after backing them up.
     """
     try:
-        if os.path.exists(LOG_PATH):
-            backup_name = f"{LOG_PATH}.{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.bak"
-            try:
-                os.rename(LOG_PATH, backup_name)
-                # Log a mode-changed marker for every configured controller so the
-                # new log starts with accurate state entries (multi-controller aware).
-                for ctrl in temp_cfg.get('controllers', []):
-                    if ctrl.get('enable_heating') or ctrl.get('enable_cooling'):
-                        append_control_log("temp_control_mode_changed", {
-                            "controller_id": ctrl.get("controller_id", 0),
-                            "low_limit": ctrl.get("low_limit"),
-                            "current_temp": ctrl.get("current_temp"),
-                            "high_limit": ctrl.get("high_limit"),
-                            "tilt_color": ctrl.get("tilt_color", "")
-                        })
-            except Exception as e:
-                print(f"[LOG] Could not backup log: {e}")
-        open(LOG_PATH, 'w').close()
+        ts_suffix = datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+        for log_path in _list_all_control_log_files():
+            if os.path.exists(log_path):
+                backup_name = f"{log_path}.{ts_suffix}.bak"
+                try:
+                    os.rename(log_path, backup_name)
+                except Exception as e:
+                    print(f"[LOG] Could not backup log {log_path}: {e}")
+        # Log a mode-changed marker for every configured controller so the
+        # new logs start with accurate state entries (multi-controller aware).
+        for ctrl in temp_cfg.get('controllers', []):
+            if ctrl.get('enable_heating') or ctrl.get('enable_cooling'):
+                append_control_log("temp_control_mode_changed", {
+                    "controller_id": ctrl.get("controller_id", 0),
+                    "low_limit": ctrl.get("low_limit"),
+                    "current_temp": ctrl.get("current_temp"),
+                    "high_limit": ctrl.get("high_limit"),
+                    "tilt_color": ctrl.get("tilt_color", "")
+                })
         return redirect('/temp_config')
     except Exception as e:
         print(f"[LOG] reset_logs error: {e}")
@@ -6918,11 +6956,21 @@ def reset_logs():
 def log_management():
     """Display the log and data management page."""
     try:
-        # Get temp control log info
-        temp_log_size = "0 bytes"
-        if os.path.exists(LOG_PATH):
-            size_bytes = os.path.getsize(LOG_PATH)
-            temp_log_size = _format_file_size(size_bytes)
+        # Get per-color temp control log files
+        temp_logs = []
+        for log_path in _list_all_control_log_files():
+            fname = os.path.basename(log_path)
+            size_bytes = os.path.getsize(log_path)
+            # Derive a human-readable color label from the filename.
+            # "temp_control_log_orange.jsonl" → "Orange"
+            # "temp_control_log.jsonl"        → "General"
+            m = re.match(r'^temp_control_log_([a-z_]+)\.jsonl$', fname)
+            label = m.group(1).replace('_', ' ').title() if m else 'General'
+            temp_logs.append({
+                'filename': fname,
+                'label': label,
+                'size': _format_file_size(size_bytes),
+            })
         
         # Get Kasa activity log info
         kasa_log_size = "0 bytes"
@@ -7036,7 +7084,7 @@ def log_management():
         batches.sort(key=sort_key, reverse=True)
         
         return render_template('log_management.html',
-                             temp_log_size=temp_log_size,
+                             temp_logs=temp_logs,
                              kasa_log_size=kasa_log_size,
                              notifications_log_size=notifications_log_size,
                              app_logs=app_logs,
@@ -7071,10 +7119,11 @@ def view_log():
         
         # Security: validate log file path
         if log_type == 'temp':
-            # Temperature control log
-            if log_file != 'temp_control_log.jsonl':
+            # Allow any per-color temp control log (temp_control_log[_color].jsonl)
+            log_file = os.path.basename(log_file)
+            if not _TEMP_CONTROL_LOG_RE.match(log_file):
                 return "Invalid log file", 400
-            filepath = LOG_PATH
+            filepath = os.path.join(TEMP_CONTROL_DIR, log_file)
         elif log_type == 'kasa':
             # Kasa activity log
             if log_file != 'kasa_activity_monitoring.jsonl':
@@ -7150,24 +7199,31 @@ def view_log():
 
 @app.route('/archive_temp_log', methods=['POST'])
 def archive_temp_log():
-    """Archive and reset the temperature control log."""
+    """Archive and reset a per-color temperature control log file."""
     try:
-        if os.path.exists(LOG_PATH):
-            # Create backup with timestamp
-            backup_name = f"{LOG_PATH}.{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.bak"
-            shutil.copy2(LOG_PATH, backup_name)
-            print(f"[LOG] Archived temp control log to: {backup_name}")
-            
-            # Reset the log file
-            open(LOG_PATH, 'w').close()
-            
-            return redirect(url_for('log_management', success='Temperature control log archived and reset'))
-        else:
-            return redirect(url_for('log_management', error='Temperature control log not found'))
+        log_file = os.path.basename(request.form.get('log_file', '').strip())
+        if not log_file:
+            return redirect(url_for('log_management', error='No log file specified'))
+        # Security: allow only valid per-color log filenames
+        if not _TEMP_CONTROL_LOG_RE.match(log_file):
+            return redirect(url_for('log_management', error='Invalid log file name'))
+
+        log_path = os.path.join(TEMP_CONTROL_DIR, log_file)
+        if not os.path.exists(log_path):
+            return redirect(url_for('log_management', error=f'Log file not found: {log_file}'))
+
+        # Create backup with timestamp
+        backup_name = f"{log_path}.{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.bak"
+        shutil.copy2(log_path, backup_name)
+        print(f"[LOG] Archived temp control log to: {backup_name}")
+
+        # Reset the log file
+        open(log_path, 'w').close()
+
+        return redirect(url_for('log_management', success=f'{log_file} archived and reset'))
     except Exception as e:
         print(f"[LOG] Error archiving temp log: {e}")
         return redirect(url_for('log_management', error=f'Error archiving log: {str(e)}'))
-
 
 @app.route('/archive_log', methods=['POST'])
 def archive_log():

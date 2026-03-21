@@ -215,8 +215,9 @@ def kasa_worker(cmd_queue, result_queue):
                     async def _run_batch_with_timeout(b):
                         try:
                             await asyncio.wait_for(_run_batch(b), timeout=120)
-                        except asyncio.TimeoutError:
-                            log_error("kasa_worker: batch timed out after 120 s — returning errors for remaining commands")
+                        except (asyncio.TimeoutError, asyncio.CancelledError) as batch_exc:
+                            err_label = 'Batch execution timed out' if isinstance(batch_exc, asyncio.TimeoutError) else 'Batch cancelled'
+                            log_error(f"kasa_worker: {err_label} — returning errors for remaining commands")
                             # Best-effort: put error results so pending flags are cleared
                             for cmd in b:
                                 try:
@@ -225,14 +226,18 @@ def kasa_worker(cmd_queue, result_queue):
                                         'action': cmd.get('action', 'off'),
                                         'success': False,
                                         'url': cmd.get('url', ''),
-                                        'error': 'Batch execution timed out',
+                                        'error': err_label,
                                     })
                                 except Exception:
                                     pass
                     loop.run_until_complete(_run_batch_with_timeout(batch))
 
-            except Exception as e:
-                # Defensive: log and sleep briefly, then continue
+            except BaseException as e:
+                # Re-raise signals and process exits; catch everything else
+                # (including asyncio.CancelledError which is BaseException in Python ≥ 3.8)
+                # so that a transient async failure never terminates the worker process.
+                if isinstance(e, (SystemExit, KeyboardInterrupt)):
+                    raise
                 try:
                     log_error(f"kasa_worker loop exception: {e}")
                 except Exception:
