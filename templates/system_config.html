@@ -175,84 +175,19 @@
 
       <!-- PUSH/eMail Tab -->
       <div id="push-email" class="tab-content {% if active_tab == 'push-email' %}active{% endif %}">
+
+        <!-- ntfy.sh top recommendation banner -->
+        <div style="background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: 6px; padding: 14px 18px; margin: 0 auto 16px auto; width: 60%; box-sizing: border-box;">
+          <strong style="color: #155724;">💡 Easiest option: ntfy push notifications (free, no account needed)</strong>
+          <p style="margin: 6px 0 0 0; color: #155724; font-size: 0.9em;">
+            Install the free <a href="https://ntfy.sh" target="_blank" rel="noopener noreferrer" style="color: #0a3622; font-weight: bold;">ntfy app</a> on your phone, pick any unique topic name, and you're done — no email account, no passwords, no Google. Select <strong>ntfy</strong> as Push Provider below and set Messaging Options to <em>Push</em> or <em>Both</em>.
+          </p>
+        </div>
+
+        <!-- Push Notification Configuration (shown first as the recommended path) -->
         <table class="config-table" style="width: 60%; margin: auto;">
           <tr>
-            <td><label for="sending_email"><b>Sending Email Address</b></label></td>
-            <td>
-              <input type="email" name="sending_email" id="sending_email" value="{{ system_settings.get('sending_email','') }}" onchange="updateSmtpSettings()">
-            </td>
-          </tr>
-          <tr>
-            <td><label for="sending_email_password"><b>Sending Email Password</b></label></td>
-            <td>
-              <div style="display: flex; align-items: center; gap: 6px;">
-                <input type="password" name="sending_email_password" id="sending_email_password"
-                       placeholder="{% if system_settings.get('smtp_password') %}Leave blank to keep existing password{% else %}Enter password{% endif %}"
-                       oninput="stripPasswordSpaces(this)"
-                       onpaste="setTimeout(() => stripPasswordSpaces(this), 0)"
-                       style="flex: 1;">
-                <button type="button" onclick="togglePasswordVisibility('sending_email_password', this)"
-                        style="padding: 4px 8px; font-size: 0.85em; white-space: nowrap;">Show</button>
-              </div>
-              {% if system_settings.get('smtp_password') %}
-              <span style="color: green; font-size: 0.9em; margin-left: 8px;">✓ Password saved</span>
-              {% endif %}
-              <div style="font-size: 0.8em; color: #666; margin-top: 3px;">Spaces are automatically removed (Google displays App Passwords with spaces).</div>
-            </td>
-          </tr>
-          <!-- Gmail App Password notice -->
-          <tr id="gmail-notice-row" style="display: {% if 'gmail' in system_settings.get('smtp_host','') or system_settings.get('sending_email','').endswith('@gmail.com') %}table-row{% else %}none{% endif %};">
-            <td colspan="2">
-              <div style="background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 5px; padding: 12px; margin: 8px 0;">
-                <strong style="color: #856404;">⚠️ Gmail Users: App Password Required</strong>
-                <p style="margin: 6px 0 0 0; color: #856404; font-size: 0.9em;">
-                  Gmail requires an <strong>App Password</strong> (not your regular Google password) for this program to send email without user intervention.
-                  To create one: <strong>Google Account → Security → 2-Step Verification → App Passwords</strong>.
-                  Generate a password for "Mail" and use it here.
-                  <a href="https://myaccount.google.com/apppasswords" target="_blank" style="color: #0056b3;">Open App Passwords →</a>
-                </p>
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td><label for="smtp_host"><b>SMTP Server Host</b></label></td>
-            <td><input type="text" name="smtp_host" id="smtp_host" value="{{ system_settings.get('smtp_host', 'smtp.gmail.com') }}" placeholder="e.g., smtp.gmail.com" onchange="updateSmtpSettings()"></td>
-          </tr>
-          <tr>
-            <td><label for="smtp_port"><b>SMTP Server Port</b></label></td>
-            <td><input type="number" name="smtp_port" id="smtp_port" value="{{ system_settings.get('smtp_port', 587) }}"></td>
-          </tr>
-          <tr>
-            <td>
-              <label for="smtp_starttls"><b>Use STARTTLS</b></label>
-              <div style="font-size:0.85em;color:#666;margin-top:4px;">Encrypts email communication for security. Keep checked for Gmail and most modern email services.</div>
-            </td>
-            <td><input type="checkbox" name="smtp_starttls" id="smtp_starttls" {% if system_settings.get('smtp_starttls', True) %}checked{% endif %}></td>
-          </tr>
-          <tr>
-            <td><label for="warning_mode"><b>Messaging Options</b></label></td>
-            <td>
-              <select name="warning_mode" id="warning_mode">
-                <option value="NONE" {% if system_settings.get('warning_mode','NONE')|upper == "NONE" %}selected{% endif %}>None</option>
-                <option value="EMAIL" {% if system_settings.get('warning_mode','NONE')|upper == "EMAIL" %}selected{% endif %}>eMail</option>
-                <option value="PUSH" {% if system_settings.get('warning_mode','NONE')|upper == "PUSH" %}selected{% endif %}>Push</option>
-                <option value="BOTH" {% if system_settings.get('warning_mode','NONE')|upper == "BOTH" %}selected{% endif %}>Both</option>
-              </select>
-            </td>
-          </tr>
-          <tr>
-            <td><label for="email"><b>Recipient eMail Address</b></label></td>
-            <td>
-              <input type="email" name="email" id="email" value="{{ system_settings.get('email','') }}">
-              {% if error_msg %}
-              <div style="color:#c0392b; font-size:0.88em; margin-top:4px;">⚠ {{ error_msg }}</div>
-              {% endif %}
-            </td>
-          </tr>
-          
-          <!-- Push Notification Configuration -->
-          <tr>
-            <td colspan="2" style="padding-top: 20px;">
+            <td colspan="2" style="padding-top: 10px;">
               <h4 style="margin: 0;">Push Notification Configuration</h4>
               <p style="margin: 5px 0; font-size: 0.9em; color: #666;">
                 Push notifications work across iOS, Android, and desktop. More reliable and cost-effective than SMS.
@@ -268,7 +203,7 @@
               </select>
             </td>
           </tr>
-          
+
           <!-- Pushover-specific fields -->
           <tr class="pushover-field">
             <td><label for="pushover_user_key"><b>Pushover User Key</b></label></td>
@@ -301,7 +236,7 @@
               </div>
             </td>
           </tr>
-          
+
           <!-- ntfy fields -->
           <tr class="ntfy-field" style="display: none;">
             <td><label for="ntfy_server"><b>ntfy Server URL</b></label></td>
@@ -332,6 +267,91 @@
                 </p>
               </div>
             </td>
+          </tr>
+
+          <!-- Messaging Options and recipient — shared by both Push and Email -->
+          <tr>
+            <td><label for="warning_mode"><b>Messaging Options</b></label></td>
+            <td>
+              <select name="warning_mode" id="warning_mode">
+                <option value="NONE" {% if system_settings.get('warning_mode','NONE')|upper == "NONE" %}selected{% endif %}>None</option>
+                <option value="EMAIL" {% if system_settings.get('warning_mode','NONE')|upper == "EMAIL" %}selected{% endif %}>eMail</option>
+                <option value="PUSH" {% if system_settings.get('warning_mode','NONE')|upper == "PUSH" %}selected{% endif %}>Push</option>
+                <option value="BOTH" {% if system_settings.get('warning_mode','NONE')|upper == "BOTH" %}selected{% endif %}>Both</option>
+              </select>
+            </td>
+          </tr>
+          <tr>
+            <td><label for="email"><b>Recipient eMail Address</b></label></td>
+            <td>
+              <input type="email" name="email" id="email" value="{{ system_settings.get('email','') }}">
+              {% if error_msg %}
+              <div style="color:#c0392b; font-size:0.88em; margin-top:4px;">⚠ {{ error_msg }}</div>
+              {% endif %}
+            </td>
+          </tr>
+        </table>
+
+        <!-- Email (SMTP) Configuration -->
+        <h3 style="text-align: center; margin-top: 30px;">Email (SMTP) Configuration</h3>
+        <table class="config-table" style="width: 60%; margin: auto;">
+          <tr>
+            <td><label for="sending_email"><b>Sending Email Address</b></label></td>
+            <td>
+              <input type="email" name="sending_email" id="sending_email" value="{{ system_settings.get('sending_email','') }}" onchange="updateSmtpSettings()">
+            </td>
+          </tr>
+          <tr>
+            <td><label for="sending_email_password"><b>Sending Email Password</b></label></td>
+            <td>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <input type="password" name="sending_email_password" id="sending_email_password"
+                       placeholder="{% if system_settings.get('smtp_password') %}Leave blank to keep existing password{% else %}Enter password{% endif %}"
+                       oninput="stripPasswordSpaces(this)"
+                       onpaste="setTimeout(() => stripPasswordSpaces(this), 0)"
+                       style="flex: 1;">
+                <button type="button" onclick="togglePasswordVisibility('sending_email_password', this)"
+                        style="padding: 4px 8px; font-size: 0.85em; white-space: nowrap;">Show</button>
+              </div>
+              {% if system_settings.get('smtp_password') %}
+              <span style="color: green; font-size: 0.9em; margin-left: 8px;">✓ Password saved</span>
+              {% endif %}
+              <div style="font-size: 0.8em; color: #666; margin-top: 3px;">For Gmail App Passwords, spaces are automatically removed.</div>
+            </td>
+          </tr>
+          <!-- Gmail App Password notice -->
+          <tr id="gmail-notice-row" style="display: {% if 'gmail' in system_settings.get('smtp_host','') or system_settings.get('sending_email','').endswith('@gmail.com') %}table-row{% else %}none{% endif %};">
+            <td colspan="2">
+              <div style="background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 5px; padding: 12px; margin: 8px 0;">
+                <strong style="color: #856404;">⚠️ Gmail Users: App Password Required</strong>
+                <p style="margin: 6px 0 0 0; color: #856404; font-size: 0.9em;">
+                  Gmail requires an <strong>App Password</strong> (not your regular Google password) for this program to send email.
+                  To create one: <strong>Google Account → Security → 2-Step Verification → App Passwords</strong>.
+                  Generate a password for "Mail" and use it here.
+                  <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" style="color: #0056b3;">Open App Passwords →</a>
+                </p>
+                <p style="margin: 8px 0 0 0; color: #856404; font-size: 0.9em;">
+                  <strong>Simpler alternative:</strong> Use a free Outlook/Hotmail account — standard password works, no App Password needed.
+                  <button type="button" id="outlook-fill-btn" onclick="fillOutlookSmtp()"
+                          style="margin-left: 8px; padding: 3px 10px; font-size: 0.9em; cursor: pointer;">Switch to Outlook SMTP</button>
+                </p>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><label for="smtp_host"><b>SMTP Server Host</b></label></td>
+            <td><input type="text" name="smtp_host" id="smtp_host" value="{{ system_settings.get('smtp_host', 'smtp.gmail.com') }}" placeholder="e.g., smtp.gmail.com" onchange="updateSmtpSettings()"></td>
+          </tr>
+          <tr>
+            <td><label for="smtp_port"><b>SMTP Server Port</b></label></td>
+            <td><input type="number" name="smtp_port" id="smtp_port" value="{{ system_settings.get('smtp_port', 587) }}"></td>
+          </tr>
+          <tr>
+            <td>
+              <label for="smtp_starttls"><b>Use STARTTLS</b></label>
+              <div style="font-size:0.85em;color:#666;margin-top:4px;">Encrypts email communication for security. Keep checked for Gmail and most modern email services.</div>
+            </td>
+            <td><input type="checkbox" name="smtp_starttls" id="smtp_starttls" {% if system_settings.get('smtp_starttls', True) %}checked{% endif %}></td>
           </tr>
         </table>
 
@@ -969,6 +989,25 @@
       testExternalConnection(index);
     }
     
+    // Quick-fill SMTP fields for Outlook/Hotmail (no App Password required)
+    function fillOutlookSmtp() {
+      document.getElementById('smtp_host').value = 'smtp-mail.outlook.com';
+      document.getElementById('smtp_port').value = '587';
+      const starttls = document.getElementById('smtp_starttls');
+      if (starttls) starttls.checked = true;
+      // Hide the Gmail notice since the host is no longer Gmail
+      const gmailRow = document.getElementById('gmail-notice-row');
+      if (gmailRow) gmailRow.style.display = 'none';
+      // Provide brief confirmation on the button
+      const btn = document.getElementById('outlook-fill-btn');
+      if (btn) {
+        const original = btn.textContent;
+        btn.textContent = '✓ Done';
+        btn.disabled = true;
+        setTimeout(function() { btn.textContent = original; btn.disabled = false; }, 2000);
+      }
+    }
+
     // Toggle Push provider fields
     function togglePushProvider() {
       const provider = document.getElementById('push_provider').value;

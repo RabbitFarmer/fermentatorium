@@ -1939,7 +1939,7 @@ def _smtp_send(recipient, subject, body):
             smtp_password = "".join(smtp_password.split())
         # Pre-validate Gmail App Password format before attempting a network call.
         # App Passwords are always exactly 16 alphanumeric characters; regular Google
-        # account passwords will be rejected by Gmail with a 535 error.
+        # account passwords will be rejected by Gmail with a 534 (WebLoginRequired) or 535 error.
         if is_gmail and smtp_password and (len(smtp_password) != 16 or not smtp_password.isalnum()):
             return False, (
                 "Gmail authentication requires a 16-character App Password, not your regular Gmail password. "
@@ -1970,15 +1970,18 @@ def _smtp_send(recipient, subject, body):
         print(f"[LOG] SMTP send failed: {original_error}")
         
         # Provide helpful error message for Gmail authentication issues
-        if "BadCredentials" in original_error or ("535" in original_error and "gmail" in cfg.get("smtp_host", "").lower()):
+        is_gmail_host = "gmail" in cfg.get("smtp_host", "").lower()
+        if "BadCredentials" in original_error or (("534" in original_error or "535" in original_error) and is_gmail_host) or ("WebLoginRequired" in original_error):
             error_msg = (
                 "Gmail authentication failed. "
-                "If you are already using a Gmail App Password, verify that: "
-                "1) The App Password was entered without spaces (Google displays them with spaces, but they must be saved without spaces), "
-                "2) The App Password is still valid at https://myaccount.google.com/apppasswords, "
+                "When 2-Step Verification is enabled on a Google account, regular passwords are blocked for third-party apps. "
+                "You must use a Gmail App Password (a 16-character password generated specifically for this app). "
+                "To set one up: Google Account → Security → 2-Step Verification → App Passwords "
+                "(https://myaccount.google.com/apppasswords). "
+                "If you already have an App Password, verify that: "
+                "1) It was entered without spaces (Google displays them with spaces but they must be saved without spaces), "
+                "2) It is still valid at https://myaccount.google.com/apppasswords, "
                 "3) The sending email address matches the Google account where the App Password was created. "
-                "If you have not yet set up an App Password: Gmail requires one when 2-Factor Authentication is enabled — "
-                "go to Google Account → Security → 2-Step Verification → App Passwords to generate one. "
                 f"Original error: {original_error}"
             )
         else:
@@ -4960,8 +4963,9 @@ def update_system_config():
 @app.route('/test_email', methods=['POST'])
 def test_email():
     """Test email notification with current settings"""
-    subject = "TEST - THE TILT FERMENTATORIUM"
-    body = "*** TEST MESSAGE ***\n\nThis is a TEST email from The Tilt Fermentatorium.\n\nIf you received this, your email settings are configured correctly!\n\n*** TEST MESSAGE ***"
+    brewery_name = system_cfg.get('brewery_name', 'The Tilt Fermentatorium')
+    subject = f"TEST - {brewery_name}"
+    body = f"*** TEST MESSAGE ***\n\nThis is a TEST email from {brewery_name}.\n\nIf you received this, your email settings are configured correctly!\n\n*** TEST MESSAGE ***"
     
     success = False
     error_msg = None
@@ -4998,8 +5002,9 @@ def test_push():
     push_provider = system_cfg.get("push_provider", "pushover").lower()
     provider_name = "Pushover" if push_provider == "pushover" else "ntfy"
     
-    subject = "TEST - ThreeControl"
-    body = f"*** TEST MESSAGE *** This is a TEST push notification from your ThreeControl system. If you received this, your {provider_name} settings are configured correctly! *** TEST MESSAGE ***"
+    brewery_name = system_cfg.get('brewery_name', 'The Tilt Fermentatorium')
+    subject = f"TEST - {brewery_name}"
+    body = f"*** TEST MESSAGE *** This is a TEST push notification from {brewery_name}. If you received this, your {provider_name} settings are configured correctly! *** TEST MESSAGE ***"
     
     success = False
     error_msg = None
