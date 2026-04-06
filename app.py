@@ -1974,7 +1974,7 @@ def _smtp_send(recipient, subject, body):
         if "BadCredentials" in original_error or (("534" in original_error or "535" in original_error) and is_gmail_host) or ("WebLoginRequired" in original_error):
             error_msg = (
                 "Gmail authentication failed. "
-                "Gmail no longer allows sign-in with a regular account password from apps. "
+                "When 2-Step Verification is enabled on a Google account, regular passwords are blocked for third-party apps. "
                 "You must use a Gmail App Password (a 16-character password generated specifically for this app). "
                 "To set one up: Google Account → Security → 2-Step Verification → App Passwords "
                 "(https://myaccount.google.com/apppasswords). "
