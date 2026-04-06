@@ -5002,8 +5002,9 @@ def test_push():
     push_provider = system_cfg.get("push_provider", "pushover").lower()
     provider_name = "Pushover" if push_provider == "pushover" else "ntfy"
     
-    subject = f"TEST - {system_cfg.get('brewery_name', 'The Tilt Fermentatorium')}"
-    body = f"*** TEST MESSAGE *** This is a TEST push notification from {system_cfg.get('brewery_name', 'The Tilt Fermentatorium')}. If you received this, your {provider_name} settings are configured correctly! *** TEST MESSAGE ***"
+    brewery_name = system_cfg.get('brewery_name', 'The Tilt Fermentatorium')
+    subject = f"TEST - {brewery_name}"
+    body = f"*** TEST MESSAGE *** This is a TEST push notification from {brewery_name}. If you received this, your {provider_name} settings are configured correctly! *** TEST MESSAGE ***"
     
     success = False
     error_msg = None
