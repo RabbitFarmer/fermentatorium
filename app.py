@@ -4963,8 +4963,9 @@ def update_system_config():
 @app.route('/test_email', methods=['POST'])
 def test_email():
     """Test email notification with current settings"""
-    subject = "TEST - THE TILT FERMENTATORIUM"
-    body = "*** TEST MESSAGE ***\n\nThis is a TEST email from The Tilt Fermentatorium.\n\nIf you received this, your email settings are configured correctly!\n\n*** TEST MESSAGE ***"
+    brewery_name = system_cfg.get('brewery_name', 'The Tilt Fermentatorium')
+    subject = f"TEST - {brewery_name}"
+    body = f"*** TEST MESSAGE ***\n\nThis is a TEST email from {brewery_name}.\n\nIf you received this, your email settings are configured correctly!\n\n*** TEST MESSAGE ***"
     
     success = False
     error_msg = None
@@ -5001,8 +5002,8 @@ def test_push():
     push_provider = system_cfg.get("push_provider", "pushover").lower()
     provider_name = "Pushover" if push_provider == "pushover" else "ntfy"
     
-    subject = "TEST - ThreeControl"
-    body = f"*** TEST MESSAGE *** This is a TEST push notification from your ThreeControl system. If you received this, your {provider_name} settings are configured correctly! *** TEST MESSAGE ***"
+    subject = f"TEST - {system_cfg.get('brewery_name', 'The Tilt Fermentatorium')}"
+    body = f"*** TEST MESSAGE *** This is a TEST push notification from {system_cfg.get('brewery_name', 'The Tilt Fermentatorium')}. If you received this, your {provider_name} settings are configured correctly! *** TEST MESSAGE ***"
     
     success = False
     error_msg = None
