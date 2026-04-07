@@ -362,7 +362,9 @@
               </div>
             </td>
           </tr>
-          <tr id="outlook-notice-row" style="display: {% if any(s in system_settings.get('smtp_host','').lower() for s in ('outlook','hotmail','live.com','microsoft')) or any(system_settings.get('sending_email','').lower().endswith('@'+d) for d in ('outlook.com','hotmail.com','live.com','msn.com')) %}table-row{% else %}none{% endif %};">
+          {% set _smtp_host_lc = system_settings.get('smtp_host','').lower() %}
+          {% set _email_lc = system_settings.get('sending_email','').lower() %}
+          <tr id="outlook-notice-row" style="display: {% if 'outlook' in _smtp_host_lc or 'hotmail' in _smtp_host_lc or 'live.com' in _smtp_host_lc or 'microsoft' in _smtp_host_lc or _email_lc.endswith('@outlook.com') or _email_lc.endswith('@hotmail.com') or _email_lc.endswith('@live.com') or _email_lc.endswith('@msn.com') %}table-row{% else %}none{% endif %};">
             <td colspan="2">
               <div style="background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: 5px; padding: 12px; margin: 8px 0;">
                 <strong style="color: #721c24;">⛔ Outlook/Hotmail Personal Accounts: SMTP Not Supported</strong>
