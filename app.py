@@ -1987,14 +1987,13 @@ def _smtp_send(recipient, subject, body):
             )
         elif is_outlook_host and ("SmtpClientAuthentication" in original_error or "5.7.139" in original_error):
             error_msg = (
-                "Outlook/Hotmail SMTP authentication is disabled for this mailbox. "
-                "Microsoft requires SMTP AUTH to be explicitly enabled before third-party apps can send email. "
-                "To enable it for a personal Outlook.com or Hotmail account: "
-                "Sign into https://outlook.live.com → Settings (gear icon) → Mail → Sync email → "
-                "enable 'Let devices and apps use POP' and 'Authenticated SMTP'. "
-                "For Microsoft 365 business accounts, an administrator must enable SMTP AUTH in the "
-                "Exchange admin center (per-mailbox or organisation-wide). "
-                "See https://aka.ms/smtp_auth_disabled for full instructions. "
+                "Outlook/Hotmail personal accounts do not support basic SMTP authentication. "
+                "Microsoft has permanently disabled username+password SMTP access for personal Outlook.com, "
+                "Hotmail.com, and Live.com accounts — there is no setting to re-enable it. "
+                "To send email notifications, switch to one of these alternatives: "
+                "1) ntfy.sh push notifications (free, zero credentials — recommended), "
+                "2) A Gmail account with an App Password (smtp.gmail.com, port 587), or "
+                "3) A Microsoft 365 business/work account where an admin has re-enabled SMTP AUTH. "
                 f"Original error: {original_error}"
             )
         else:
