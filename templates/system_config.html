@@ -357,10 +357,28 @@
                   <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" style="color: #0056b3;">Open App Passwords →</a>
                 </p>
                 <p style="margin: 8px 0 0 0; color: #856404; font-size: 0.9em;">
-                  <strong>Simpler alternative:</strong> Use a free Outlook/Hotmail account — standard password works, no App Password needed.
-                  <button type="button" id="outlook-fill-btn" onclick="fillOutlookSmtp()"
-                          style="margin-left: 8px; padding: 3px 10px; font-size: 0.9em; cursor: pointer;">Switch to Outlook SMTP</button>
+                  <strong>Simpler alternative:</strong> Use free <a href="https://ntfy.sh" target="_blank" rel="noopener noreferrer" style="color: #0056b3;">ntfy.sh</a> push notifications — zero credentials required. See the <strong>Push Notification</strong> section above.
                 </p>
+              </div>
+            </td>
+          </tr>
+          <tr id="outlook-notice-row" style="display: {% if any(s in system_settings.get('smtp_host','').lower() for s in ('outlook','hotmail','live.com','microsoft')) or any(system_settings.get('sending_email','').lower().endswith('@'+d) for d in ('outlook.com','hotmail.com','live.com','msn.com')) %}table-row{% else %}none{% endif %};">
+            <td colspan="2">
+              <div style="background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: 5px; padding: 12px; margin: 8px 0;">
+                <strong style="color: #721c24;">⛔ Outlook/Hotmail Personal Accounts: SMTP Not Supported</strong>
+                <p style="margin: 6px 0 0 0; color: #721c24; font-size: 0.9em;">
+                  Microsoft has <strong>permanently disabled</strong> basic SMTP authentication (username + password) for personal
+                  Outlook.com, Hotmail.com, and Live.com accounts. There is no setting in Outlook to re-enable it —
+                  this is a Microsoft policy change that affects all personal accounts.
+                </p>
+                <p style="margin: 8px 0 0 0; color: #721c24; font-size: 0.9em;">
+                  <strong>Alternatives that work:</strong>
+                </p>
+                <ul style="margin: 4px 0; padding-left: 20px; color: #721c24; font-size: 0.9em;">
+                  <li><strong>ntfy.sh push notifications</strong> (recommended) — completely free, no credentials needed. See the Push Notification section above.</li>
+                  <li><strong>Gmail with an App Password</strong> — create a free Gmail account, enable 2-Step Verification, generate an App Password, and use <code>smtp.gmail.com</code> port <code>587</code>.</li>
+                  <li><strong>Microsoft 365 business/work accounts</strong> — an administrator can re-enable SMTP AUTH per-mailbox via the Exchange admin center.</li>
+                </ul>
               </div>
             </td>
           </tr>
@@ -884,6 +902,15 @@
       if (gmailRow) {
         gmailRow.style.display = (isGmailHost || isGmailEmail) ? 'table-row' : 'none';
       }
+      // Show/hide Outlook/Hotmail notice
+      const outlookHosts = ['outlook', 'hotmail', 'live.com', 'microsoft'];
+      const outlookDomains = ['outlook.com', 'hotmail.com', 'live.com', 'msn.com'];
+      const isOutlookHost = outlookHosts.some(s => hostVal.toLowerCase().includes(s));
+      const isOutlookEmail = outlookDomains.some(d => emailDomain === d);
+      const outlookRow = document.getElementById('outlook-notice-row');
+      if (outlookRow) {
+        outlookRow.style.display = (isOutlookHost || isOutlookEmail) ? 'table-row' : 'none';
+      }
     }
 
     // Strip all whitespace (including non-breaking spaces) from a password-style input.
@@ -1015,23 +1042,14 @@
       testExternalConnection(index);
     }
     
-    // Quick-fill SMTP fields for Outlook/Hotmail (no App Password required)
+    // Quick-fill SMTP fields for Outlook (host/port only — personal accounts cannot use basic SMTP auth)
     function fillOutlookSmtp() {
       document.getElementById('smtp_host').value = 'smtp-mail.outlook.com';
       document.getElementById('smtp_port').value = '587';
       const starttls = document.getElementById('smtp_starttls');
       if (starttls) starttls.checked = true;
-      // Hide the Gmail notice since the host is no longer Gmail
-      const gmailRow = document.getElementById('gmail-notice-row');
-      if (gmailRow) gmailRow.style.display = 'none';
-      // Provide brief confirmation on the button
-      const btn = document.getElementById('outlook-fill-btn');
-      if (btn) {
-        const original = btn.textContent;
-        btn.textContent = '✓ Done';
-        btn.disabled = true;
-        setTimeout(function() { btn.textContent = original; btn.disabled = false; }, 2000);
-      }
+      // Refresh notices for the new host
+      updateSmtpSettings();
     }
 
     // Toggle Push provider fields

@@ -1971,6 +1971,7 @@ def _smtp_send(recipient, subject, body):
         
         # Provide helpful error message for Gmail authentication issues
         is_gmail_host = "gmail" in cfg.get("smtp_host", "").lower()
+        is_outlook_host = any(s in cfg.get("smtp_host", "").lower() for s in ("outlook", "hotmail", "live.com", "microsoft"))
         if "BadCredentials" in original_error or (("534" in original_error or "535" in original_error) and is_gmail_host) or ("WebLoginRequired" in original_error):
             error_msg = (
                 "Gmail authentication failed. "
@@ -1982,6 +1983,17 @@ def _smtp_send(recipient, subject, body):
                 "1) It was entered without spaces (Google displays them with spaces but they must be saved without spaces), "
                 "2) It is still valid at https://myaccount.google.com/apppasswords, "
                 "3) The sending email address matches the Google account where the App Password was created. "
+                f"Original error: {original_error}"
+            )
+        elif is_outlook_host and ("SmtpClientAuthentication" in original_error or "5.7.139" in original_error):
+            error_msg = (
+                "Outlook/Hotmail personal accounts do not support basic SMTP authentication. "
+                "Microsoft has permanently disabled username+password SMTP access for personal Outlook.com, "
+                "Hotmail.com, and Live.com accounts — there is no setting to re-enable it. "
+                "To send email notifications, switch to one of these alternatives: "
+                "1) ntfy.sh push notifications (free, zero credentials — recommended), "
+                "2) A Gmail account with an App Password (smtp.gmail.com, port 587), or "
+                "3) A Microsoft 365 business/work account where an admin has re-enabled SMTP AUTH. "
                 f"Original error: {original_error}"
             )
         else:
