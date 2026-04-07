@@ -73,7 +73,8 @@ except Exception:
 
 
 # ── Worker entry point ────────────────────────────────────────────────────────
-def worker_main(cmd_queue, result_queue, query_result_queue):
+def worker_main(cmd_queue, result_queue, query_result_queue,
+                kasa_username="", kasa_password=""):
     """Entry point for the spawned kasa-manager worker subprocess.
 
     Parameters
@@ -81,9 +82,25 @@ def worker_main(cmd_queue, result_queue, query_result_queue):
     cmd_queue          : multiprocessing.Queue — receives PlugCommand dicts
     result_queue       : multiprocessing.Queue — sends on/off PlugResult dicts
     query_result_queue : multiprocessing.Queue — sends query PlugResult dicts
+    kasa_username      : str — TP-Link account email (required for devices
+                         using the KLAP protocol, e.g. EP25 hardware v2.6+)
+    kasa_password      : str — TP-Link account password
     """
 
-    log_kasa_diag("info", "kasa_manager worker starting", pid=os.getpid())
+    log_kasa_diag("info", "kasa_manager worker starting",
+                  pid=os.getpid(),
+                  has_credentials=bool(kasa_username and kasa_password))
+
+    # Build a Credentials object if credentials were supplied.
+    _credentials = None
+    if kasa_username and kasa_password:
+        try:
+            from kasa import Credentials as _Credentials  # type: ignore
+            _credentials = _Credentials(username=kasa_username, password=kasa_password)
+            log_kasa_diag("info", "kasa_manager worker: credentials loaded",
+                          username=kasa_username)
+        except Exception as cred_exc:
+            log_error(f"kasa_manager worker: failed to build Credentials: {cred_exc}")
 
     # Import the plug helpers here (inside the spawned process) so that the
     # ZoneInfo patch above is already in effect when python-kasa loads.
@@ -95,7 +112,8 @@ def worker_main(cmd_queue, result_queue, query_result_queue):
         return
 
     try:
-        asyncio.run(_async_main(cmd_queue, result_queue, query_result_queue, plug_query, plug_control))
+        asyncio.run(_async_main(cmd_queue, result_queue, query_result_queue,
+                                plug_query, plug_control, _credentials))
     except Exception as exc:
         log_error(f"kasa_manager worker top-level exception: {exc}")
         os._exit(1)
@@ -130,7 +148,8 @@ def _drain_unavailable(cmd_queue, result_queue, query_result_queue):
             time.sleep(0.5)
 
 
-async def _async_main(cmd_queue, result_queue, query_result_queue, plug_query, plug_control):
+async def _async_main(cmd_queue, result_queue, query_result_queue, plug_query, plug_control,
+                      credentials=None):
     """Main asyncio coroutine.  Bridges the blocking multiprocessing queue to
     per-URL asyncio task queues so commands for different plugs run in parallel
     while commands for the same plug are serialised.
@@ -189,7 +208,7 @@ async def _async_main(cmd_queue, result_queue, query_result_queue, plug_query, p
         if action == "query":
             log_kasa_diag("info", "kasa_manager worker: querying plug",
                           url=url, controller_id=controller_id, role=role)
-            is_on, error = await plug_query(url)
+            is_on, error = await plug_query(url, credentials=credentials)
             elapsed_ms = round((time.time() - t0) * 1000)
             state = ("on" if is_on else "off") if is_on is not None else None
             if error is None:
@@ -212,7 +231,7 @@ async def _async_main(cmd_queue, result_queue, query_result_queue, plug_query, p
         else:
             log_kasa_diag("info", f"kasa_manager worker: executing {role} {action.upper()}",
                           url=url, controller_id=controller_id, role=role)
-            error = await plug_control(url, action, mode=role)
+            error = await plug_control(url, action, mode=role, credentials=credentials)
             elapsed_ms = round((time.time() - t0) * 1000)
             if error is None:
                 log_kasa_diag("info", f"kasa_manager worker: {role} {action.upper()} succeeded",

@@ -78,6 +78,14 @@ except Exception as _kasa_iot_err:
             f"  Run:  pip install python-kasa  (inside your virtual environment)"
         )
 
+# Device.connect is available in python-kasa >= 0.6 and supports the KLAP
+# protocol used by newer Kasa devices (e.g. EP25 hardware v2.6+).
+try:
+    from kasa import Device as _Device, DeviceConfig as _DeviceConfig, Credentials as _Credentials  # type: ignore
+    HAS_DEVICE_CONNECT = True
+except Exception:
+    HAS_DEVICE_CONNECT = False
+
 # Import application logger helpers if available (non-blocking)
 try:
     from logger import log_error, log_kasa_diag
@@ -278,21 +286,39 @@ def kasa_worker(cmd_queue, result_queue):
         except Exception as e:
             log_error(f"Error closing event loop: {e}")
 
-async def kasa_query_state(url):
+async def kasa_query_state(url, credentials=None):
     """
     Query the current state of a plug without changing it.
+
+    Args:
+        url: IP address or hostname of the plug.
+        credentials: kasa.Credentials instance for devices that require
+            authentication (e.g. EP25 hardware v2.6+), or None for older
+            devices.
+
     Returns:
       (is_on, error) tuple where:
         - is_on is True/False if successful, None if failed
         - error is None on success, error string on failure
     """
-    if PlugClass is None:
+    if PlugClass is None and not HAS_DEVICE_CONNECT:
         return None, "kasa plug class not available"
 
+    device = None
+    needs_disconnect = False
+    _connect_timeout = 6
     try:
-        plug = PlugClass(url)
-        await asyncio.wait_for(plug.update(), timeout=6)
-        is_on = getattr(plug, "is_on", None)
+        if credentials is not None and HAS_DEVICE_CONNECT:
+            config = _DeviceConfig(host=url, credentials=credentials, timeout=_connect_timeout)
+            device = await asyncio.wait_for(_Device.connect(config=config),
+                                            timeout=_connect_timeout + 2)
+            needs_disconnect = True
+        elif PlugClass is not None:
+            device = PlugClass(url)
+        else:
+            return None, "kasa plug class not available"
+        await asyncio.wait_for(device.update(), timeout=6)
+        is_on = getattr(device, "is_on", None)
         if is_on is None:
             return None, "Unable to determine plug state"
         return is_on, None
@@ -300,11 +326,25 @@ async def kasa_query_state(url):
         err = f"Failed to query plug at {url}: {e or type(e).__name__}"
         log_error(err)
         return None, err
+    finally:
+        if needs_disconnect and device is not None:
+            try:
+                await device.disconnect()
+            except Exception:
+                pass
 
-async def kasa_control(url, action, mode):
+async def kasa_control(url, action, mode, credentials=None):
     """
     Perform the plug action and verify resulting state with retry logic.
-    
+
+    Args:
+        url: IP address or hostname of the plug.
+        action: 'on' or 'off'.
+        mode: Human-readable role label used in error messages.
+        credentials: kasa.Credentials instance for devices that require
+            authentication (e.g. EP25 hardware v2.6+), or None for older
+            devices.
+
     Implements retry logic as recommended for TP-Link Kasa smart plugs to handle
     network instability and transient failures. Retries up to 3 times with
     exponential backoff delays.
@@ -313,7 +353,7 @@ async def kasa_control(url, action, mode):
       None on success
       error string on failure
     """
-    if PlugClass is None:
+    if PlugClass is None and not HAS_DEVICE_CONNECT:
         return "kasa plug class not available"
 
     # Retry configuration: up to 3 attempts with delays
@@ -326,15 +366,32 @@ async def kasa_control(url, action, mode):
         if attempt > 0:
             delay = retry_delays[min(attempt, len(retry_delays) - 1)]
             await asyncio.sleep(delay)
-        
+
+        device = None
+        needs_disconnect = False
+        _connect_timeout = 6
         try:
-            plug = PlugClass(url)
+            if credentials is not None and HAS_DEVICE_CONNECT:
+                config = _DeviceConfig(host=url, credentials=credentials, timeout=_connect_timeout)
+                device = await asyncio.wait_for(_Device.connect(config=config),
+                                                timeout=_connect_timeout + 2)
+                needs_disconnect = True
+            elif PlugClass is not None:
+                device = PlugClass(url)
+            else:
+                last_error = "kasa plug class not available"
+                break
             # Update device state before sending the command - wakes the plug
             # and ensures we have a fresh baseline for state verification.
-            await asyncio.wait_for(plug.update(), timeout=6)
+            await asyncio.wait_for(device.update(), timeout=6)
             
         except Exception as e:
             last_error = f"Failed to contact plug at {url}: {e or type(e).__name__}"
+            if needs_disconnect and device is not None:
+                try:
+                    await device.disconnect()
+                except Exception:
+                    pass
             if attempt < max_retries - 1:
                 continue
             else:
@@ -349,9 +406,9 @@ async def kasa_control(url, action, mode):
             # issue).  Without a timeout this blocks the entire kasa_worker event
             # loop, preventing ALL subsequent commands from ever being processed.
             if action == 'on':
-                await asyncio.wait_for(plug.turn_on(), timeout=10)
+                await asyncio.wait_for(device.turn_on(), timeout=10)
             else:
-                await asyncio.wait_for(plug.turn_off(), timeout=10)
+                await asyncio.wait_for(device.turn_off(), timeout=10)
 
             # Pause to let state change propagate before verifying.
             # Some plugs (especially older models) take 1-2 s to reflect the
@@ -361,12 +418,12 @@ async def kasa_control(url, action, mode):
 
             # Refresh state to verify command succeeded
             try:
-                await asyncio.wait_for(plug.update(), timeout=5)
+                await asyncio.wait_for(device.update(), timeout=5)
             except Exception as e:
                 # non-fatal: we'll still attempt to read is_on if available
                 log_error(f"WARNING: State verification update failed for {mode} plug at {url}: {e}")
 
-            is_on = getattr(plug, "is_on", None)
+            is_on = getattr(device, "is_on", None)
             if is_on is None:
                 last_error = "Unable to determine plug state after command"
                 if attempt < max_retries - 1:
@@ -394,6 +451,12 @@ async def kasa_control(url, action, mode):
             else:
                 log_error(f"{mode.upper()} plug at {url} error during command execution: {last_error}")
                 return last_error
+        finally:
+            if needs_disconnect and device is not None:
+                try:
+                    await device.disconnect()
+                except Exception:
+                    pass
     
     # Should not reach here, but return last error if we do
     return last_error or "Unknown error in kasa_control"

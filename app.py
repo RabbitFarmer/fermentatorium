@@ -4848,6 +4848,22 @@ def update_system_config():
     ntfy_auth_token = data.get("ntfy_auth_token", "")
     if ntfy_auth_token:
         system_cfg["ntfy_auth_token"] = ntfy_auth_token
+
+    # Handle Kasa credentials — always store username; only overwrite password
+    # if a non-empty value is submitted (so the stored password is preserved
+    # when the user saves other settings without re-entering it).
+    old_kasa_username = system_cfg.get('kasa_username', '')
+    old_kasa_password = system_cfg.get('kasa_password', '')
+    new_kasa_username = data.get("kasa_username", "").strip()
+    new_kasa_password = data.get("kasa_password", "").strip()
+    system_cfg["kasa_username"] = new_kasa_username
+    if new_kasa_password:
+        system_cfg["kasa_password"] = new_kasa_password
+    # Restart the kasa worker if credentials changed so it picks up new values.
+    _kasa_creds_changed = (
+        new_kasa_username != old_kasa_username or
+        (new_kasa_password and new_kasa_password != old_kasa_password)
+    )
     
     # Handle external URLs - support new per-URL configuration format
     external_urls = []
@@ -4942,6 +4958,17 @@ def update_system_config():
     system_cfg['batch_notifications'] = batch_notif
     
     save_json(SYSTEM_CFG_FILE, system_cfg)
+
+    # Restart the kasa worker if credentials changed so it picks up new values.
+    if _kasa_creds_changed and kasa_manager is not None and kasa_manager.is_alive():
+        try:
+            kasa_manager.restart(
+                kasa_username=system_cfg.get('kasa_username', ''),
+                kasa_password=system_cfg.get('kasa_password', '')
+            )
+            log_kasa_diag('info', 'KasaManager restarted after credential change')
+        except Exception as _km_restart_exc:
+            log_kasa_diag('error', f'KasaManager restart after credential change failed: {_km_restart_exc}')
 
     new_warn = system_cfg.get('warning_mode','NONE')
     # Reset notification state when warning mode changes
@@ -6354,8 +6381,18 @@ def scan_kasa_plugs():
         controller_id = 0
     try:
         from kasa import Discover
+        _kasa_user = system_cfg.get('kasa_username', '').strip()
+        _kasa_pass = system_cfg.get('kasa_password', '').strip()
+        _discover_kwargs = {}
+        if _kasa_user and _kasa_pass:
+            try:
+                from kasa import Credentials as _KasaCredentials
+                _discover_kwargs['credentials'] = _KasaCredentials(
+                    username=_kasa_user, password=_kasa_pass)
+            except Exception:
+                pass
         found_devices = _run_async_in_thread(
-            asyncio.wait_for(Discover.discover(), timeout=15), timeout=15
+            asyncio.wait_for(Discover.discover(**_discover_kwargs), timeout=15), timeout=15
         )
         devices = {str(addr): dev.alias for addr, dev in found_devices.items()}
     except Exception as e:
@@ -6524,17 +6561,47 @@ def test_kasa_plugs():
 
         results = {}
 
-        # Import once at function level
-        try:
-            from kasa.iot import IotPlug
-        except ImportError:
-            return jsonify({'error': 'KASA library not available'}), 500
+        # Build credentials if configured (needed for EP25 v2.6+ and other
+        # newer Kasa devices that require TP-Link account authentication).
+        _kasa_creds = None
+        _kasa_user = system_cfg.get('kasa_username', '').strip()
+        _kasa_pass = system_cfg.get('kasa_password', '').strip()
+        if _kasa_user and _kasa_pass:
+            try:
+                from kasa import Credentials as _KasaCredentials  # type: ignore
+                _kasa_creds = _KasaCredentials(username=_kasa_user, password=_kasa_pass)
+            except Exception:
+                pass
+
+        async def _test_plug(url, timeout=6):
+            """Connect to a plug and fetch its state, using credentials when configured."""
+            if _kasa_creds is not None:
+                try:
+                    from kasa import Device as _KasaDevice, DeviceConfig as _KasaDeviceConfig  # type: ignore
+                    config = _KasaDeviceConfig(host=url, credentials=_kasa_creds, timeout=timeout)
+                    device = await _KasaDevice.connect(config=config)
+                    try:
+                        await asyncio.wait_for(device.update(), timeout=timeout)
+                    finally:
+                        try:
+                            await device.disconnect()
+                        except Exception:
+                            pass
+                    return
+                except Exception:
+                    raise
+            # Fall back to legacy unauthenticated access for older devices.
+            try:
+                from kasa.iot import IotPlug  # type: ignore
+            except ImportError:
+                from kasa import SmartPlug as IotPlug  # type: ignore
+            plug = IotPlug(url)
+            await asyncio.wait_for(plug.update(), timeout=timeout)
 
         # Test heating plug if URL is provided
         if heating_url:
             try:
-                plug = IotPlug(heating_url)
-                _run_async_in_thread(asyncio.wait_for(plug.update(), timeout=6), timeout=6)
+                _run_async_in_thread(_test_plug(heating_url), timeout=6)
                 results['heating'] = {'success': True, 'error': None}
                 _clear_kasa_error_for_plug('heating', heating_url)
             except Exception as e:
@@ -6543,8 +6610,7 @@ def test_kasa_plugs():
         # Test cooling plug if URL is provided
         if cooling_url:
             try:
-                plug = IotPlug(cooling_url)
-                _run_async_in_thread(asyncio.wait_for(plug.update(), timeout=6), timeout=6)
+                _run_async_in_thread(_test_plug(cooling_url), timeout=6)
                 results['cooling'] = {'success': True, 'error': None}
                 _clear_kasa_error_for_plug('cooling', cooling_url)
             except Exception as e:
@@ -8200,7 +8266,9 @@ if __name__ == '__main__':
     # Start the KasaManager (single subprocess for all controllers/plugs).
     if kasa_manager is not None:
         try:
-            kasa_manager.start()
+            _kasa_user = system_cfg.get('kasa_username', '').strip()
+            _kasa_pass = system_cfg.get('kasa_password', '').strip()
+            kasa_manager.start(kasa_username=_kasa_user, kasa_password=_kasa_pass)
             print("[LOG] KasaManager started")
             log_kasa_diag('info', 'KasaManager worker subprocess started',
                           pid=kasa_manager.worker_pid)

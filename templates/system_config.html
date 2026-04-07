@@ -164,6 +164,32 @@
             </td>
             <td><input type="number" name="kasa_rate_limit_seconds" id="kasa_rate_limit_seconds" value="{{ system_settings.get('kasa_rate_limit_seconds', 10) }}"></td>
           </tr>
+          <tr>
+            <td colspan="2">
+              <div style="background:#f0f4ff;border:1px solid #c0ccee;border-radius:6px;padding:10px 14px;margin-top:8px;">
+                <b>Kasa Account Credentials</b> <span style="font-weight:normal;color:#555;">(required for EP25 and other newer devices with hardware v2.6+)</span>
+                <div style="font-size:0.85em;color:#555;margin-top:6px;">
+                  Newer Kasa smart plugs (e.g. EP25 hardware v2.6+) require your TP-Link / Kasa account
+                  credentials to connect. Enter the same email and password you use in the Kasa mobile app.
+                  Older devices that work without authentication do not require these fields.
+                </div>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <label for="kasa_username"><b>Kasa Account Email</b></label>
+              <div style="font-size:0.85em;color:#666;margin-top:4px;">TP-Link / Kasa app account email address</div>
+            </td>
+            <td><input type="email" name="kasa_username" id="kasa_username" value="{{ system_settings.get('kasa_username', '') }}" placeholder="your@email.com" style="width:100%;box-sizing:border-box;"></td>
+          </tr>
+          <tr>
+            <td>
+              <label for="kasa_password"><b>Kasa Account Password</b></label>
+              <div style="font-size:0.85em;color:#666;margin-top:4px;">Leave blank to keep the existing password</div>
+            </td>
+            <td><input type="password" name="kasa_password" id="kasa_password" value="" placeholder="Enter new password to update" style="width:100%;box-sizing:border-box;" autocomplete="current-password"></td>
+          </tr>
         </table>
 
         <div style="text-align:center; margin-top:20px;">
