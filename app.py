@@ -1971,6 +1971,7 @@ def _smtp_send(recipient, subject, body):
         
         # Provide helpful error message for Gmail authentication issues
         is_gmail_host = "gmail" in cfg.get("smtp_host", "").lower()
+        is_outlook_host = any(s in cfg.get("smtp_host", "").lower() for s in ("outlook", "hotmail", "live.com", "microsoft"))
         if "BadCredentials" in original_error or (("534" in original_error or "535" in original_error) and is_gmail_host) or ("WebLoginRequired" in original_error):
             error_msg = (
                 "Gmail authentication failed. "
@@ -1982,6 +1983,18 @@ def _smtp_send(recipient, subject, body):
                 "1) It was entered without spaces (Google displays them with spaces but they must be saved without spaces), "
                 "2) It is still valid at https://myaccount.google.com/apppasswords, "
                 "3) The sending email address matches the Google account where the App Password was created. "
+                f"Original error: {original_error}"
+            )
+        elif is_outlook_host and ("SmtpClientAuthentication" in original_error or "5.7.139" in original_error):
+            error_msg = (
+                "Outlook/Hotmail SMTP authentication is disabled for this mailbox. "
+                "Microsoft requires SMTP AUTH to be explicitly enabled before third-party apps can send email. "
+                "To enable it for a personal Outlook.com or Hotmail account: "
+                "Sign into https://outlook.live.com → Settings (gear icon) → Mail → Sync email → "
+                "enable 'Let devices and apps use POP' and 'Authenticated SMTP'. "
+                "For Microsoft 365 business accounts, an administrator must enable SMTP AUTH in the "
+                "Exchange admin center (per-mailbox or organisation-wide). "
+                "See https://aka.ms/smtp_auth_disabled for full instructions. "
                 f"Original error: {original_error}"
             )
         else:

@@ -361,6 +361,15 @@
                   <button type="button" id="outlook-fill-btn" onclick="fillOutlookSmtp()"
                           style="margin-left: 8px; padding: 3px 10px; font-size: 0.9em; cursor: pointer;">Switch to Outlook SMTP</button>
                 </p>
+                <p style="margin: 8px 0 0 0; color: #856404; font-size: 0.9em;">
+                  <strong>⚠️ Outlook/Hotmail users:</strong> If you see a <em>"SmtpClientAuthentication is disabled"</em> error,
+                  SMTP AUTH must first be enabled for your mailbox.
+                  For a personal account: sign into
+                  <a href="https://outlook.live.com/mail/0/options/mail/accounts/popImap" target="_blank" rel="noopener noreferrer" style="color: #0056b3;" aria-label="Outlook.com Sync email settings (opens in new tab)">Outlook.com → Settings → Mail → Sync email</a>
+                  and enable <strong>"Authenticated SMTP"</strong>.
+                  For Microsoft 365 business accounts an admin must enable it in the Exchange admin center.
+                  See <a href="https://aka.ms/smtp_auth_disabled" target="_blank" rel="noopener noreferrer" style="color: #0056b3;" aria-label="Microsoft SMTP AUTH documentation (opens in new tab)">Microsoft SMTP AUTH documentation</a> for full instructions.
+                </p>
               </div>
             </td>
           </tr>
