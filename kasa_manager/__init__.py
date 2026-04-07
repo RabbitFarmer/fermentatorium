@@ -80,16 +80,30 @@ class KasaManager:
         self._query_queue = None        # worker -> parent (query results)
         self._proc = None               # type: Optional[Process]
         self._lock = threading.Lock()   # guards _proc
+        self._kasa_username = ""        # TP-Link account email (for auth-required devices)
+        self._kasa_password = ""        # TP-Link account password
 
     # -- Lifecycle ---------------------------------------------------------
 
-    def start(self):
+    def start(self, kasa_username: str = "", kasa_password: str = ""):
         """Spawn the worker subprocess.  Call once from __main__ after
         multiprocessing.set_start_method('spawn') has been set.
+
+        Args:
+            kasa_username: TP-Link account email address.  Required for newer
+                Kasa devices (e.g. EP25 hardware v2.6+) that use the KLAP
+                protocol and will reject unauthenticated connections.
+            kasa_password: TP-Link account password.
         """
         with self._lock:
             if self._proc is not None and self._proc.is_alive():
                 return  # already running
+
+            # Update stored credentials if new ones are provided.
+            if kasa_username:
+                self._kasa_username = kasa_username
+            if kasa_password:
+                self._kasa_password = kasa_password
 
             self._cmd_queue    = Queue()
             self._result_queue = Queue()
@@ -98,14 +112,16 @@ class KasaManager:
             from kasa_manager._worker import worker_main
             proc = Process(
                 target=worker_main,
-                args=(self._cmd_queue, self._result_queue, self._query_queue),
+                args=(self._cmd_queue, self._result_queue, self._query_queue,
+                      self._kasa_username, self._kasa_password),
                 daemon=True,
                 name="kasa-manager-worker",
             )
             proc.start()
             self._proc = proc
             log_kasa_diag("info", "KasaManager: worker subprocess started",
-                          pid=proc.pid)
+                          pid=proc.pid,
+                          has_credentials=bool(self._kasa_username and self._kasa_password))
 
     def stop(self):
         """Terminate the worker subprocess."""
@@ -119,13 +135,20 @@ class KasaManager:
             except Exception as exc:
                 log_error(f"KasaManager: error during worker stop: {exc}")
 
-    def restart(self):
-        """Stop and restart the worker subprocess."""
+    def restart(self, kasa_username: str = "", kasa_password: str = ""):
+        """Stop and restart the worker subprocess.
+
+        Args:
+            kasa_username: Updated TP-Link account email (pass empty string to
+                keep the previously stored value).
+            kasa_password: Updated TP-Link account password (pass empty string
+                to keep the previously stored value).
+        """
         log_kasa_diag("info", "KasaManager: restarting worker subprocess")
         old_pid = self._proc.pid if self._proc else None
         self.stop()
         time.sleep(0.5)  # brief pause so the OS cleans up the old process
-        self.start()
+        self.start(kasa_username=kasa_username, kasa_password=kasa_password)
         new_pid = self._proc.pid if self._proc else None
         log_kasa_diag("info", "KasaManager: worker restarted",
                       old_pid=old_pid, new_pid=new_pid)
