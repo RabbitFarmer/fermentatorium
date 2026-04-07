@@ -45,7 +45,9 @@ async def _open_device(url: str, credentials, timeout: float):
     backward-compatible, credential-free access.
     """
     if credentials is not None and HAS_DEVICE_CONNECT:
-        config = _DeviceConfig(host=url, credentials=credentials, timeout=int(timeout))
+        # Use DeviceConfig timeout slightly smaller than the outer asyncio.wait_for
+        # timeout so the inner per-operation timeout fires first.
+        config = _DeviceConfig(host=url, credentials=credentials, timeout=max(1, int(timeout) - 2))
         device = await _Device.connect(config=config)
         return device, True
     if PLUG_CLASS is None:

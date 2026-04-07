@@ -306,10 +306,12 @@ async def kasa_query_state(url, credentials=None):
 
     device = None
     needs_disconnect = False
+    _connect_timeout = 6
     try:
         if credentials is not None and HAS_DEVICE_CONNECT:
-            config = _DeviceConfig(host=url, credentials=credentials, timeout=6)
-            device = await asyncio.wait_for(_Device.connect(config=config), timeout=7)
+            config = _DeviceConfig(host=url, credentials=credentials, timeout=_connect_timeout)
+            device = await asyncio.wait_for(_Device.connect(config=config),
+                                            timeout=_connect_timeout + 2)
             needs_disconnect = True
         elif PlugClass is not None:
             device = PlugClass(url)
@@ -367,10 +369,12 @@ async def kasa_control(url, action, mode, credentials=None):
 
         device = None
         needs_disconnect = False
+        _connect_timeout = 6
         try:
             if credentials is not None and HAS_DEVICE_CONNECT:
-                config = _DeviceConfig(host=url, credentials=credentials, timeout=6)
-                device = await asyncio.wait_for(_Device.connect(config=config), timeout=7)
+                config = _DeviceConfig(host=url, credentials=credentials, timeout=_connect_timeout)
+                device = await asyncio.wait_for(_Device.connect(config=config),
+                                                timeout=_connect_timeout + 2)
                 needs_disconnect = True
             elif PlugClass is not None:
                 device = PlugClass(url)
