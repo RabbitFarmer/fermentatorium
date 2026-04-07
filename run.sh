@@ -32,4 +32,4 @@ else
   exit 1
 fi
 
-exec "${PY}" "${APP_DIR}/app.py"
+exec env FLASK_DEBUG=1 FLASK_ENV=development "${PY}" "${APP_DIR}/app.py"

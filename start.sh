@@ -40,14 +40,10 @@ show_notification() {
     fi
 }
 
-# Open the browser in kiosk mode (no address bar, always fullscreen).
-# Tries Chromium (with --kiosk) first; falls back to xdg-open.
-# --kiosk gives a true kiosk display — the in-app "Exit Kiosk" button on
-# the dashboard (or Alt+F4 at the OS level) closes the window.
-# --new-window ensures a dedicated kiosk window is opened even when a
-# Chromium instance is already running (without it Chromium would open a
-# plain tab in the existing window and ignore --kiosk).
-open_browser_kiosk() {
+# Open the browser in a normal window (address bar and dev tools accessible).
+# Tries Chromium first; falls back to xdg-open.
+# To re-enable kiosk mode, add --kiosk --new-window flags to the browser launch line below.
+open_browser() {
     local url="$1"
     [ -n "$DISPLAY" ] || return 0
     local browser=""
@@ -58,7 +54,7 @@ open_browser_kiosk() {
         fi
     done
     if [ -n "$browser" ]; then
-        "$browser" --new-window --kiosk "$url" >> app.log 2>&1 &
+        "$browser" "$url" >> app.log 2>&1 &
         disown $! 2>/dev/null || true
     elif command -v xdg-open > /dev/null 2>&1; then
         xdg-open "$url" &
@@ -128,7 +124,7 @@ _cleanup_stale_port5000_entries
 # ── Already running? ──────────────────────────────────────────────────────────
 if curl -s --max-time 2 "http://127.0.0.1:$FLASK_PORT/" > /dev/null 2>&1; then
     show_notification "Fermentatorium" "Already running — opening dashboard." "normal"
-    open_browser_kiosk "http://127.0.0.1:$FLASK_PORT/"
+    open_browser "http://127.0.0.1:$FLASK_PORT/"
     exit 0
 fi
 
@@ -150,7 +146,7 @@ if [ "$_svc_state" = "active" ] || [ "$_svc_state" = "activating" ]; then
     for i in $(seq 1 $_svc_retries); do
         if curl -s --max-time 2 "http://127.0.0.1:$FLASK_PORT/" > /dev/null 2>&1; then
             show_notification "Fermentatorium" "Ready! Opening dashboard…" "normal"
-            open_browser_kiosk "http://127.0.0.1:$FLASK_PORT/?autostart=1"
+            open_browser "http://127.0.0.1:$FLASK_PORT/?autostart=1"
             exit 0
         fi
         sleep 2
@@ -217,7 +213,7 @@ APP_PATH="$SCRIPT_DIR/app.py"
 # SKIP_BROWSER_OPEN tells app.py not to open its own browser window.
 # start.sh is responsible for opening the browser (below), so we avoid
 # two windows racing to open the same URL.
-env SKIP_BROWSER_OPEN=1 nohup "$PYTHON_PATH" "$APP_PATH" > app.log 2>&1 &
+env SKIP_BROWSER_OPEN=1 FLASK_DEBUG=1 FLASK_ENV=development nohup "$PYTHON_PATH" "$APP_PATH" > app.log 2>&1 &
 APP_PID=$!
 
 disown -h $APP_PID 2>/dev/null || true
@@ -253,7 +249,7 @@ done
 
 if [ "$APP_STARTED" = true ]; then
     show_notification "Fermentatorium" "Ready! Opening dashboard…" "normal"
-    open_browser_kiosk "http://127.0.0.1:$FLASK_PORT/?autostart=1"
+    open_browser "http://127.0.0.1:$FLASK_PORT/?autostart=1"
 else
     echo "ERROR: Application did not respond after $((RETRIES * RETRY_DELAY)) seconds."
     echo "Last 30 lines of app.log:"
