@@ -48,7 +48,7 @@ async def _open_device(url: str, credentials, timeout: float):
         # Use DeviceConfig timeout slightly smaller than the outer asyncio.wait_for
         # timeout so the inner per-operation timeout fires first.
         config = _DeviceConfig(host=url, credentials=credentials, timeout=max(1, int(timeout) - 2))
-        device = await _Device.connect(config=config)
+        device = await asyncio.wait_for(_Device.connect(config=config), timeout=timeout)
         return device, True
     if PLUG_CLASS is None:
         raise RuntimeError("kasa library not available")

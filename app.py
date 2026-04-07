@@ -6560,78 +6560,68 @@ def _clear_kasa_error_for_plug(mode, url):
 
 @app.route('/test_kasa_plugs', methods=['POST'])
 def test_kasa_plugs():
-    """Test connection to configured KASA plugs"""
+    """Test connectivity to the configured Kasa heating/cooling plugs.
+
+    Delegates to kasa_manager.query_sync() so the same credential-aware,
+    timeout-safe code path used for real plug control is exercised here.
+    Works for both old unauthenticated plugs (IotPlug) and new KLAP/auth
+    plugs (EP25 v2.6+).
+    """
+    data = request.get_json(silent=True) or {}
+    heating_url = (data.get('heating_url') or '').strip()
+    cooling_url = (data.get('cooling_url') or '').strip()
+
+    if not heating_url and not cooling_url:
+        return jsonify({'none_configured': True})
+
+    # Determine the controller_id from the request, defaulting to 0.
     try:
-        data = request.get_json()
-        if data is None:
-            return jsonify({'error': 'Invalid JSON request'}), 400
-        heating_url = data.get('heating_url', '').strip()
-        cooling_url = data.get('cooling_url', '').strip()
+        controller_id = int(data.get('controller_id', 0))
+    except (TypeError, ValueError):
+        controller_id = 0
 
-        if not heating_url and not cooling_url:
-            return jsonify({'none_configured': True})
+    results = {}
+    TEST_TIMEOUT = 15  # seconds — enough for KLAP handshake + update
 
-        results = {}
+    if heating_url:
+        try:
+            if kasa_manager is not None and kasa_manager.is_alive():
+                _, error = kasa_manager.query_sync(
+                    url=heating_url,
+                    controller_id=controller_id,
+                    role='heating',
+                    timeout=TEST_TIMEOUT,
+                )
+                if error is None:
+                    results['heating'] = {'success': True, 'error': None}
+                    _clear_kasa_error_for_plug('heating', heating_url)
+                else:
+                    results['heating'] = {'success': False, 'error': error}
+            else:
+                results['heating'] = {'success': False, 'error': 'Kasa manager not running — restart the application'}
+        except Exception as e:
+            results['heating'] = {'success': False, 'error': str(e)}
 
-        # Build credentials if configured (needed for EP25 v2.6+ and other
-        # newer Kasa devices that require TP-Link account authentication).
-        _kasa_creds = None
-        _kasa_user = system_cfg.get('kasa_username', '').strip()
-        _kasa_pass = system_cfg.get('kasa_password', '').strip()
-        if _kasa_user and _kasa_pass:
-            try:
-                from kasa import Credentials as _KasaCredentials  # type: ignore
-                _kasa_creds = _KasaCredentials(username=_kasa_user, password=_kasa_pass)
-            except Exception:
-                pass
+    if cooling_url:
+        try:
+            if kasa_manager is not None and kasa_manager.is_alive():
+                _, error = kasa_manager.query_sync(
+                    url=cooling_url,
+                    controller_id=controller_id,
+                    role='cooling',
+                    timeout=TEST_TIMEOUT,
+                )
+                if error is None:
+                    results['cooling'] = {'success': True, 'error': None}
+                    _clear_kasa_error_for_plug('cooling', cooling_url)
+                else:
+                    results['cooling'] = {'success': False, 'error': error}
+            else:
+                results['cooling'] = {'success': False, 'error': 'Kasa manager not running — restart the application'}
+        except Exception as e:
+            results['cooling'] = {'success': False, 'error': str(e)}
 
-        async def _test_plug(url, timeout=6):
-            """Connect to a plug and fetch its state, using credentials when configured."""
-            if _kasa_creds is not None:
-                try:
-                    from kasa import Device as _KasaDevice, DeviceConfig as _KasaDeviceConfig  # type: ignore
-                    config = _KasaDeviceConfig(host=url, credentials=_kasa_creds, timeout=timeout)
-                    device = await _KasaDevice.connect(config=config)
-                    try:
-                        await asyncio.wait_for(device.update(), timeout=timeout)
-                    finally:
-                        try:
-                            await device.disconnect()
-                        except Exception:
-                            pass
-                    return
-                except Exception:
-                    raise
-            # Fall back to legacy unauthenticated access for older devices.
-            try:
-                from kasa.iot import IotPlug  # type: ignore
-            except ImportError:
-                from kasa import SmartPlug as IotPlug  # type: ignore
-            plug = IotPlug(url)
-            await asyncio.wait_for(plug.update(), timeout=timeout)
-
-        # Test heating plug if URL is provided
-        if heating_url:
-            try:
-                _run_async_in_thread(_test_plug(heating_url), timeout=6)
-                results['heating'] = {'success': True, 'error': None}
-                _clear_kasa_error_for_plug('heating', heating_url)
-            except Exception as e:
-                results['heating'] = {'success': False, 'error': format_kasa_error(e, heating_url)}
-
-        # Test cooling plug if URL is provided
-        if cooling_url:
-            try:
-                _run_async_in_thread(_test_plug(cooling_url), timeout=6)
-                results['cooling'] = {'success': True, 'error': None}
-                _clear_kasa_error_for_plug('cooling', cooling_url)
-            except Exception as e:
-                results['cooling'] = {'success': False, 'error': format_kasa_error(e, cooling_url)}
-
-        return jsonify(results)
-    except Exception as e:
-        print(f"[LOG] Error testing KASA plugs: {e}")
-        return jsonify({'error': str(e)}), 500
+    return jsonify(results)
 
 
 @app.route('/live_snapshot')
