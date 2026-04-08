@@ -910,6 +910,8 @@ def ensure_temp_defaults_for_controller(controller):
     controller.setdefault("enable_cooling", False)
     controller.setdefault("heating_plug", "")
     controller.setdefault("cooling_plug", "")
+    controller.setdefault("heating_plug_port", None)
+    controller.setdefault("cooling_plug_port", None)
     controller.setdefault("heater_on", False)
     controller.setdefault("cooler_on", False)
     controller.setdefault("heater_pending", False)
@@ -3489,12 +3491,13 @@ def control_heating(state, controller):
         print(f"[TEMP_CONTROL] Skipping heating {state} command (redundant or rate-limited)")
         return
     cid = controller.get('controller_id', 0)
+    port = controller.get('heating_plug_port')
     print(f"[TEMP_CONTROL] Sending heating {state.upper()} command to {url}")
     # Log the command being sent
     log_kasa_command('heating', url, state)
     log_kasa_diag('info', f'Queuing heating {state.upper()} command',
                   url=url, controller_id=cid)
-    kasa_manager.send(cid, 'heating', url, state)
+    kasa_manager.send(cid, 'heating', url, state, port=port)
     # NOTE: _record_kasa_command is now called in kasa_result_listener only on success
     # This allows failed commands to be retried without rate limiting
     controller["heater_pending"] = True
@@ -3583,12 +3586,13 @@ def control_cooling(state, controller):
         print(f"[TEMP_CONTROL] Skipping cooling {state} command (redundant or rate-limited)")
         return
     cid = controller.get('controller_id', 0)
+    port = controller.get('cooling_plug_port')
     print(f"[TEMP_CONTROL] Sending cooling {state.upper()} command to {url}")
     # Log the command being sent
     log_kasa_command('cooling', url, state)
     log_kasa_diag('info', f'Queuing cooling {state.upper()} command',
                   url=url, controller_id=cid)
-    kasa_manager.send(cid, 'cooling', url, state)
+    kasa_manager.send(cid, 'cooling', url, state, port=port)
     # NOTE: _record_kasa_command is now called in kasa_result_listener only on success
     # This allows failed commands to be retried without rate limiting
     controller["cooler_pending"] = True
@@ -4298,7 +4302,7 @@ def sync_plug_states_at_startup():
     _STARTUP_SYNC_RETRY_DELAY_S = 4
     _QUERY_TIMEOUT = 20  # seconds per query attempt
 
-    def _query_with_retry(url, cid, mode):
+    def _query_with_retry(url, cid, mode, port=None):
         """Query a plug via kasa_manager.query_sync with retries.
         Returns (is_on, error_str, elapsed_ms) from the final attempt."""
         is_on, error, elapsed_ms = None, None, 0
@@ -4311,7 +4315,8 @@ def sync_plug_states_at_startup():
             t0 = time.time()
             try:
                 is_on, error = kasa_manager.query_sync(url, controller_id=cid,
-                                                       role=mode, timeout=_QUERY_TIMEOUT)
+                                                       role=mode, timeout=_QUERY_TIMEOUT,
+                                                       port=port)
             except Exception as exc:
                 error = str(exc) or type(exc).__name__
                 is_on = None
@@ -4358,7 +4363,9 @@ def sync_plug_states_at_startup():
         if enable_heating and heating_url:
             log_kasa_diag('info', 'Startup plug sync: querying heating plug',
                           controller_id=cid, url=heating_url)
-            is_on, error, elapsed_ms = _query_with_retry(heating_url, cid, 'heating')
+            heating_port = controller.get("heating_plug_port")
+            is_on, error, elapsed_ms = _query_with_retry(heating_url, cid, 'heating',
+                                                         port=heating_port)
             if error is None:
                 controller["heater_on"] = is_on
                 print(f"[LOG] Controller {cid}: Heating plug state synced: {'ON' if is_on else 'OFF'}")
@@ -4377,7 +4384,9 @@ def sync_plug_states_at_startup():
         if enable_cooling and cooling_url:
             log_kasa_diag('info', 'Startup plug sync: querying cooling plug',
                           controller_id=cid, url=cooling_url)
-            is_on, error, elapsed_ms = _query_with_retry(cooling_url, cid, 'cooling')
+            cooling_port = controller.get("cooling_plug_port")
+            is_on, error, elapsed_ms = _query_with_retry(cooling_url, cid, 'cooling',
+                                                         port=cooling_port)
             if error is None:
                 controller["cooler_on"] = is_on
                 print(f"[LOG] Controller {cid}: Cooling plug state synced: {'ON' if is_on else 'OFF'}")
@@ -5708,6 +5717,14 @@ def update_temp_config():
             low_limit = controller.get("low_limit", 0.0)
             high_limit = controller.get("high_limit", 100.0)
         
+        def _parse_port(value):
+            """Return an int port in 1-65535, or None if blank/invalid."""
+            try:
+                p = int(value)
+                return p if 1 <= p <= 65535 else None
+            except (TypeError, ValueError):
+                return None
+
         controller.update({
             "tilt_color": new_tilt_color,
             "low_limit": low_limit,
@@ -5716,6 +5733,8 @@ def update_temp_config():
             "enable_cooling": 'enable_cooling' in data,
             "heating_plug": data.get("heating_plug", ""),
             "cooling_plug": data.get("cooling_plug", ""),
+            "heating_plug_port": _parse_port(data.get("heating_plug_port")),
+            "cooling_plug_port": _parse_port(data.get("cooling_plug_port")),
             "mode": data.get("mode", controller.get('mode','')),
             "status": data.get("status", controller.get('status',''))
         })
@@ -6580,6 +6599,16 @@ def test_kasa_plugs():
     except (TypeError, ValueError):
         controller_id = 0
 
+    def _parse_port(value):
+        try:
+            p = int(value)
+            return p if 1 <= p <= 65535 else None
+        except (TypeError, ValueError):
+            return None
+
+    heating_port = _parse_port(data.get('heating_port'))
+    cooling_port = _parse_port(data.get('cooling_port'))
+
     results = {}
     TEST_TIMEOUT = 15  # seconds — enough for KLAP handshake + update
 
@@ -6591,6 +6620,7 @@ def test_kasa_plugs():
                     controller_id=controller_id,
                     role='heating',
                     timeout=TEST_TIMEOUT,
+                    port=heating_port,
                 )
                 if error is None:
                     results['heating'] = {'success': True, 'error': None}
@@ -6610,6 +6640,7 @@ def test_kasa_plugs():
                     controller_id=controller_id,
                     role='cooling',
                     timeout=TEST_TIMEOUT,
+                    port=cooling_port,
                 )
                 if error is None:
                     results['cooling'] = {'success': True, 'error': None}

@@ -9,6 +9,8 @@
     async function testKasaPlugs() {
       const heatingUrl = document.getElementById('heating_plug').value;
       const coolingUrl = document.getElementById('cooling_plug').value;
+      const heatingPort = document.getElementById('heating_plug_port').value;
+      const coolingPort = document.getElementById('cooling_plug_port').value;
       const resultsDiv = document.getElementById('test_results');
       const resultsContent = document.getElementById('test_results_content');
       
@@ -23,7 +25,9 @@
           },
           body: JSON.stringify({
             heating_url: heatingUrl,
-            cooling_url: coolingUrl
+            cooling_url: coolingUrl,
+            heating_port: heatingPort ? parseInt(heatingPort) : null,
+            cooling_port: coolingPort ? parseInt(coolingPort) : null
           })
         });
         
@@ -390,8 +394,24 @@
           </div>
 
           <div class="form-row">
+            <label for="heating_plug_port">Heating Plug Port:</label>
+            <input id="heating_plug_port" name="heating_plug_port" type="number"
+                   value="{{ temp_control.heating_plug_port if temp_control.heating_plug_port is not none else '' }}"
+                   placeholder="9999" min="1" max="65535" style="width:80px;">
+            <span style="margin-left:8px; color:#666; font-size:0.85em;">9999 = older plugs &nbsp;|&nbsp; 80 = newer plugs</span>
+          </div>
+
+          <div class="form-row">
             <label for="cooling_plug">Cooling Plug URL/ID:</label>
             <input id="cooling_plug" name="cooling_plug" type="text" value="{{ temp_control.cooling_plug|default('') }}" placeholder="kasa device host or id">
+          </div>
+
+          <div class="form-row">
+            <label for="cooling_plug_port">Cooling Plug Port:</label>
+            <input id="cooling_plug_port" name="cooling_plug_port" type="number"
+                   value="{{ temp_control.cooling_plug_port if temp_control.cooling_plug_port is not none else '' }}"
+                   placeholder="9999" min="1" max="65535" style="width:80px;">
+            <span style="margin-left:8px; color:#666; font-size:0.85em;">9999 = older plugs &nbsp;|&nbsp; 80 = newer plugs</span>
           </div>
 
           <div class="form-row" style="margin-top:12px;">

@@ -36,26 +36,37 @@ KASA_AVAILABLE = PLUG_CLASS is not None or HAS_DEVICE_CONNECT
 _RETRY_DELAYS = [0, 1, 2]
 
 
-async def _open_device(url: str, credentials, timeout: float):
+async def _open_device(url: str, credentials, timeout: float, port: int | None = None):
     """Open a connection to a plug and return (device, needs_disconnect).
 
     When *credentials* is a kasa.Credentials object, Device.connect() is used
     so that python-kasa can auto-negotiate the correct protocol (KLAP for new
     devices, legacy encrypted for old ones).  Otherwise IotPlug is used for
     backward-compatible, credential-free access.
+
+    *port* overrides the default port (9999 for old plugs, 80 for new KLAP
+    plugs).  When None the library default is used.
     """
     if credentials is not None and HAS_DEVICE_CONNECT:
         # Use DeviceConfig timeout slightly smaller than the outer asyncio.wait_for
         # timeout so the inner per-operation timeout fires first.
-        config = _DeviceConfig(host=url, credentials=credentials, timeout=max(1, int(timeout) - 2))
+        config = _DeviceConfig(host=url, credentials=credentials,
+                               timeout=max(1, int(timeout) - 2),
+                               port_override=port)
         device = await asyncio.wait_for(_Device.connect(config=config), timeout=timeout)
         return device, True
     if PLUG_CLASS is None:
         raise RuntimeError("kasa library not available")
+    # No credentials: honour an explicit port override when DeviceConfig is available.
+    if port is not None and HAS_DEVICE_CONNECT:
+        config = _DeviceConfig(host=url, port_override=port,
+                               timeout=max(1, int(timeout) - 2))
+        device = await asyncio.wait_for(_Device.connect(config=config), timeout=timeout)
+        return device, True
     return PLUG_CLASS(url), False
 
 
-async def plug_query(url: str, credentials=None, timeout: float = 7.0):
+async def plug_query(url: str, credentials=None, timeout: float = 7.0, port: int | None = None):
     """Query the current on/off state of a plug.
 
     Args:
@@ -64,6 +75,8 @@ async def plug_query(url: str, credentials=None, timeout: float = 7.0):
             authentication (e.g. EP25 hardware v2.6+), or None for older
             devices that use the unauthenticated protocol.
         timeout: Network operation timeout in seconds.
+        port: Override the default port (9999 for old plugs, 80 for new KLAP
+            plugs).  None uses the library default.
 
     Returns:
         (is_on, error) where is_on is True/False on success, None on failure,
@@ -75,7 +88,7 @@ async def plug_query(url: str, credentials=None, timeout: float = 7.0):
     needs_disconnect = False
     try:
         device, needs_disconnect = await asyncio.wait_for(
-            _open_device(url, credentials, timeout), timeout=timeout
+            _open_device(url, credentials, timeout, port), timeout=timeout
         )
         await asyncio.wait_for(device.update(), timeout=timeout)
         is_on = getattr(device, "is_on", None)
@@ -101,6 +114,7 @@ async def plug_control(
     timeout_cmd: float = 10.0,
     timeout_verify: float = 5.0,
     max_retries: int = 3,
+    port: int | None = None,
 ):
     """Turn a plug on or off with verification and retry logic.
 
@@ -114,6 +128,8 @@ async def plug_control(
         timeout_cmd: Seconds to wait for the on/off command.
         timeout_verify: Seconds to wait for the post-command state verification.
         max_retries: Number of attempts before giving up.
+        port: Override the default port (9999 for old plugs, 80 for new KLAP
+            plugs).  None uses the library default.
 
     Returns:
         None on success, or an error string on failure.
@@ -133,7 +149,7 @@ async def plug_control(
         needs_disconnect = False
         try:
             device, needs_disconnect = await asyncio.wait_for(
-                _open_device(url, credentials, timeout_update), timeout=timeout_update
+                _open_device(url, credentials, timeout_update, port), timeout=timeout_update
             )
             await asyncio.wait_for(device.update(), timeout=timeout_update)
         except Exception as e:

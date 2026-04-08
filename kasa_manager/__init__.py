@@ -172,7 +172,7 @@ class KasaManager:
 
     # -- Commands ----------------------------------------------------------
 
-    def send(self, controller_id, role, url, action):
+    def send(self, controller_id, role, url, action, port=None):
         """Queue an on/off plug command.  Non-blocking."""
         if self._cmd_queue is None:
             log_error("KasaManager.send called before start()")
@@ -183,9 +183,10 @@ class KasaManager:
             "url":           url,
             "action":        action,
             "request_id":    str(uuid.uuid4()),
+            "port":          port,
         })
 
-    def query_sync(self, url, controller_id=-1, role="", timeout=20.0):
+    def query_sync(self, url, controller_id=-1, role="", timeout=20.0, port=None):
         """Send a query command and block until the result arrives.
 
         Returns:
@@ -202,6 +203,7 @@ class KasaManager:
             "url":           url,
             "action":        "query",
             "request_id":    request_id,
+            "port":          port,
         })
 
         deadline = time.monotonic() + timeout
