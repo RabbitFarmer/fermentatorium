@@ -2,5 +2,6 @@ flask
 flask-cors
 bleak
 python-daemon
-python-kasa
+python-kasa[speedups]==0.10.2
+orjson>=3.11.6
 requests
