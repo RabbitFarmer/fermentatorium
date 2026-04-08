@@ -42,13 +42,25 @@
           resultsContent.appendChild(p);
           return;
         }
-        
+
         if (data.error) {
           const p = document.createElement('p');
           p.textContent = 'Error: ' + data.error;
           p.style.color = 'red';
           resultsContent.appendChild(p);
           return;
+        }
+
+        if (data.credentials_warning) {
+          const p = document.createElement('p');
+          p.textContent = '⚠ ' + data.credentials_warning;
+          p.style.color = '#b8860b';
+          p.style.background = '#fffbe6';
+          p.style.border = '1px solid #ffe58f';
+          p.style.borderRadius = '4px';
+          p.style.padding = '6px 10px';
+          p.style.fontSize = '0.9em';
+          resultsContent.appendChild(p);
         }
         
         if (data.heating) {
@@ -398,8 +410,8 @@
             <label for="heating_plug_port">Heating Plug Port:</label>
             <input id="heating_plug_port" name="heating_plug_port" type="number"
                    value="{{ temp_control.heating_plug_port if temp_control.heating_plug_port is not none else '' }}"
-                   placeholder="9999" min="1" max="65535" style="width:80px;">
-            <span style="margin-left:8px; color:#666; font-size:0.85em;">9999 = older plugs &nbsp;|&nbsp; 80 = newer plugs</span>
+                   placeholder="auto" min="1" max="65535" style="width:80px;">
+            <span style="margin-left:8px; color:#666; font-size:0.85em;">Leave blank — auto-detected when credentials are set. Override only for non-standard configurations.</span>
           </div>
 
           <div class="form-row">
@@ -411,8 +423,8 @@
             <label for="cooling_plug_port">Cooling Plug Port:</label>
             <input id="cooling_plug_port" name="cooling_plug_port" type="number"
                    value="{{ temp_control.cooling_plug_port if temp_control.cooling_plug_port is not none else '' }}"
-                   placeholder="9999" min="1" max="65535" style="width:80px;">
-            <span style="margin-left:8px; color:#666; font-size:0.85em;">9999 = older plugs &nbsp;|&nbsp; 80 = newer plugs</span>
+                   placeholder="auto" min="1" max="65535" style="width:80px;">
+            <span style="margin-left:8px; color:#666; font-size:0.85em;">Leave blank — auto-detected when credentials are set. Override only for non-standard configurations.</span>
           </div>
 
           <div class="form-row" style="margin-top:12px;">

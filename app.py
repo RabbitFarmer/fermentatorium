@@ -6604,7 +6604,24 @@ def test_kasa_plugs():
     heating_port = _parse_plug_port(data.get('heating_port'))
     cooling_port = _parse_plug_port(data.get('cooling_port'))
 
+    # Check whether TP-Link credentials are configured.  Newer Kasa devices
+    # (EP25 v2.6+) use the KLAP protocol which requires authentication; without
+    # credentials the library falls back to the legacy IotPlug path which only
+    # works with older devices (HS100, HS105, …) on port 9999.
+    has_credentials = bool(
+        system_cfg.get('kasa_username', '').strip() and
+        system_cfg.get('kasa_password', '').strip()
+    )
+
     results = {}
+    if not has_credentials:
+        results['credentials_warning'] = (
+            'No TP-Link credentials configured. '
+            'Newer Kasa plugs (EP25 v2.6+ / KLAP) require your TP-Link account '
+            'email and password — add them in System Settings. '
+            'Legacy plugs (HS100, HS105, …) do not need credentials.'
+        )
+
     TEST_TIMEOUT = 15  # seconds — enough for KLAP handshake + update
 
     if heating_url:

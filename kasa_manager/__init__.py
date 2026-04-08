@@ -204,6 +204,7 @@ class KasaManager:
             "action":        "query",
             "request_id":    request_id,
             "port":          port,
+            "timeout":       timeout,
         })
 
         deadline = time.monotonic() + timeout
