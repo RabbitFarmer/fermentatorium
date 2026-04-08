@@ -198,6 +198,7 @@ async def _async_main(cmd_queue, result_queue, query_result_queue, plug_query, p
         controller_id = cmd.get("controller_id", -1)
         role          = cmd.get("role", "")
         request_id    = cmd.get("request_id", "")
+        port          = cmd.get("port")  # int or None
 
         if not url:
             _put_error(result_queue, query_result_queue, cmd, "No URL provided")
@@ -208,7 +209,7 @@ async def _async_main(cmd_queue, result_queue, query_result_queue, plug_query, p
         if action == "query":
             log_kasa_diag("info", "kasa_manager worker: querying plug",
                           url=url, controller_id=controller_id, role=role)
-            is_on, error = await plug_query(url, credentials=credentials)
+            is_on, error = await plug_query(url, credentials=credentials, port=port)
             elapsed_ms = round((time.time() - t0) * 1000)
             state = ("on" if is_on else "off") if is_on is not None else None
             if error is None:
@@ -231,7 +232,7 @@ async def _async_main(cmd_queue, result_queue, query_result_queue, plug_query, p
         else:
             log_kasa_diag("info", f"kasa_manager worker: executing {role} {action.upper()}",
                           url=url, controller_id=controller_id, role=role)
-            error = await plug_control(url, action, mode=role, credentials=credentials)
+            error = await plug_control(url, action, mode=role, credentials=credentials, port=port)
             elapsed_ms = round((time.time() - t0) * 1000)
             if error is None:
                 log_kasa_diag("info", f"kasa_manager worker: {role} {action.upper()} succeeded",
