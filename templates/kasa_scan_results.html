@@ -37,6 +37,10 @@
                 );
                 if (!confirmed) return;
             }
+            const opposite = (type === 'heating') ? 'cooling' : 'heating';
+            if (localStorage.getItem('kasa_' + opposite + '_url') === url) {
+                localStorage.removeItem('kasa_' + opposite + '_url');
+            }
             localStorage.setItem('kasa_' + type + '_url', url);
             const successMsg = document.getElementById('successMessage');
             const typeCapitalized = type.charAt(0).toUpperCase() + type.slice(1);
