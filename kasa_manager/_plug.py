@@ -41,11 +41,13 @@ async def _open_device(url: str, credentials, timeout: float, port: int | None =
 
     When *credentials* is a kasa.Credentials object, Device.connect() is used
     so that python-kasa can auto-negotiate the correct protocol (KLAP for new
-    devices, legacy encrypted for old ones).  Otherwise IotPlug is used for
-    backward-compatible, credential-free access.
+    devices, legacy encrypted for old ones).  The library handles port selection
+    automatically; *port* is only needed for non-standard network configurations.
 
-    *port* overrides the default port (9999 for old plugs, 80 for new KLAP
-    plugs).  When None the library default is used.
+    Without credentials, IotPlug is used for backward-compatible, credential-free
+    access on port 9999.  Device.connect() without credentials cannot complete the
+    KLAP authentication handshake that newer devices require, so this path is not
+    attempted.
     """
     if credentials is not None and HAS_DEVICE_CONNECT:
         # Use DeviceConfig timeout slightly smaller than the outer asyncio.wait_for
@@ -57,12 +59,9 @@ async def _open_device(url: str, credentials, timeout: float, port: int | None =
         return device, True
     if PLUG_CLASS is None:
         raise RuntimeError("kasa library not available")
-    # No credentials: honour an explicit port override when DeviceConfig is available.
-    if port is not None and HAS_DEVICE_CONNECT:
-        config = _DeviceConfig(host=url, port_override=port,
-                               timeout=max(1, int(timeout) - 2))
-        device = await asyncio.wait_for(_Device.connect(config=config), timeout=timeout)
-        return device, True
+    # No credentials: use the legacy IotPlug/SmartPlug which operates on port 9999.
+    # Device.connect() without credentials cannot authenticate with KLAP devices,
+    # so we do not attempt it here regardless of the port setting.
     return PLUG_CLASS(url), False
 
 
@@ -96,7 +95,8 @@ async def plug_query(url: str, credentials=None, timeout: float = 7.0, port: int
             return None, "Unable to determine plug state"
         return bool(is_on), None
     except Exception as e:
-        return None, f"Failed to query plug at {url}: {e or type(e).__name__}"
+        plug_desc = f"{url}:{port}" if port is not None else url
+        return None, f"Failed to query plug at {plug_desc}: {str(e) or type(e).__name__}"
     finally:
         if needs_disconnect and device is not None:
             try:
@@ -153,7 +153,8 @@ async def plug_control(
             )
             await asyncio.wait_for(device.update(), timeout=timeout_update)
         except Exception as e:
-            last_error = f"Failed to contact plug at {url}: {e or type(e).__name__}"
+            plug_desc = f"{url}:{port}" if port is not None else url
+            last_error = f"Failed to contact plug at {plug_desc}: {str(e) or type(e).__name__}"
             if needs_disconnect and device is not None:
                 try:
                     await device.disconnect()
