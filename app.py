@@ -10,7 +10,8 @@ This file provides the full Flask app used in the conversation:
 - Per-batch append_sample_to_batch_jsonl and forward_to_third_party_if_configured
 - Chart Plotly page and /chart_data/<identifier> endpoint
 - UI routes: dashboard, tilt_config, batch_settings, temp_config, update_temp_config, temp_report,
-  export_temp_csv, scan_kasa_plugs, live_snapshot, reset_logs, exit_system, system_config
+  export_temp_csv, scan_kasa_plugs, live_snapshot, reset_logs, exit_system, system_config,
+  backup_system, restore_system, list_backups, update_system
 - Program entry runs Flask on 0.0.0.0:5001
 """
 
@@ -8036,6 +8037,46 @@ def list_backups():
             'message': f'Failed to list backups: {str(e)}',
             'backups': []
         })
+
+
+@app.route('/update_system', methods=['POST'])
+def update_system():
+    """Pull the latest code from the remote git repository."""
+    try:
+        result = subprocess.run(
+            ['git', 'pull'],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=_HERE
+        )
+        parts = []
+        if result.stdout.strip():
+            parts.append(result.stdout.strip())
+        if result.stderr.strip():
+            parts.append(result.stderr.strip())
+        output = '\n'.join(parts)
+        success = result.returncode == 0
+        already_up_to_date = 'Already up to date' in output or 'Already up-to-date' in output
+
+        return jsonify({
+            'success': success,
+            'output': output,
+            'already_up_to_date': already_up_to_date,
+            'restart_required': success and not already_up_to_date
+        })
+
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'success': False,
+            'output': 'Update timed out after 120 seconds. Please try again or update manually.'
+        }), 500
+
+    except Exception:
+        return jsonify({
+            'success': False,
+            'output': 'Update failed due to an unexpected error. Please update manually.'
+        }), 500
 
 
 @app.route('/exit_system', methods=['GET', 'POST'])
