@@ -8050,7 +8050,12 @@ def update_system():
             timeout=120,
             cwd=_HERE
         )
-        output = (result.stdout + result.stderr).strip()
+        parts = []
+        if result.stdout.strip():
+            parts.append(result.stdout.strip())
+        if result.stderr.strip():
+            parts.append(result.stderr.strip())
+        output = '\n'.join(parts)
         success = result.returncode == 0
         already_up_to_date = 'Already up to date' in output or 'Already up-to-date' in output
 
@@ -8067,10 +8072,10 @@ def update_system():
             'output': 'Update timed out after 120 seconds. Please try again or update manually.'
         }), 500
 
-    except Exception as e:
+    except Exception:
         return jsonify({
             'success': False,
-            'output': f'Update failed: {str(e)}'
+            'output': 'Update failed due to an unexpected error. Please update manually.'
         }), 500
 
 
