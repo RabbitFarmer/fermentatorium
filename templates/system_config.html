@@ -67,7 +67,7 @@
       <button type="button" class="tab-button {% if active_tab == 'main-settings' %}active{% endif %}" onclick="openTab(event, 'main-settings')">Main Settings</button>
       <button type="button" class="tab-button {% if active_tab == 'push-email' %}active{% endif %}" onclick="openTab(event, 'push-email')">PUSH/eMail</button>
       <button type="button" class="tab-button {% if active_tab == 'logging-integrations' %}active{% endif %}" onclick="openTab(event, 'logging-integrations')">Logging Integrations</button>
-      <button type="button" class="tab-button {% if active_tab == 'backup-restore' %}active{% endif %}" onclick="openTab(event, 'backup-restore')">Backup/Restore</button>
+      <button type="button" class="tab-button {% if active_tab == 'backup-restore' %}active{% endif %}" onclick="openTab(event, 'backup-restore')">Backup / Restore / Update</button>
     </div>
 
     <form action="{{ url_for('update_system_config') }}" method="post" class="temp-config-form">
@@ -620,11 +620,11 @@
         </script>
       </div>
 
-      <!-- Backup/Restore Tab -->
+      <!-- Backup / Restore / Update Tab -->
       <div id="backup-restore" class="tab-content {% if active_tab == 'backup-restore' %}active{% endif %}">
-        <h3 style="text-align: center; margin-top: 20px;">System Backup and Restore</h3>
+        <h3 style="text-align: center; margin-top: 20px;">System Backup, Restore, and Update</h3>
         <p style="text-align: center; font-style: italic; color: #666; margin-bottom: 30px;">
-          Backup all programs and data to a USB device, or restore from a previous backup.
+          Backup all programs and data to a USB device, restore from a previous backup, or update to the latest version.
         </p>
         
         <table class="config-table" style="width: 70%; margin: auto;">
@@ -657,6 +657,20 @@
               <div id="backup-list-container" style="margin-top: 10px;">
                 <p style="font-style: italic; color: #666;">Click "Refresh Backup List" to see available backups.</p>
               </div>
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2" style="background-color: #f5f5f5; padding: 15px;">
+              <h4 style="margin: 0 0 10px 0;">Update System</h4>
+              <p style="margin: 0 0 12px 0; color: #555;">
+                Download and apply the latest updates from the GitHub repository.
+                The application will need to be restarted after a successful update.
+              </p>
+              <button type="button" class="btn-primary" onclick="updateSystem()" style="font-size: 16px; padding: 12px 30px;">
+                ⬇ Check for Updates &amp; Update
+              </button>
+              <div id="update-status" style="margin-top: 15px; font-weight: bold;"></div>
+              <pre id="update-output" style="margin-top: 10px; background: #fff; border: 1px solid #ccc; padding: 10px; white-space: pre-wrap; word-break: break-word; display: none; font-size: 0.9em; max-height: 200px; overflow-y: auto;"></pre>
             </td>
           </tr>
         </table>
@@ -848,6 +862,39 @@
       })
       .catch(error => {
         container.innerHTML = '<p style="color: red;">✗ Error: ' + escapeHtml(error.message) + '</p>';
+      });
+    }
+
+    function updateSystem() {
+      const statusDiv = document.getElementById('update-status');
+      const outputPre = document.getElementById('update-output');
+
+      statusDiv.innerHTML = '<span style="color: blue;">Checking for updates, please wait...</span>';
+      outputPre.style.display = 'none';
+      outputPre.textContent = '';
+
+      fetch('/update_system', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        }
+      })
+      .then(response => response.json())
+      .then(data => {
+        outputPre.textContent = data.output || '';
+        outputPre.style.display = data.output ? 'block' : 'none';
+        if (data.success) {
+          if (data.already_up_to_date) {
+            statusDiv.innerHTML = '<span style="color: green;">✓ Already up to date — no changes were downloaded.</span>';
+          } else {
+            statusDiv.innerHTML = '<span style="color: green;">✓ Update applied successfully! Please restart the application for the changes to take effect.</span>';
+          }
+        } else {
+          statusDiv.innerHTML = '<span style="color: red;">✗ Update failed. See output below for details.</span>';
+        }
+      })
+      .catch(error => {
+        statusDiv.innerHTML = '<span style="color: red;">✗ Error: ' + escapeHtml(error.message) + '</span>';
       });
     }
     
