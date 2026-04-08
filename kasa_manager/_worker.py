@@ -208,7 +208,7 @@ async def _async_main(cmd_queue, result_queue, query_result_queue, plug_query, p
 
         if action == "query":
             log_kasa_diag("info", "kasa_manager worker: querying plug",
-                          url=url, controller_id=controller_id, role=role)
+                          url=url, port=port, controller_id=controller_id, role=role)
             is_on, error = await plug_query(url, credentials=credentials, port=port)
             elapsed_ms = round((time.time() - t0) * 1000)
             state = ("on" if is_on else "off") if is_on is not None else None
@@ -217,7 +217,7 @@ async def _async_main(cmd_queue, result_queue, query_result_queue, plug_query, p
                               url=url, state=state, elapsed_ms=elapsed_ms)
             else:
                 log_kasa_diag("error", "kasa_manager worker: query FAILED",
-                              url=url, error=error, elapsed_ms=elapsed_ms)
+                              url=url, port=port, error=error, elapsed_ms=elapsed_ms)
             query_result_queue.put({
                 "request_id":    request_id,
                 "controller_id": controller_id,

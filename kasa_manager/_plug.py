@@ -96,7 +96,8 @@ async def plug_query(url: str, credentials=None, timeout: float = 7.0, port: int
             return None, "Unable to determine plug state"
         return bool(is_on), None
     except Exception as e:
-        return None, f"Failed to query plug at {url}: {e or type(e).__name__}"
+        plug_desc = f"{url}:{port}" if port is not None else url
+        return None, f"Failed to query plug at {plug_desc}: {str(e) or type(e).__name__}"
     finally:
         if needs_disconnect and device is not None:
             try:
@@ -153,7 +154,8 @@ async def plug_control(
             )
             await asyncio.wait_for(device.update(), timeout=timeout_update)
         except Exception as e:
-            last_error = f"Failed to contact plug at {url}: {e or type(e).__name__}"
+            plug_desc = f"{url}:{port}" if port is not None else url
+            last_error = f"Failed to contact plug at {plug_desc}: {str(e) or type(e).__name__}"
             if needs_disconnect and device is not None:
                 try:
                     await device.disconnect()
