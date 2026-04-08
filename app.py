@@ -868,6 +868,16 @@ temp_cfg = temp_cfg_raw
 system_cfg = load_json(SYSTEM_CFG_FILE, {})
 tilt_table = load_tilt_table()  # MAC-keyed device registry (persists calibration by device)
 
+
+def _parse_plug_port(value):
+    """Return an int port in 1-65535, or None if blank/invalid."""
+    try:
+        p = int(value)
+        return p if 1 <= p <= 65535 else None
+    except (TypeError, ValueError):
+        return None
+
+
 def ensure_temp_defaults_for_controller(controller):
     """
     Ensure a single controller dict has all required default fields.
@@ -5717,14 +5727,6 @@ def update_temp_config():
             low_limit = controller.get("low_limit", 0.0)
             high_limit = controller.get("high_limit", 100.0)
         
-        def _parse_port(value):
-            """Return an int port in 1-65535, or None if blank/invalid."""
-            try:
-                p = int(value)
-                return p if 1 <= p <= 65535 else None
-            except (TypeError, ValueError):
-                return None
-
         controller.update({
             "tilt_color": new_tilt_color,
             "low_limit": low_limit,
@@ -5733,8 +5735,8 @@ def update_temp_config():
             "enable_cooling": 'enable_cooling' in data,
             "heating_plug": data.get("heating_plug", ""),
             "cooling_plug": data.get("cooling_plug", ""),
-            "heating_plug_port": _parse_port(data.get("heating_plug_port")),
-            "cooling_plug_port": _parse_port(data.get("cooling_plug_port")),
+            "heating_plug_port": _parse_plug_port(data.get("heating_plug_port")),
+            "cooling_plug_port": _parse_plug_port(data.get("cooling_plug_port")),
             "mode": data.get("mode", controller.get('mode','')),
             "status": data.get("status", controller.get('status',''))
         })
@@ -6599,15 +6601,8 @@ def test_kasa_plugs():
     except (TypeError, ValueError):
         controller_id = 0
 
-    def _parse_port(value):
-        try:
-            p = int(value)
-            return p if 1 <= p <= 65535 else None
-        except (TypeError, ValueError):
-            return None
-
-    heating_port = _parse_port(data.get('heating_port'))
-    cooling_port = _parse_port(data.get('cooling_port'))
+    heating_port = _parse_plug_port(data.get('heating_port'))
+    cooling_port = _parse_plug_port(data.get('cooling_port'))
 
     results = {}
     TEST_TIMEOUT = 15  # seconds — enough for KLAP handshake + update
