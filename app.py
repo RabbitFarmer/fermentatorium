@@ -109,7 +109,7 @@ _HERE = os.path.abspath(os.path.dirname(__file__))
 # devices (e.g. EP25 v2.6+) when KLAP negotiation fails.
 # NOTE: evaluated at module level so it is True in the parent process but
 # False in spawned worker subprocesses (sys.argv differs there), which is
-# the desired behaviour — the flag only affects the parent's call-sites.
+# the desired behavior — the flag only affects the parent's call-sites.
 _FORCE_IOT_PORT = '--plug' in sys.argv
 
 app = Flask(
