@@ -468,8 +468,12 @@
             <label for="heating_plug_port">Heating Plug Port:</label>
             <input id="heating_plug_port" name="heating_plug_port" type="number"
                    value="{{ temp_control.heating_plug_port if temp_control.heating_plug_port is not none else '' }}"
-                   placeholder="auto" min="1" max="65535" style="width:80px;">
+                   placeholder="auto" min="1" max="65535" style="width:80px;"{% if force_iot_port %} disabled aria-disabled="true" aria-describedby="plug-mode-notice-tc"{% endif %}>
+            {% if force_iot_port %}
+            <span id="plug-mode-notice-tc" style="margin-left:8px; color:#b8860b; font-size:0.85em;">⚡ --plug mode: port 9999 forced (field ignored)</span>
+            {% else %}
             <span style="margin-left:8px; color:#666; font-size:0.85em;">Leave blank — auto-detected when credentials are set. Override only for non-standard configurations.</span>
+            {% endif %}
           </div>
 
           <div class="form-row">
@@ -481,8 +485,12 @@
             <label for="cooling_plug_port">Cooling Plug Port:</label>
             <input id="cooling_plug_port" name="cooling_plug_port" type="number"
                    value="{{ temp_control.cooling_plug_port if temp_control.cooling_plug_port is not none else '' }}"
-                   placeholder="auto" min="1" max="65535" style="width:80px;">
+                   placeholder="auto" min="1" max="65535" style="width:80px;"{% if force_iot_port %} disabled aria-disabled="true" aria-describedby="plug-mode-notice-tc"{% endif %}>
+            {% if force_iot_port %}
+            <span style="margin-left:8px; color:#b8860b; font-size:0.85em;">⚡ --plug mode: port 9999 forced (field ignored)</span>
+            {% else %}
             <span style="margin-left:8px; color:#666; font-size:0.85em;">Leave blank — auto-detected when credentials are set. Override only for non-standard configurations.</span>
+            {% endif %}
           </div>
 
           <div class="form-row" style="margin-top:12px;">

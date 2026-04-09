@@ -103,6 +103,15 @@ except Exception:
 # started from a different working directory.
 _HERE = os.path.abspath(os.path.dirname(__file__))
 
+# --plug command-line switch: forces all Kasa plugs to use the legacy IOT
+# protocol on port 9999, bypassing KLAP discovery and credential-based
+# authentication entirely.  Useful as a workaround for newer KLAP-capable
+# devices (e.g. EP25 v2.6+) when KLAP negotiation fails.
+# NOTE: evaluated at module level so it is True in the parent process but
+# False in spawned worker subprocesses (sys.argv differs there), which is
+# the desired behavior — the flag only affects the parent's call-sites.
+_FORCE_IOT_PORT = '--plug' in sys.argv
+
 app = Flask(
     __name__,
     template_folder=os.path.join(_HERE, 'templates'),
@@ -3502,7 +3511,8 @@ def control_heating(state, controller):
         print(f"[TEMP_CONTROL] Skipping heating {state} command (redundant or rate-limited)")
         return
     cid = controller.get('controller_id', 0)
-    port = controller.get('heating_plug_port')
+    # In --plug mode all plugs use IOT/port 9999; ignore any per-controller port override.
+    port = None if _FORCE_IOT_PORT else controller.get('heating_plug_port')
     print(f"[TEMP_CONTROL] Sending heating {state.upper()} command to {url}")
     # Log the command being sent
     log_kasa_command('heating', url, state)
@@ -3597,7 +3607,8 @@ def control_cooling(state, controller):
         print(f"[TEMP_CONTROL] Skipping cooling {state} command (redundant or rate-limited)")
         return
     cid = controller.get('controller_id', 0)
-    port = controller.get('cooling_plug_port')
+    # In --plug mode all plugs use IOT/port 9999; ignore any per-controller port override.
+    port = None if _FORCE_IOT_PORT else controller.get('cooling_plug_port')
     print(f"[TEMP_CONTROL] Sending cooling {state.upper()} command to {url}")
     # Log the command being sent
     log_kasa_command('cooling', url, state)
@@ -4374,7 +4385,8 @@ def sync_plug_states_at_startup():
         if enable_heating and heating_url:
             log_kasa_diag('info', 'Startup plug sync: querying heating plug',
                           controller_id=cid, url=heating_url)
-            heating_port = controller.get("heating_plug_port")
+            # In --plug mode skip per-controller port; IotPlug defaults to 9999.
+            heating_port = None if _FORCE_IOT_PORT else controller.get("heating_plug_port")
             is_on, error, elapsed_ms = _query_with_retry(heating_url, cid, 'heating',
                                                          port=heating_port)
             if error is None:
@@ -4395,7 +4407,8 @@ def sync_plug_states_at_startup():
         if enable_cooling and cooling_url:
             log_kasa_diag('info', 'Startup plug sync: querying cooling plug',
                           controller_id=cid, url=cooling_url)
-            cooling_port = controller.get("cooling_plug_port")
+            # In --plug mode skip per-controller port; IotPlug defaults to 9999.
+            cooling_port = None if _FORCE_IOT_PORT else controller.get("cooling_plug_port")
             is_on, error, elapsed_ms = _query_with_retry(cooling_url, cid, 'cooling',
                                                          port=cooling_port)
             if error is None:
@@ -4850,7 +4863,8 @@ def system_config():
                          external_urls=external_urls,
                          predefined_field_maps=get_predefined_field_maps(),
                          active_tab=active_tab,
-                         error_msg=request.args.get('error', ''))
+                         error_msg=request.args.get('error', ''),
+                         force_iot_port=_FORCE_IOT_PORT)
 
 @app.route('/update_system_config', methods=['POST'])
 def update_system_config():
@@ -4992,7 +5006,8 @@ def update_system_config():
     save_json(SYSTEM_CFG_FILE, system_cfg)
 
     # Restart the kasa worker if credentials changed so it picks up new values.
-    if _kasa_creds_changed and kasa_manager is not None and kasa_manager.is_alive():
+    # In --plug mode credentials are never used, so restart is not needed.
+    if _kasa_creds_changed and kasa_manager is not None and kasa_manager.is_alive() and not _FORCE_IOT_PORT:
         try:
             kasa_manager.restart(
                 kasa_username=system_cfg.get('kasa_username', ''),
@@ -5654,7 +5669,8 @@ def temp_config():
         active_tilt_devices=active_tilt_devices,
         assigned_tilt_label=assigned_tilt_label,
         heating_last_activity=heating_last_activity,
-        cooling_last_activity=cooling_last_activity
+        cooling_last_activity=cooling_last_activity,
+        force_iot_port=_FORCE_IOT_PORT
     )
 
 
@@ -6415,16 +6431,17 @@ def scan_kasa_plugs():
         controller_id = 0
     try:
         from kasa import Discover
-        _kasa_user = system_cfg.get('kasa_username', '').strip()
-        _kasa_pass = system_cfg.get('kasa_password', '').strip()
         _discover_kwargs = {}
-        if _kasa_user and _kasa_pass:
-            try:
-                from kasa import Credentials as _KasaCredentials
-                _discover_kwargs['credentials'] = _KasaCredentials(
-                    username=_kasa_user, password=_kasa_pass)
-            except Exception:
-                pass
+        if not _FORCE_IOT_PORT:
+            _kasa_user = system_cfg.get('kasa_username', '').strip()
+            _kasa_pass = system_cfg.get('kasa_password', '').strip()
+            if _kasa_user and _kasa_pass:
+                try:
+                    from kasa import Credentials as _KasaCredentials
+                    _discover_kwargs['credentials'] = _KasaCredentials(
+                        username=_kasa_user, password=_kasa_pass)
+                except Exception:
+                    pass
         found_devices = _run_async_in_thread(
             asyncio.wait_for(Discover.discover(**_discover_kwargs), timeout=15), timeout=15
         )
@@ -6605,17 +6622,23 @@ def test_kasa_plugs():
     heating_port = _parse_plug_port(data.get('heating_port'))
     cooling_port = _parse_plug_port(data.get('cooling_port'))
 
+    # In --plug mode all plugs use IOT/port 9999; ignore per-request port values.
+    if _FORCE_IOT_PORT:
+        heating_port = None
+        cooling_port = None
+
     # Check whether TP-Link credentials are configured.  Newer Kasa devices
     # (EP25 v2.6+) use the KLAP protocol which requires authentication; without
     # credentials the library falls back to the legacy IotPlug path which only
     # works with older devices (HS100, HS105, …) on port 9999.
+    # In --plug mode credentials are intentionally not used, so skip this warning.
     has_credentials = bool(
         system_cfg.get('kasa_username', '').strip() and
         system_cfg.get('kasa_password', '').strip()
     )
 
     results = {}
-    if not has_credentials:
+    if not has_credentials and not _FORCE_IOT_PORT:
         results['credentials_warning'] = (
             'No TP-Link credentials configured. '
             'Newer Kasa plugs (EP25 v2.6+ / KLAP) require your TP-Link account '
@@ -8352,9 +8375,17 @@ if __name__ == '__main__':
     # Start the KasaManager (single subprocess for all controllers/plugs).
     if kasa_manager is not None:
         try:
-            _kasa_user = system_cfg.get('kasa_username', '').strip()
-            _kasa_pass = system_cfg.get('kasa_password', '').strip()
-            kasa_manager.start(kasa_username=_kasa_user, kasa_password=_kasa_pass)
+            if _FORCE_IOT_PORT:
+                # --plug mode: force all plugs onto the legacy IOT protocol (port 9999).
+                # Credentials are intentionally not passed so python-kasa uses IotPlug
+                # for every device, bypassing KLAP discovery entirely.
+                print("[LOG] --plug mode active: starting KasaManager without credentials (IOT/port 9999 only)")
+                log_kasa_diag('info', 'KasaManager starting in --plug (IOT) mode — KLAP credentials suppressed')
+                kasa_manager.start(kasa_username="", kasa_password="")
+            else:
+                _kasa_user = system_cfg.get('kasa_username', '').strip()
+                _kasa_pass = system_cfg.get('kasa_password', '').strip()
+                kasa_manager.start(kasa_username=_kasa_user, kasa_password=_kasa_pass)
             print("[LOG] KasaManager started")
             log_kasa_diag('info', 'KasaManager worker subprocess started',
                           pid=kasa_manager.worker_pid)
