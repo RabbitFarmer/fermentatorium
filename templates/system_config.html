@@ -168,11 +168,20 @@
             <td colspan="2">
               <div style="background:#f0f4ff;border:1px solid #c0ccee;border-radius:6px;padding:10px 14px;margin-top:8px;">
                 <b>Kasa Account Credentials</b> <span style="font-weight:normal;color:#555;">(required for EP25 and other newer devices with hardware v2.6+)</span>
+                {% if force_iot_port %}
+                <div style="background:#fff8e1;border:1px solid #f5c518;border-radius:4px;padding:8px 12px;margin-top:8px;color:#7a5c00;">
+                  <b>⚡ --plug mode active</b> — The application was started with <code>--plug</code>, which forces all
+                  Kasa plugs to use the legacy IOT protocol on port 9999. KLAP authentication is suspended.
+                  Credentials entered here are saved but not used until <code>--plug</code> is removed from the
+                  startup command.
+                </div>
+                {% else %}
                 <div style="font-size:0.85em;color:#555;margin-top:6px;">
                   Newer Kasa smart plugs (e.g. EP25 hardware v2.6+) require your TP-Link / Kasa account
                   credentials to connect. Enter the same email and password you use in the Kasa mobile app.
                   Older devices that work without authentication do not require these fields.
                 </div>
+                {% endif %}
               </div>
             </td>
           </tr>
@@ -181,14 +190,14 @@
               <label for="kasa_username"><b>Kasa Account Email</b></label>
               <div style="font-size:0.85em;color:#666;margin-top:4px;">TP-Link / Kasa app account email address</div>
             </td>
-            <td><input type="email" name="kasa_username" id="kasa_username" value="{{ system_settings.get('kasa_username', '') }}" placeholder="your@email.com" style="width:100%;box-sizing:border-box;"></td>
+            <td><input type="email" name="kasa_username" id="kasa_username" value="{{ system_settings.get('kasa_username', '') }}" placeholder="your@email.com" style="width:100%;box-sizing:border-box;"{% if force_iot_port %} disabled{% endif %}></td>
           </tr>
           <tr>
             <td>
               <label for="kasa_password"><b>Kasa Account Password</b></label>
               <div style="font-size:0.85em;color:#666;margin-top:4px;">Leave blank to keep the existing password</div>
             </td>
-            <td><input type="password" name="kasa_password" id="kasa_password" value="" placeholder="Enter new password to update" style="width:100%;box-sizing:border-box;" autocomplete="current-password"></td>
+            <td><input type="password" name="kasa_password" id="kasa_password" value="" placeholder="Enter new password to update" style="width:100%;box-sizing:border-box;" autocomplete="current-password"{% if force_iot_port %} disabled{% endif %}></td>
           </tr>
         </table>
 
