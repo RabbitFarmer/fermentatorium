@@ -611,16 +611,20 @@
           {# Support composite keys like "Orange:AA:BB:CC:DD:EE:FF" — fall back to base colour #}
           {% set tilt_base = tilt_color.split(':')[0] if ':' in tilt_color else tilt_color %}
           {% set tilt = live_tilts.get(tilt_color) or live_tilts.get(tilt_base) %}
-          {% if tilt_color and tilt %}
+          {# Render the TC card whenever a tilt is assigned, even if it is temporarily
+             offline (tilt=None).  Use COLOR_MAP for the banner colour in that case so
+             the card still looks correct and the user can see the controller status. #}
+          {% if tilt_color %}
             {% set cid  = controller.controller_id %}
-            {% set use_dark_text = tilt.color_code in ['#ffff00','#ffc0cb','#00ff00'] %}
+            {% set color_code = tilt.color_code if tilt else (COLOR_MAP.get(tilt_base, '#888')) %}
+            {% set use_dark_text = color_code in ['#ffff00','#ffc0cb','#00ff00'] %}
             <article class="tilt-card temp-ctrl-card"
                      data-controller="{{ cid }}"
                      data-for-tilt="{{ tilt_base }}">
 
               <!-- Coloured header (mirrors the tilt banner colour; clickable → temp summary) -->
               <div class="tc-header"
-                   style="background-color:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};"
+                   style="background-color:{{ color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};"
                    onclick="window.location='{{ url_for('temp_summary', controller_id=cid) }}'"
                    title="View Temperature Control summary and chart">
                 TEMP CONTROLLER #{{ cid + 1 }}
@@ -641,7 +645,7 @@
                   <div style="text-align:right;">
                     <div class="tc-value-box">
                       <span id="tc_high_limit_{{ cid }}">
-                        {%- if controller.temp_control_active and controller.get('high_limit') is not none %}{{"%.1f" % controller.high_limit}}{%- else %}--{%- endif %}
+                        {%- if controller.get('high_limit') is not none %}{{"%.1f" % controller.high_limit}}{%- else %}--{%- endif %}
                       </span><span class="tc-value-unit"> F</span>
                     </div>
                   </div>
@@ -659,7 +663,7 @@
                   <div style="text-align:right;">
                     <div class="tc-value-box">
                       <span id="tc_low_limit_{{ cid }}">
-                        {%- if controller.temp_control_active and controller.get('low_limit') is not none %}{{"%.1f" % controller.low_limit}}{%- else %}--{%- endif %}
+                        {%- if controller.get('low_limit') is not none %}{{"%.1f" % controller.low_limit}}{%- else %}--{%- endif %}
                       </span><span class="tc-value-unit"> F</span>
                     </div>
                   </div>
@@ -678,7 +682,7 @@
 
               <!-- Coloured footer: toggle switch + temp chart (top row), then date/time (full width) -->
               <div class="tc-footer"
-                   style="background:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};">
+                   style="background:{{ color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};">
                 <div class="tc-ftr-top">
                   <div class="footer-toggle-container">
                     <label class="switch" title="Enable or disable temperature control">
@@ -695,7 +699,7 @@
                   </div>
                   <a class="chart-pill tc-chart-pill"
                      href="{{ url_for('chart_plotly_for', tilt_color='TempControl') }}"
-                     style="color:{{ tilt.color_code }};">CHART</a>
+                     style="color:{{ color_code }};">CHART</a>
                      {# 'TempControl' is the special identifier for the temperature control chart route #}
                 </div>
                 <div class="tc-ftr-ts">
@@ -990,13 +994,26 @@
       const container = document.querySelector('.tiltcard-container');
       if (!container) return;
 
+      // Remove dynamically-created unassigned tilt cards that are no longer in the
+      // live snapshot (e.g. a blue tilt that briefly appeared and then went away).
+      // Server-rendered cards (those present at page-load time) are left alone.
+      container.querySelectorAll('.tilt-card:not(.temp-ctrl-card)[data-dynamic="true"]').forEach(function(card) {
+        const color = card.getAttribute('data-tilt');
+        if (color && !live[color]) {
+          card.remove();
+          positionTempCards();
+        }
+      });
+
       Object.keys(live).forEach(function(color) {
         const safe  = safeIdColor(color);
         const entry = live[color];
 
         // Create card if it doesn't exist yet
         if (!document.querySelector(`[data-tilt="${color}"]`)) {
-          container.appendChild(createTiltCard(color, entry));
+          const newCard = createTiltCard(color, entry);
+          newCard.setAttribute('data-dynamic', 'true');   // mark as JS-created
+          container.appendChild(newCard);
           positionTempCards();   // re-anchor TC cards after grid changes
         }
 
@@ -1158,11 +1175,12 @@
         }
 
       } else {
-        // Controller OFF — blank values
-        if (modeEl)      modeEl.textContent      = '--';
-        if (curBox)      curBox.textContent      = '--';
-        if (highLimitEl) highLimitEl.textContent = '--';
-        if (lowLimitEl)  lowLimitEl.textContent  = '--';
+        // Controller OFF — blank live values but show configured limits so the
+        // user can see their settings are saved even before turning the controller on.
+        if (modeEl) modeEl.textContent = '--';
+        if (curBox) curBox.textContent = '--';
+        if (highLimitEl) highLimitEl.textContent = (tc.high_limit != null) ? Number(tc.high_limit).toFixed(1) : '--';
+        if (lowLimitEl)  lowLimitEl.textContent  = (tc.low_limit  != null) ? Number(tc.low_limit).toFixed(1)  : '--';
       }
     }
 
