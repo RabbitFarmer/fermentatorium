@@ -63,23 +63,28 @@ This project is a Raspberry Pi-based fermentation monitor and temperature contro
 ## Installation
 ### One-Command Install (Recommended)
 
-For a fresh Raspberry Pi OS installation, run:
+For a fresh Raspberry Pi OS installation, run **as your normal (non-root) user**:
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/RabbitFarmer/fermentatorium/main/installer/automated-install.sh | sudo bash
 ```
 
+> **Important:** run the command above from your regular user account with `sudo` (e.g. `pi`, `flc3`).
+> Do **not** log in directly as root — the installer uses `$SUDO_USER` to determine which user will
+> own the repo checkout and run the service.  If `$SUDO_USER` is unset (e.g. you are already logged
+> in as root) the service will run as root, which is not recommended.
+
 This will:
 
-- Install OS dependencies
+- Install OS dependencies (`git`, `python3`, `python3-venv`, `bluez`, …)
+- Clone the repository to `/tmp/fermentatorium-installer/fermentatorium` (owned by your user)
 - Add your user to the `bluetooth` group for BLE (Tilt) access
 - Create a Python virtual environment inside the repo and install `requirements.txt`
-- Install and enable `fermentatorium.service` (systemd), running directly from the repo directory
+- Install and enable `fermentatorium.service` (systemd), running directly from the cloned directory as your user
 
 After installation, open:
 
-- `http://<raspberry-pi-ip>:5001`(example: 192.168.0.120:5001)
-  
+- `http://<raspberry-pi-ip>:5001` (example: `http://192.168.0.120:5001`)
 
 ### Quick Installation (Git Clone)
 
@@ -88,6 +93,9 @@ git clone https://github.com/RabbitFarmer/fermentatorium.git
 cd fermentatorium
 sudo ./install.sh
 ```
+
+> **Note:** clone the repo as your normal user first, then run `sudo ./install.sh`.
+> `install.sh` detects the invoking user via `$SUDO_USER` and runs the service as that user.
 
 ### Service Management
 

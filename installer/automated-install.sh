@@ -25,6 +25,12 @@ fresh_clone() {
   rm -rf "${WORKDIR}"
   mkdir -p "${WORKDIR}"
   git clone --depth 1 "${REPO_URL}" "${REPO_DIR}"
+  # If running via `sudo`, the checkout is owned by root but install.sh will
+  # create the venv as SUDO_USER (the non-root invoking user).  Fix ownership
+  # now so that user can write into the repo directory.
+  if [[ -n "${SUDO_USER:-}" ]]; then
+    chown -R "${SUDO_USER}:${SUDO_USER}" "${WORKDIR}"
+  fi
 }
 
 run_install() {
