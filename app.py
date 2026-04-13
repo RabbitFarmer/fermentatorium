@@ -153,9 +153,15 @@ TEMP_CONTROL_DIR = os.path.dirname(LOG_PATH)  # temp_control/ directory
 _TEMP_CONTROL_LOG_RE = re.compile(r'^temp_control_log[a-z_]*\.jsonl$')
 
 def _get_control_log_path(tilt_color):
-    """Return the per-color temp control log path; falls back to LOG_PATH if no color."""
+    """Return the per-color temp control log path; falls back to LOG_PATH if no color.
+
+    Strips any MAC suffix from composite keys (e.g. "Orange:AA:BB:CC") so that
+    all events for a given colour go to the same file regardless of whether the
+    controller was configured with a plain or composite tilt_color.
+    """
     if tilt_color:
-        safe = tilt_color.lower().replace(' ', '_')
+        base = tilt_color.split(':', 1)[0]   # strip MAC qualifier if present
+        safe = base.lower().replace(' ', '_')
         return os.path.join(TEMP_CONTROL_DIR, f'temp_control_log_{safe}.jsonl')
     return LOG_PATH
 
@@ -769,6 +775,18 @@ def localtime_filter(iso_str):
     except Exception:
         return iso_str
 
+@app.template_filter('ferm_days')
+def ferm_days_filter(date_str):
+    """Return the number of fermentation days from a YYYY-MM-DD date string to today."""
+    try:
+        if not date_str:
+            return None
+        start = datetime.strptime(str(date_str).strip(), '%Y-%m-%d').date()
+        delta = (datetime.utcnow().date() - start).days + 1
+        return max(1, delta)
+    except Exception:
+        return None
+
 # --- Config migration from single to 3-controller format ------------------
 def migrate_temp_config_to_multi_controller(old_cfg):
     """
@@ -1157,6 +1175,7 @@ def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=Fals
         "original_gravity": cfg.get("actual_og", 0),
         "mac_address": resolved_mac,
         "is_pro": is_pro,
+        "ferm_start_date": cfg.get("ferm_start_date", ""),
         # Calibration
         "temp_variance":    temp_variance,
         "gravity_variance": gravity_variance,
@@ -3830,13 +3849,25 @@ def temperature_control_logic_single(temp_cfg):
     else:
         midpoint = None
 
+    # Power-off variance: when only heating OR only cooling is active, shift the
+    # turn-off threshold inward to prevent overshoot.
+    #   Heating:  turns off at (high_limit - variance)  [stops before getting too hot]
+    #   Cooling:  turns off at (low_limit  + variance)  [stops before getting too cold]
+    # When both H+C are active the midpoint is used instead (unchanged).
+    power_off_variance = float(temp_cfg.get("power_off_variance") or 0)
+
     # Heating control:
     # - Turn ON when temp <= low_limit
-    # - Turn OFF at midpoint (both H+C) or high_limit (heating only)
+    # - Turn OFF at midpoint (both H+C) or (high_limit - variance) (heating only)
     # Note: if the off-threshold is None (no high limit configured), heating will not
     # turn off between readings — this matches the original single-mode behaviour.
     if enable_heat:
-        heat_off_threshold = midpoint if both_active else high
+        if both_active:
+            heat_off_threshold = midpoint
+        elif high is not None:
+            heat_off_threshold = high - power_off_variance
+        else:
+            heat_off_threshold = high
 
         if low is not None and temp <= low:
             # Temperature at or below low limit - turn heating ON
@@ -3864,11 +3895,16 @@ def temperature_control_logic_single(temp_cfg):
 
     # Cooling control:
     # - Turn ON when temp >= high_limit
-    # - Turn OFF at midpoint (both H+C) or low_limit (cooling only)
+    # - Turn OFF at midpoint (both H+C) or (low_limit + variance) (cooling only)
     # Note: if the off-threshold is None (no low limit configured), cooling will not
     # turn off between readings — this matches the original single-mode behaviour.
     if enable_cool:
-        cool_off_threshold = midpoint if both_active else low
+        if both_active:
+            cool_off_threshold = midpoint
+        elif low is not None:
+            cool_off_threshold = low + power_off_variance
+        else:
+            cool_off_threshold = low
 
         if high is not None and temp >= high:
             # Temperature at or above high limit - turn cooling ON
@@ -5801,7 +5837,19 @@ def update_temp_config():
             # Don't update - keep existing values
             low_limit = controller.get("low_limit", 0.0)
             high_limit = controller.get("high_limit", 100.0)
-        
+
+        # Parse optional power-off variance (non-negative float, default 0).
+        # Cooling turns off at low_limit + variance; heating turns off at high_limit - variance.
+        power_off_variance_value = data.get('power_off_variance', '').strip()
+        if power_off_variance_value:
+            try:
+                power_off_variance = max(0.0, float(power_off_variance_value))
+            except (ValueError, TypeError):
+                power_off_variance = controller.get("power_off_variance", 0.0)
+                print(f"[LOG] Invalid power_off_variance value '{power_off_variance_value}', keeping existing {power_off_variance}")
+        else:
+            power_off_variance = 0.0
+
         # Never wipe an existing tilt assignment with an empty submission.
         # This can happen when the temp-config page is visited while the mini-pro
         # is offline: the "Active Tilt Devices" group is empty, no option matches
@@ -5814,6 +5862,7 @@ def update_temp_config():
             "tilt_color": new_tilt_color,
             "low_limit": low_limit,
             "high_limit": high_limit,
+            "power_off_variance": power_off_variance,
             "enable_heating": 'enable_heating' in data,
             "enable_cooling": 'enable_cooling' in data,
             "heating_plug": data.get("heating_plug", ""),
@@ -6814,6 +6863,7 @@ def live_snapshot():
             "color_code": info.get("color_code"),
             "mac_address": info.get("mac_address", ""),
             "is_pro": info.get("is_pro", False),
+            "ferm_start_date": info.get("ferm_start_date", ""),
             "temp_variance": info.get("temp_variance", 0),
             "gravity_variance": info.get("gravity_variance", 0),
             "adj_temp_f": info.get("adj_temp_f"),
@@ -6910,12 +6960,24 @@ def chart_plotly_index():
 @app.route('/chart_plotly/<tilt_color>')
 def chart_plotly_for(tilt_color):
     # Allow "TempControl" as a special identifier for temperature control.
-    # Also allow composite keys ("Color:MAC") — resolve to the base color for config lookup.
+    # Also allow composite keys ("Color:MAC") — resolve to the base color for config lookup
+    # and template rendering (tilt_cfg uses plain colour keys).
     if tilt_color and tilt_color != "TempControl" and tilt_key_base(tilt_color) not in tilt_cfg:
         abort(404)
+    # Resolve composite keys to base color so tilt_cfg[tilt_color] works in the template.
+    if tilt_color and tilt_color != "TempControl":
+        tilt_color = tilt_key_base(tilt_color)
+    # For TempControl charts, an optional tc_color query param filters to one controller.
+    # Validate it against known tilt colours to prevent injection.
+    tc_color = request.args.get('tc_color', '').strip()
+    if tc_color:
+        tc_color = tilt_key_base(tc_color)  # strip composite suffix if present
+        if tc_color not in tilt_cfg:
+            tc_color = ''  # ignore unknown colours; fall back to all-controller view
     return render_template(
         'chart_plotly.html',
         tilt_color=tilt_color,
+        tc_color=tc_color,
         tilt_cfg=tilt_cfg,
         system_settings=system_cfg
     )
@@ -6961,12 +7023,20 @@ def chart_data_for(tilt_color):
 
     # Handle "TempControl" as temperature control monitor data
     if tilt_color == "TempControl":
+        # Optional tc_color param restricts data to one controller's log file.
+        tc_color_filter = tilt_key_base(request.args.get('tc_color', '').strip())
+
         # Collect all data points (file events + in-memory readings)
         all_points = []
         matched = 0
         
-        # First, read event-based entries from all per-color log files
-        for _log_path in _list_all_control_log_files():
+        # First, read event-based entries from the relevant log file(s).
+        # When tc_color_filter is set, only read that colour's log; otherwise read all.
+        if tc_color_filter:
+            _candidate_paths = [_get_control_log_path(tc_color_filter)]
+        else:
+            _candidate_paths = _list_all_control_log_files()
+        for _log_path in _candidate_paths:
             if not os.path.exists(_log_path):
                 continue
             try:
@@ -7025,8 +7095,11 @@ def chart_data_for(tilt_color):
             except Exception as e:
                 print(f"[LOG] Error reading temp control log {_log_path} for chart_data: {e}")
         
-        # Add in-memory periodic readings
+        # Add in-memory periodic readings (filter by tc_color_filter if set)
         for reading in temp_reading_buffer:
+            reading_color = tilt_key_base(reading.get('tilt_color', ''))
+            if tc_color_filter and reading_color != tc_color_filter:
+                continue
             matched += 1
             all_points.append(reading)
         
@@ -7634,39 +7707,50 @@ def export_batch_csv():
 def archive_batch():
     """Archive a batch file."""
     try:
-        brewid = request.form.get('brewid')
-        if not brewid:
-            return redirect(url_for('log_management', error='No batch ID specified'))
-        
-        # Security: validate brewid format
-        import re
-        if not re.match(r'^[a-zA-Z0-9\-_]+$', brewid):
-            return redirect(url_for('log_management', error='Invalid batch ID format'))
-        
-        # Find batch file
-        batch_file = os.path.join(BATCHES_DIR, f'{brewid}.jsonl')
-        if not os.path.exists(batch_file):
-            # Try legacy format
-            legacy_files = glob_func(f'{BATCHES_DIR}/*{brewid}*.jsonl')
-            if legacy_files:
-                batch_file = legacy_files[0]
+        brewid = request.form.get('brewid', '').strip()
+        filename_param = request.form.get('filename', '').strip()
+
+        # Resolve file path: prefer explicit filename, fall back to brewid lookup.
+        batch_file = None
+        batches_real = os.path.realpath(BATCHES_DIR)
+        if filename_param:
+            if os.path.basename(filename_param) != filename_param or not filename_param.endswith('.jsonl'):
+                return redirect(url_for('log_management', error='Invalid batch filename'))
+            candidate = os.path.realpath(os.path.join(BATCHES_DIR, filename_param))
+            if candidate.startswith(batches_real + os.sep) and os.path.exists(candidate):
+                batch_file = candidate
+
+        if batch_file is None:
+            if not brewid:
+                return redirect(url_for('log_management', error='No batch ID specified'))
+            import re
+            if not re.match(r'^[a-zA-Z0-9\-_]+$', brewid):
+                return redirect(url_for('log_management', error='Invalid batch ID format'))
+            candidate = os.path.realpath(os.path.join(BATCHES_DIR, f'{brewid}.jsonl'))
+            if candidate.startswith(batches_real + os.sep) and os.path.exists(candidate):
+                batch_file = candidate
             else:
-                return redirect(url_for('log_management', error=f'Batch file not found for ID: {brewid}'))
-        
+                legacy_files = glob_func(f'{BATCHES_DIR}/*{brewid}*.jsonl')
+                if legacy_files:
+                    batch_file = legacy_files[0]
+
+        if batch_file is None:
+            return redirect(url_for('log_management', error=f'Batch file not found'))
+
         # Create archive directory
         archive_dir = os.path.join(BATCHES_DIR, 'archive')
         os.makedirs(archive_dir, exist_ok=True)
-        
+
         # Move file to archive with timestamp
         timestamp = datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
-        filename = os.path.basename(batch_file)
-        archive_filename = f"{filename}.{timestamp}.archive"
+        fn = os.path.basename(batch_file)
+        archive_filename = f"{fn}.{timestamp}.archive"
         archive_path = os.path.join(archive_dir, archive_filename)
-        
+
         shutil.move(batch_file, archive_path)
-        print(f"[LOG] Archived batch {brewid} to {archive_path}")
-        
-        return redirect(url_for('log_management', success=f'Batch {brewid} archived'))
+        print(f"[LOG] Archived batch file {fn} to {archive_path}")
+
+        return redirect(url_for('log_management', success=f'Batch {fn} archived'))
     except Exception as e:
         print(f"[LOG] Error archiving batch: {e}")
         return redirect(url_for('log_management', error=f'Error archiving batch: {str(e)}'))
@@ -7872,29 +7956,43 @@ def cleanup_batch_duplicates():
 def delete_batch():
     """Delete a batch file."""
     try:
-        brewid = request.form.get('brewid')
-        if not brewid:
-            return redirect(url_for('log_management', error='No batch ID specified'))
-        
-        # Security: validate brewid format
-        import re
-        if not re.match(r'^[a-zA-Z0-9\-_]+$', brewid):
-            return redirect(url_for('log_management', error='Invalid batch ID format'))
-        
-        # Find batch file
-        batch_file = os.path.join(BATCHES_DIR, f'{brewid}.jsonl')
-        if not os.path.exists(batch_file):
-            # Try legacy format
-            legacy_files = glob_func(f'{BATCHES_DIR}/*{brewid}*.jsonl')
-            if legacy_files:
-                batch_file = legacy_files[0]
+        brewid = request.form.get('brewid', '').strip()
+        filename = request.form.get('filename', '').strip()
+
+        # Resolve file path: prefer explicit filename, fall back to brewid lookup.
+        batch_file = None
+        batches_real = os.path.realpath(BATCHES_DIR)
+        if filename:
+            # Security: only allow plain filenames (no path traversal)
+            if os.path.basename(filename) != filename or not filename.endswith('.jsonl'):
+                return redirect(url_for('log_management', error='Invalid batch filename'))
+            candidate = os.path.realpath(os.path.join(BATCHES_DIR, filename))
+            if candidate.startswith(batches_real + os.sep) and os.path.exists(candidate):
+                batch_file = candidate
+
+        if batch_file is None:
+            if not brewid:
+                return redirect(url_for('log_management', error='No batch ID specified'))
+            # Security: validate brewid format
+            import re
+            if not re.match(r'^[a-zA-Z0-9\-_]+$', brewid):
+                return redirect(url_for('log_management', error='Invalid batch ID format'))
+            candidate = os.path.realpath(os.path.join(BATCHES_DIR, f'{brewid}.jsonl'))
+            if candidate.startswith(batches_real + os.sep) and os.path.exists(candidate):
+                batch_file = candidate
             else:
-                return redirect(url_for('log_management', error=f'Batch file not found for ID: {brewid}'))
-        
+                legacy_files = glob_func(f'{BATCHES_DIR}/*{brewid}*.jsonl')
+                if legacy_files:
+                    batch_file = legacy_files[0]
+
+        if batch_file is None:
+            return redirect(url_for('log_management', error=f'Batch file not found'))
+
+        label = os.path.basename(batch_file)
         os.remove(batch_file)
-        print(f"[LOG] Deleted batch file: {brewid}")
-        
-        return redirect(url_for('log_management', success=f'Batch {brewid} deleted'))
+        print(f"[LOG] Deleted batch file: {label}")
+
+        return redirect(url_for('log_management', success=f'Batch {label} deleted'))
     except Exception as e:
         print(f"[LOG] Error deleting batch: {e}")
         return redirect(url_for('log_management', error=f'Error deleting batch: {str(e)}'))

@@ -678,9 +678,6 @@
               <button type="button" class="btn-primary" onclick="updateSystem()" style="font-size: 16px; padding: 12px 30px;">
                 ⬇ Update Now
               </button>
-              <button type="button" onclick="confirmRestart()" style="font-size: 16px; padding: 12px 30px; margin-left: 16px; background-color: #c91f1f; color: #fff; border: none; border-radius: 4px; cursor: pointer;">
-                🔁 Restart
-              </button>
               <div id="update-status" style="margin-top: 15px; font-weight: bold;"></div>
               <pre id="update-output" style="margin-top: 10px; background: #fff; border: 1px solid #ccc; padding: 10px; white-space: pre-wrap; word-break: break-word; display: none; font-size: 0.9em; max-height: 200px; overflow-y: auto;"></pre>
             </td>
@@ -1139,46 +1136,7 @@
       }
     });
 
-    function confirmRestart() {
-      document.getElementById('restart-modal').style.display = 'flex';
-    }
-    function closeRestartModal() {
-      document.getElementById('restart-modal').style.display = 'none';
-    }
-    function restartSystem() {
-      closeRestartModal();
-      const statusDiv = document.getElementById('restart-status');
-      statusDiv.innerHTML = '<span style="color:#c91f1f;font-weight:bold;">Restarting… the page will become unavailable briefly. Reload in ~30 seconds.</span>';
-      fetch('/restart_system', { method: 'POST' })
-        .then(r => r.json())
-        .then(data => {
-          if (!data.success) {
-            statusDiv.innerHTML = '<span style="color:red;">Restart failed: ' + (data.error || 'unknown error') + '</span>';
-          }
-        })
-        .catch(() => {
-          // Expected — server went down
-        });
-    }
   </script>
 
-  <!-- Restart confirmation modal -->
-  <div id="restart-modal"
-       style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;
-              background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
-    <div style="background:#fff;border-radius:8px;padding:32px 28px;max-width:380px;width:90%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.3);">
-      <h3 style="margin:0 0 12px;color:#c91f1f;">Restart Computer?</h3>
-      <p style="margin:0 0 20px;color:#444;">This will immediately restart the system. The program will be unavailable for about 30 seconds.</p>
-      <button onclick="restartSystem()"
-              style="background:#c91f1f;color:#fff;border:none;border-radius:4px;padding:10px 28px;font-size:16px;cursor:pointer;margin-right:12px;">
-        Yes, Restart
-      </button>
-      <button onclick="closeRestartModal()"
-              style="background:#888;color:#fff;border:none;border-radius:4px;padding:10px 28px;font-size:16px;cursor:pointer;">
-        Cancel
-      </button>
-    </div>
-  </div>
-  <div id="restart-status" style="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9998;"></div>
 </body>
 </html>

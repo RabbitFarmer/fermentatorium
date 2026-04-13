@@ -101,7 +101,6 @@
       </div>
 
       <div class="section">
-        <div class="section-title">Application Logs</div>
         {% for log_file in app_logs %}
         <div class="file-row">
           <div class="file-info">
@@ -142,10 +141,12 @@
               </form>
               <form action="/archive_batch" method="POST" style="display:inline;" onsubmit="return confirm('Archive batch?');">
                 <input type="hidden" name="brewid" value="{{ batch.brewid }}">
+                <input type="hidden" name="filename" value="{{ batch.filename }}">
                 <button type="submit" class="btn btn-warning">Archive</button>
               </form>
               <form action="/delete_batch" method="POST" style="display:inline;" onsubmit="return confirm('Delete batch? Cannot be undone!');">
                 <input type="hidden" name="brewid" value="{{ batch.brewid }}">
+                <input type="hidden" name="filename" value="{{ batch.filename }}">
                 <button type="submit" class="btn btn-danger">Delete</button>
               </form>
             </div>

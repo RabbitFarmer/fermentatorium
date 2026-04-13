@@ -165,6 +165,8 @@
           if (lowLimit && state.low_limit !== undefined) lowLimit.value = state.low_limit;
           const highLimit = document.getElementById('high_limit');
           if (highLimit && state.high_limit !== undefined) highLimit.value = state.high_limit;
+          const powVariance = document.getElementById('power_off_variance');
+          if (powVariance && state.power_off_variance !== undefined) powVariance.value = state.power_off_variance;
           const enableHeating = document.querySelector('[name="enable_heating"]');
           if (enableHeating && state.enable_heating !== undefined) enableHeating.checked = state.enable_heating;
           const enableCooling = document.querySelector('[name="enable_cooling"]');
@@ -213,6 +215,7 @@
         tilt_color: sel ? sel.value : '',
         low_limit: lowLimit ? lowLimit.value : '',
         high_limit: highLimit ? highLimit.value : '',
+        power_off_variance: document.getElementById('power_off_variance') ? document.getElementById('power_off_variance').value : '0',
         enable_heating: enableHeating ? enableHeating.checked : false,
         enable_cooling: enableCooling ? enableCooling.checked : false,
         heating_plug: heatingPlug ? heatingPlug.value : '',
@@ -449,6 +452,19 @@
                    placeholder="e.g., 68.0"
                    min="32" max="212" required>
             <span class="small">Required and greater than Low Limit</span>
+          </div>
+
+          <div class="form-row">
+            <label for="power_off_variance">Temp Variance for Power Off (°F):</label>
+            <input id="power_off_variance" name="power_off_variance" type="number" step="0.1"
+                   value="{{ temp_control.power_off_variance if temp_control.power_off_variance is not none else '0' }}"
+                   placeholder="e.g., 1.0"
+                   min="0" max="20" style="width:80px;">
+            <span class="small">
+              Heating shuts off at <em>High Limit − Variance</em>.
+              Cooling shuts off at <em>Low Limit + Variance</em>.
+              Set to 0 to use the limits directly.
+            </span>
           </div>
 
           <div class="form-row">

@@ -39,8 +39,9 @@
 
   <script>
     const tiltColor = "{{ tilt_color or '' }}";
+    const tcColor   = "{{ tc_color or '' }}";   // specific controller colour for TempControl charts
     {% if tilt_color == "TempControl" %}
-    const beerName = "Temperature Control";
+    const beerName = "Temperature Control{% if tc_color %} — {{ tc_color }}{% endif %}";
     const batchName = "N/A";
     const brewId = "N/A";
     const recipeOg = null;
@@ -60,7 +61,8 @@
     async function loadData(limit = 3000) {
       document.getElementById('status').textContent = 'Loading data...';
 
-      const url = `/chart_data/${encodeURIComponent(tiltColor)}?limit=${limit}`;
+      let url = `/chart_data/${encodeURIComponent(tiltColor)}?limit=${limit}`;
+      if (tcColor) url += `&tc_color=${encodeURIComponent(tcColor)}`;
       try {
         const response = await fetch(url);
         if (!response.ok) throw new Error('Failed to fetch data');
@@ -121,11 +123,18 @@
           // Filter out data points with empty or null tilt_color (these are noise)
           const validDataPoints = dataPoints.filter(p => p.tilt_color && p.tilt_color.trim() !== '');
           
-          // Find the most recent tilt_color to determine the active tilt
+          // Determine the active tilt colour:
+          // - When tcColor is set (per-controller chart), use it directly.
+          // - Otherwise, infer from the most recent data point (original behaviour).
           let activeTiltColor = null;
-          if (validDataPoints.length > 0) {
-            // Get the most recent data point's tilt color
+          if (tcColor) {
+            activeTiltColor = tcColor;
+          } else if (validDataPoints.length > 0) {
             activeTiltColor = validDataPoints[validDataPoints.length - 1].tilt_color;
+            // Strip any composite MAC suffix so matching works
+            if (activeTiltColor && activeTiltColor.includes(':')) {
+              activeTiltColor = activeTiltColor.split(':')[0];
+            }
           }
           
           // Determine which data to display
@@ -134,9 +143,12 @@
           let displayColor = '#808080';
           
           if (activeTiltColor) {
-            // NORMAL PATH: We have tilt_color data, show only the active tilt
-            // This is the expected path when temperature control is properly configured
-            displayData = validDataPoints.filter(p => p.tilt_color === activeTiltColor);
+            // NORMAL PATH: We have tilt_color data, show only the active tilt.
+            // Strip composite key suffix when comparing so "Orange:AA:BB" matches activeTiltColor "Orange".
+            displayData = validDataPoints.filter(p => {
+              const base = (p.tilt_color || '').split(':')[0];
+              return base === activeTiltColor;
+            });
             displayLabel = `${activeTiltColor} Tilt`;
             
             // Define color mapping for traces
