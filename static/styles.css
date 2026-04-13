@@ -312,3 +312,15 @@ body, body.page-bg {
   border-radius: 6px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
+
+/* Offline tilt placeholder card */
+.tilt-card-offline { opacity: 0.70; }
+.tilt-card-offline .tilt-body { position: relative; }
+.tilt-offline-indicator {
+  text-align: center;
+  color: #888;
+  font-size: 0.9em;
+  padding: 6px 8px 4px;
+  border-top: 1px solid #e0e0e0;
+  font-style: italic;
+}

@@ -977,6 +977,9 @@ def ensure_temp_defaults_for_controller(controller):
     controller.setdefault("swapped_plugs_detected", False)
     controller.setdefault("swapped_plugs_notified", False)
     controller.setdefault("swapped_plug_type", "")  # "heating" or "cooling"
+    # Ensure tilt_color is always a string — a JSON null would break template split() calls.
+    if controller.get("tilt_color") is None:
+        controller["tilt_color"] = ""
 
 def ensure_temp_defaults():
     """Ensure all 3 controllers have required default fields."""
@@ -8123,6 +8126,16 @@ def update_system():
             'success': False,
             'output': 'Update failed due to an unexpected error. Please update manually.'
         }), 500
+
+
+@app.route('/restart_system', methods=['POST'])
+def restart_system():
+    """Reboot the host computer (requires passwordless sudo for 'reboot')."""
+    try:
+        subprocess.Popen(['sudo', 'reboot'])
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/exit_system', methods=['GET', 'POST'])

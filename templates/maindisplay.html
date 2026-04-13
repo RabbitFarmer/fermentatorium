@@ -445,10 +445,10 @@
 
         {# ── 1. Tilts WITH a temperature controller (active TC first, then inactive) ── #}
         {% for controller in controllers | sort(attribute='temp_control_active', reverse=true) %}
-          {% set tilt_color = controller.tilt_color %}
+          {% set tilt_color = controller.tilt_color or '' %}
           {# Support composite keys like "Orange:AA:BB:CC:DD:EE:FF" by falling back
              to the plain base colour when the full key is not in live_tilts. #}
-          {% set tilt_base = tilt_color.split(':')[0] if ':' in tilt_color else tilt_color %}
+          {% set tilt_base = tilt_color.split(':')[0] if tilt_color and ':' in tilt_color else tilt_color %}
           {% set tilt = live_tilts.get(tilt_color) or live_tilts.get(tilt_base) %}
           {% if tilt_color and tilt %}
             {% set safe   = tilt_base.replace(' ', '_') %}
@@ -522,6 +522,71 @@
               </footer>
 
             </article>
+          {% elif tilt_color %}
+            {# Assigned tilt is temporarily offline — render a placeholder so the TC card
+               can anchor correctly below it and the user can see it is expected to be here. #}
+            {% set safe   = tilt_base.replace(' ', '_') %}
+            {% set cid    = controller.controller_id %}
+            {% set off_cfg = tilt_cfg.get(tilt_base, {}) %}
+            {% set off_color = COLOR_MAP.get(tilt_base, '#888888') %}
+            {% set use_dark_text = off_color in ['#ffff00','#ffc0cb','#00ff00'] %}
+            <article class="tilt-card tilt-card-offline" data-tilt="{{ tilt_base }}" data-controller="{{ cid }}">
+
+              <div class="tilt-banner"
+                   style="background-color:{{ off_color }};color:{% if use_dark_text %}black{% else %}white{% endif %};"
+                   data-tilt-color="{{ tilt_base | e }}">
+                <div class="beer-name">{{ off_cfg.get('beer_name', '') or 'Unnamed Beer' }}</div>
+                <div class="tilt-batch-name">Batch: {{ off_cfg.get('batch_name', '') or 'Unnamed Batch' }}</div>
+              </div>
+
+              <div class="tilt-body">
+                <table class="tilt-metrics restore">
+                  <tr>
+                    <th></th>
+                    <th class="right-header">Recipe</th>
+                    <th class="right-header">Actual</th>
+                  </tr>
+                  <tr>
+                    <td class="label">Original Gravity</td>
+                    <td class="value"><span class="metric-number" id="recipe_og-{{ safe }}">{{ "%.3f"|format((off_cfg.get('recipe_og', 0)|default(0)|float)) }}</span></td>
+                    <td class="value"><b id="og-{{ safe }}"><span class="metric-number">--</span></b></td>
+                  </tr>
+                  <tr>
+                    <td class="label">Current Gravity</td>
+                    <td class="value"><span class="metric-number" id="recipe_fg-{{ safe }}">{{ "%.3f"|format((off_cfg.get('recipe_fg', 0)|default(0)|float)) }}</span></td>
+                    <td class="value"><b id="gravity-{{ safe }}"><span class="metric-number">--</span></b></td>
+                  </tr>
+                  <tr>
+                    <td class="label">Temperature</td>
+                    <td class="value"></td>
+                    <td class="value"><b id="temp-{{ safe }}"><span class="metric-number">--</span></b></td>
+                  </tr>
+                  <tr>
+                    <td class="label">A.B.V.</td>
+                    <td class="value">
+                      <span class="metric-number" id="recipe_abv-{{ safe }}">
+                        {%- if off_cfg.get('recipe_abv') %}{{ "%.1f"|format(off_cfg.get('recipe_abv')|float) }}%{%- else %}--{%- endif %}
+                      </span>
+                    </td>
+                    <td class="value"><b><span class="metric-number" id="abv-{{ safe }}">--</span></b></td>
+                  </tr>
+                </table>
+                <div class="tilt-offline-indicator">📡 Tilt Offline — No Recent Signal</div>
+              </div>
+
+              <footer class="tilt-footer-colored"
+                      style="background:{{ off_color }};color:{% if use_dark_text %}black{% else %}white{% endif %};">
+                <div class="footer-info">
+                  <div class="footer-brewid">Brew ID: <span id="footer-brewid-{{ safe }}">{{ off_cfg.get('brewid', '--') or '--' }}</span></div>
+                  <div class="footer-mac">MAC: <span id="footer-mac-{{ safe }}">--</span></div>
+                  <div class="footer-ts">Last: <span id="footer-ts-{{ safe }}">--</span></div>
+                </div>
+                <a class="chart-pill"
+                   href="{{ url_for('chart_plotly_for', tilt_color=tilt_color) }}{% if off_cfg.get('brewid') %}?brew={{ off_cfg.get('brewid') | urlencode }}{% endif %}"
+                   style="color:{{ off_color }};">CHART</a>
+              </footer>
+
+            </article>
           {% endif %}
         {% endfor %}
 
@@ -530,7 +595,8 @@
           {% set is_assigned = namespace(value=false) %}
           {% for controller in controllers %}
             {# Match both plain-colour keys ("Orange") and composite keys ("Orange:AA:BB:CC") #}
-            {% if controller.tilt_color == color or controller.tilt_color.split(':')[0] == color %}{% set is_assigned.value = true %}{% endif %}
+            {% set _tc = controller.tilt_color or '' %}
+            {% if _tc == color or _tc.split(':')[0] == color %}{% set is_assigned.value = true %}{% endif %}
           {% endfor %}
           {% if not is_assigned.value %}
             {% set safe = color.replace(' ', '_') %}
@@ -607,9 +673,9 @@
         {# ── 3. Standalone temperature control cards (positioned below their tilt by JS) ── #}
         {#    Same sort order as the tilt cards above (active first, then inactive).        #}
         {% for controller in controllers | sort(attribute='temp_control_active', reverse=true) %}
-          {% set tilt_color = controller.tilt_color %}
+          {% set tilt_color = controller.tilt_color or '' %}
           {# Support composite keys like "Orange:AA:BB:CC:DD:EE:FF" — fall back to base colour #}
-          {% set tilt_base = tilt_color.split(':')[0] if ':' in tilt_color else tilt_color %}
+          {% set tilt_base = tilt_color.split(':')[0] if tilt_color and ':' in tilt_color else tilt_color %}
           {% set tilt = live_tilts.get(tilt_color) or live_tilts.get(tilt_base) %}
           {# Render the TC card whenever a tilt is assigned, even if it is temporarily
              offline (tilt=None).  Use COLOR_MAP for the banner colour in that case so
@@ -1015,6 +1081,14 @@
           newCard.setAttribute('data-dynamic', 'true');   // mark as JS-created
           container.appendChild(newCard);
           positionTempCards();   // re-anchor TC cards after grid changes
+        }
+
+        // If this card was an offline placeholder, promote it to a live card now
+        const existingCard = document.querySelector(`[data-tilt="${color}"]`);
+        if (existingCard && existingCard.classList.contains('tilt-card-offline')) {
+          existingCard.classList.remove('tilt-card-offline');
+          const offlineIndicator = existingCard.querySelector('.tilt-offline-indicator');
+          if (offlineIndicator) offlineIndicator.remove();
         }
 
         // Banner meta
