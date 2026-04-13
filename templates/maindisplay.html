@@ -893,6 +893,98 @@
       return card;
     }
 
+    /* ── Build a TC card dynamically (for controllers whose card is missing from DOM) ──
+       This handles the case where the page was loaded before the assigned tilt was
+       active (so the server rendered no TC card) and the tilt became active later,
+       or when the user returns to a cached version of the page after configuring a
+       controller for the first time (e.g. a Tilt Mini-Pro on first setup).        */
+    function createTcCard(tc) {
+      const cid       = tc.controller_id;
+      const tiltBase  = (tc.tilt_color || '').split(':')[0];
+      const colorCode = tc.tilt_color_code || '#888';
+      const darkBg    = ['#ffff00','#ffc0cb','#00ff00'].includes(colorCode);
+      const textColor = darkBg ? 'black' : 'white';
+
+      const card = document.createElement('article');
+      card.className = 'tilt-card temp-ctrl-card';
+      card.setAttribute('data-controller', String(cid));
+      card.setAttribute('data-for-tilt', tiltBase);
+
+      card.innerHTML = `
+        <div class="tc-header"
+             style="background-color:${colorCode};color:${textColor};"
+             onclick="window.location='/temp_summary/${cid}'"
+             title="View Temperature Control summary and chart">
+          TEMP CONTROLLER #${cid + 1}
+        </div>
+        <div class="tc-body" id="tc_section_${cid}">
+          <div class="tc-mode-row">
+            <span class="tc-mode-label">MODE</span>
+            <span class="tc-mode-value" id="tc_mode_${cid}">--</span>
+          </div>
+          <div class="tc-grid" id="temp_control_readings_${cid}"
+               role="group" aria-label="Temperature limits">
+            <div class="tc-label">HIGH LIMIT</div>
+            <div style="text-align:right;">
+              <div class="tc-value-box">
+                <span id="tc_high_limit_${cid}">--</span><span class="tc-value-unit"> F</span>
+              </div>
+            </div>
+            <div class="tc-label">CURRENT<br>TEMPERATURE</div>
+            <div style="text-align:right;">
+              <div id="current_temp_box_${cid}" class="tc-value-box tc-value-current">
+                <span id="temp_control_current_${cid}">--</span><span class="tc-value-unit"> F</span>
+              </div>
+            </div>
+            <div class="tc-label">LOW LIMIT</div>
+            <div style="text-align:right;">
+              <div class="tc-value-box">
+                <span id="tc_low_limit_${cid}">--</span><span class="tc-value-unit"> F</span>
+              </div>
+            </div>
+          </div>
+          <div id="temp_control_status_top_${cid}" class="tc-status" style="display:none;"></div>
+          <div id="tc_notifications_${cid}" class="tc-notifications" style="display:none;"
+               aria-live="polite" role="status"></div>
+        </div>
+        <div class="tc-footer" style="background:${colorCode};color:${textColor};">
+          <div class="tc-ftr-top">
+            <div class="footer-toggle-container">
+              <label class="switch" title="Enable or disable temperature control">
+                <input type="checkbox" class="temp-control-toggle"
+                       id="temp_control_toggle_${cid}"
+                       data-controller-id="${cid}">
+                <span class="slider round"></span>
+              </label>
+              <span class="toggle-label" id="toggle_label_${cid}">Temp Control OFF</span>
+            </div>
+            <a class="chart-pill tc-chart-pill" href="/chart_plotly/TempControl"
+               style="color:${colorCode};">CHART</a>
+          </div>
+          <div class="tc-ftr-ts">Last: <span id="tc_ftr_ts_${cid}">--</span></div>
+        </div>
+      `;
+
+      /* Attach the toggle change listener to the newly created switch */
+      const sw = card.querySelector('.temp-control-toggle');
+      if (sw) {
+        sw.addEventListener('change', function() {
+          const isActive = this.checked;
+          const lbl = document.getElementById('toggle_label_' + cid);
+          if (lbl) lbl.textContent = isActive ? 'Temp Control ON' : 'Temp Control OFF';
+          if (isActive) {
+            pendingControllerId = cid;
+            const sessionModal = document.getElementById('sessionModal');
+            if (sessionModal) sessionModal.style.display = 'block';
+          } else {
+            sendToggle(cid, false, false);
+          }
+        });
+      }
+
+      return card;
+    }
+
     /* ── Update tilt card values from snapshot ── */
     function updateTiltValues(live) {
       const container = document.querySelector('.tiltcard-container');
@@ -1085,7 +1177,22 @@
         const warningMode = data.warning_mode || '';
         if (data.live_tilts)  updateTiltValues(data.live_tilts);
         if (data.controllers) {
-          data.controllers.forEach(tc => updateTempControl(tc, data.live_tilts || {}, warningMode));
+          const container = document.querySelector('.tiltcard-container');
+          data.controllers.forEach(tc => {
+            /* If this controller has an assigned tilt that is now active but the
+               TC card was never rendered (page loaded before the tilt was seen,
+               or browser returned a cached pre-configuration page), create it now. */
+            if (tc.tilt_color && !document.getElementById('tc_section_' + tc.controller_id)) {
+              const tiltBase = tc.tilt_color.split(':')[0];
+              const liveTilts = data.live_tilts || {};
+              const tiltActive = liveTilts[tc.tilt_color] || liveTilts[tiltBase];
+              if (tiltActive && container) {
+                container.appendChild(createTcCard(tc));
+                positionTempCards();
+              }
+            }
+            updateTempControl(tc, data.live_tilts || {}, warningMode);
+          });
         }
       } catch(err) {
         console.error('pollLiveSnapshot error', err);
@@ -1212,22 +1319,25 @@
   </script>
 
   <script>
-  // ── Auto-zoom for wide 4-card layout ──────────────────────────────────────
-  // display-mode-4 uses 400 px cards (4 × 400 + 3 × 24 gap = 1672 px grid)
-  // plus 28 px page padding = 1700 px designed width (max-width: 1724 px).
-  // On screens narrower than that design width we scale the whole page down
-  // uniformly so all four cards remain readable without horizontal scrolling.
+  // ── Auto-zoom for wide card layouts ───────────────────────────────────────
+  // display-mode-4: 4 × 400 px + 3 × 24 px gap + 2 × 14 px padding = 1700 px
+  //                 (max-width: 1724 px)
+  // display-mode-3: 3 × 400 px + 2 × 24 px gap + 2 × 14 px padding = 1276 px
+  // On screens narrower than the respective design width we scale the whole
+  // page down uniformly so all cards remain visible without horizontal clipping.
   (function () {
-    var DESIGN_WIDTH = 1724;
+    var DESIGN_WIDTH_4 = 1724;
+    var DESIGN_WIDTH_3 = 1276;
     function applyDisplayZoom() {
       var el = document.querySelector('.page-container');
-      if (!el || !el.classList.contains('display-mode-4')) {
-        document.documentElement.style.zoom = '';
-        return;
-      }
+      if (!el) { document.documentElement.style.zoom = ''; return; }
+      var is4 = el.classList.contains('display-mode-4');
+      var is3 = el.classList.contains('display-mode-3');
+      if (!is4 && !is3) { document.documentElement.style.zoom = ''; return; }
+      var designWidth = is4 ? DESIGN_WIDTH_4 : DESIGN_WIDTH_3;
       var vw = window.innerWidth;
       document.documentElement.style.zoom =
-        vw < DESIGN_WIDTH ? String((vw / DESIGN_WIDTH).toFixed(4)) : '';
+        vw < designWidth ? String((vw / designWidth).toFixed(4)) : '';
     }
     applyDisplayZoom();
     window.addEventListener('resize', applyDisplayZoom);

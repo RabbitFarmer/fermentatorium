@@ -78,7 +78,12 @@ def log_kasa_diag(level, msg, **extra):
     Use this for startup benchmarks, per-command timing, proc health checks,
     and any other Kasa-specific informational messages that help trace what
     the temperature-control subsystem is doing with the plugs.
+
+    Info-level entries are suppressed to keep kasa_errors.log focused on
+    actionable warnings and errors rather than routine per-command traffic.
     """
+    if level == 'info':
+        return
     _write_kasa_log(level, msg, **extra)
 
 def log_kasa_command(mode, url, action, success=None, error=None):

@@ -96,6 +96,8 @@ except Exception:
         except Exception:
             pass
     def log_kasa_diag(level, msg, **extra):
+        if level == 'info':
+            return
         try:
             extra_str = (' ' + str(extra)) if extra else ''
             print(f"[kasa_worker][{level.upper()}] {msg}{extra_str}")
