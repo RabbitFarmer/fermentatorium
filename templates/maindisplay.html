@@ -211,6 +211,7 @@
     .footer-info .footer-brewid  { font-size: 1.0em; font-weight: 700; }
     .footer-info .footer-mac     { font-size: 0.95em; font-weight: 700; opacity: 0.95; }
     .footer-info .footer-ts      { font-size: 0.9em; opacity: 0.95; }
+    .footer-info .footer-ferm-start { font-size: 0.85em; opacity: 0.9; margin-top: 2px; }
 
     /* ── TC card footer (below temp control section, always visible) ── */
     .tc-footer {
@@ -515,6 +516,11 @@
                   <div class="footer-brewid">Brew ID: <span id="footer-brewid-{{ safe }}">{{ tilt.brewid or '--' }}</span></div>
                   <div class="footer-mac">MAC: <span id="footer-mac-{{ safe }}">{{ tilt.mac_address or '--' }}</span></div>
                   <div class="footer-ts">Last: <span id="footer-ts-{{ safe }}">{{ tilt.timestamp | localtime }}</span></div>
+                  <div class="footer-ferm-start" id="footer-ferm-start-{{ safe }}">
+                    {%- if tilt.ferm_start_date %}
+                      Start: {{ tilt.ferm_start_date }} &nbsp;|&nbsp; Day {{ tilt.ferm_start_date | ferm_days }}
+                    {%- endif %}
+                  </div>
                 </div>
                 <a class="chart-pill"
                    href="{{ url_for('chart_plotly_for', tilt_color=tilt_color) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
@@ -580,6 +586,10 @@
                   <div class="footer-brewid">Brew ID: <span id="footer-brewid-{{ safe }}">{{ off_cfg.get('brewid', '--') or '--' }}</span></div>
                   <div class="footer-mac">MAC: <span id="footer-mac-{{ safe }}">--</span></div>
                   <div class="footer-ts">Last: <span id="footer-ts-{{ safe }}">--</span></div>
+                  {%- set _off_fsd = off_cfg.get('ferm_start_date', '') %}
+                  {%- if _off_fsd %}
+                  <div class="footer-ferm-start">Start: {{ _off_fsd }} &nbsp;|&nbsp; Day {{ _off_fsd | ferm_days }}</div>
+                  {%- endif %}
                 </div>
                 <a class="chart-pill"
                    href="{{ url_for('chart_plotly_for', tilt_color=tilt_color) }}{% if off_cfg.get('brewid') %}?brew={{ off_cfg.get('brewid') | urlencode }}{% endif %}"
@@ -661,6 +671,9 @@
                   <div class="footer-brewid">Brew ID: <span id="footer-brewid-{{ safe }}">{{ tilt.brewid or '--' }}</span></div>
                   <div class="footer-mac">MAC: <span id="footer-mac-{{ safe }}">{{ tilt.mac_address or '--' }}</span></div>
                   <div class="footer-ts">Last: <span id="footer-ts-{{ safe }}">{{ tilt.timestamp | localtime }}</span></div>
+                  {%- if tilt.ferm_start_date %}
+                  <div class="footer-ferm-start" id="footer-ferm-start-{{ safe }}">Start: {{ tilt.ferm_start_date }} &nbsp;|&nbsp; Day {{ tilt.ferm_start_date | ferm_days }}</div>
+                  {%- endif %}
                 </div>
                 <a class="chart-pill"
                    href="{{ url_for('chart_plotly_for', tilt_color=color) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
@@ -764,9 +777,9 @@
                     </span>
                   </div>
                   <a class="chart-pill tc-chart-pill"
-                     href="{{ url_for('chart_plotly_for', tilt_color='TempControl') }}"
+                     href="{{ url_for('chart_plotly_for', tilt_color='TempControl') }}?tc_color={{ tilt_base | urlencode }}"
                      style="color:{{ color_code }};">CHART</a>
-                     {# 'TempControl' is the special identifier for the temperature control chart route #}
+                     {# tilt_base is the plain colour used to filter the per-controller TC chart #}
                 </div>
                 <div class="tc-ftr-ts">
                   Last: <span id="tc_ftr_ts_{{ cid }}">
@@ -906,6 +919,17 @@
         } catch(e) { timestamp = tilt.timestamp; }
       }
 
+      const fermStartDate = tilt.ferm_start_date || '';
+      let fermDaysHtml = '';
+      if (fermStartDate) {
+        try {
+          const startMs = new Date(fermStartDate + 'T00:00:00Z').getTime();
+          const nowMs   = new Date().setUTCHours(0, 0, 0, 0);
+          const day     = Math.max(1, Math.floor((nowMs - startMs) / 86400000) + 1);
+          fermDaysHtml = `<div class="footer-ferm-start" id="footer-ferm-start-${safe}">Start: ${fermStartDate} &nbsp;|&nbsp; Day ${day}</div>`;
+        } catch(e) { fermDaysHtml = ''; }
+      }
+
       const chartHref = '/chart_plotly/' + encodeURIComponent(color) +
                         (brewid !== '--' ? '?brew=' + encodeURIComponent(brewid) : '');
       const brewAttr  = brewid !== '--'
@@ -956,6 +980,7 @@
             <div class="footer-brewid">Brew ID: <span id="footer-brewid-${safe}">${brewid}</span></div>
             <div class="footer-mac">MAC: <span id="footer-mac-${safe}">${mac}</span></div>
             <div class="footer-ts">Last: <span id="footer-ts-${safe}">${timestamp}</span></div>
+            ${fermDaysHtml}
           </div>
           <a class="chart-pill" href="${chartHref}" style="color:${colorCode};">CHART</a>
         </footer>
@@ -1028,7 +1053,7 @@
               </label>
               <span class="toggle-label" id="toggle_label_${cid}">Temp Control OFF</span>
             </div>
-            <a class="chart-pill tc-chart-pill" href="/chart_plotly/TempControl"
+            <a class="chart-pill tc-chart-pill" href="/chart_plotly/TempControl?tc_color=${encodeURIComponent(tiltBase)}"
                style="color:${colorCode};">CHART</a>
           </div>
           <div class="tc-ftr-ts">Last: <span id="tc_ftr_ts_${cid}">--</span></div>
@@ -1113,6 +1138,19 @@
         if (footerTs     && entry.timestamp)   footerTs.textContent     = formattedTs;
         if (footerBrewid && entry.brewid)      footerBrewid.textContent = entry.brewid;
         if (footerMac    && entry.mac_address) footerMac.textContent    = entry.mac_address;
+
+        // Fermentation start date + days
+        if (entry.ferm_start_date) {
+          const fsEl = document.getElementById('footer-ferm-start-' + safe);
+          if (fsEl) {
+            try {
+              const startMs = new Date(entry.ferm_start_date + 'T00:00:00Z').getTime();
+              const nowMs   = new Date().setUTCHours(0, 0, 0, 0);
+              const day     = Math.max(1, Math.floor((nowMs - startMs) / 86400000) + 1);
+              fsEl.innerHTML = `Start: ${entry.ferm_start_date} &nbsp;|&nbsp; Day ${day}`;
+            } catch(e) {}
+          }
+        }
 
         // Recipe columns
         const recipeOgEl  = document.getElementById('recipe_og-'  + safe);
