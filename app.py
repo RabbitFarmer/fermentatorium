@@ -8135,7 +8135,8 @@ def restart_system():
         subprocess.Popen(['sudo', 'reboot'])
         return jsonify({'success': True})
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        print(f"[LOG] restart_system failed: {e}")
+        return jsonify({'success': False, 'error': 'Restart command could not be executed.'}), 500
 
 
 @app.route('/exit_system', methods=['GET', 'POST'])
