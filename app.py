@@ -4782,24 +4782,48 @@ def periodic_batch_monitoring():
 
 # --- BLE scanner thread ---------------------------------------------------
 def ble_loop():
-    # Restart the scanner periodically so that BlueZ's duplicate-device filter is
-    # cleared and every Tilt (including those broadcasting stable values, such as the
-    # Orange mini-pro) is re-discovered at regular intervals.
-    _SCAN_RESTART_INTERVAL = 60  # seconds between scanner restarts
+    # Restart the scanner on a short cycle so BlueZ's duplicate-device filter is
+    # cleared frequently.  Tilts that broadcast stable values (e.g. an Orange
+    # mini-pro at steady temperature and gravity) are silently suppressed by
+    # BlueZ after the first advertisement in each scan session.  Without frequent
+    # restarts live_tilts would stop updating, making the tilt appear inactive
+    # and triggering false temperature-control safety shutdowns.
+    #
+    # With an 8-second active window, live_tilts is refreshed roughly every 10 s.
+    # The temperature-control safety timeout is 5 minutes, so even 30 consecutive
+    # failed restarts (~150 s of retries) leave ample headroom before a false
+    # safety shutdown can fire.
+    #
+    # Per-operation timeouts prevent scanner.start() / scanner.stop() from hanging
+    # indefinitely and freezing the asyncio event loop (which would also stop all
+    # BLE callbacks and eventually trigger the safety shutdown).
+    _SCAN_RESTART_INTERVAL = 8   # seconds of active scanning per cycle
+    _SCANNER_OP_TIMEOUT    = 15  # max seconds to wait for start() or stop()
 
     async def run_scanner():
         if BleakScanner is None:
             print("[LOG] BleakScanner not available; BLE scanning disabled")
             return
         while True:
+            scanner = None  # kept for finally-block cleanup check below
             try:
                 scanner = BleakScanner(detection_callback)
-                await scanner.start()
+                await asyncio.wait_for(scanner.start(), timeout=_SCANNER_OP_TIMEOUT)
                 await asyncio.sleep(_SCAN_RESTART_INTERVAL)
-                await scanner.stop()
+            except asyncio.TimeoutError:
+                print("[LOG] BLE scanner.start() timed out; retrying in 5 s")
+                await asyncio.sleep(5)
             except Exception as e:
                 print(f"[LOG] BLE scanner cycle error: {e}")
                 await asyncio.sleep(5)
+            finally:
+                # Always attempt to stop the scanner so BlueZ resources are
+                # released before the next cycle creates a fresh instance.
+                if scanner is not None:
+                    try:
+                        await asyncio.wait_for(scanner.stop(), timeout=_SCANNER_OP_TIMEOUT)
+                    except Exception:
+                        pass  # Best-effort; fresh scanner created next iteration
     try:
         asyncio.run(run_scanner())
     except Exception as e:
@@ -5563,7 +5587,23 @@ def get_last_activity(activity_type):
 
 @app.route('/temp_config')
 def temp_config():
-    report_colors = list(tilt_cfg.keys())
+    # Build the "Configured Tilts" dropdown list from colors that have been
+    # physically detected (recorded in tilt_table) plus any color currently
+    # assigned to a controller.  This prevents phantom entries like Yellow
+    # appearing as an assignable option when the user has never owned that color.
+    # On first use (nothing seen yet and no assignments), fall back to all 8
+    # standard colors so initial setup is still possible.
+    seen_colors = {tilt_key_base(rec.get('tilt_color', '')) for rec in tilt_table.values() if rec.get('tilt_color')}
+    assigned_colors = {
+        tilt_key_base(ctrl.get('tilt_color', ''))
+        for ctrl in temp_cfg.get('controllers', [])
+        if ctrl.get('tilt_color')
+    }
+    candidate_colors = seen_colors | assigned_colors
+    report_colors = (
+        [c for c in TILT_UUIDS.values() if c in candidate_colors]
+        if candidate_colors else list(TILT_UUIDS.values())
+    )
     active_tilts = get_active_tilts()
     
     # Get controller_id from query parameter (default to 0)
