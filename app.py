@@ -1324,14 +1324,17 @@ def get_current_temp_for_control_tilt(controller):
     """
     color = controller.get("tilt_color")
     if color:
-        # Tilt is explicitly assigned - ONLY use that Tilt
-        # Do NOT fall back to another Tilt if this one is offline
-        if color in live_tilts:
-            return live_tilts[color].get("temp_f")
-        else:
-            # Assigned Tilt is not available - return None
-            # This will trigger safety shutdown
-            return None
+        # Tilt is explicitly assigned - ONLY use that Tilt.
+        # When the assigned key is a composite "Color:MAC", also try the plain
+        # color key as a fallback so a brief gap in composite-key writes (e.g.
+        # right after app restart before the first mini-pro broadcast) does not
+        # wrongly return None and trigger the safety shutdown.
+        for key in [color, tilt_key_base(color)]:
+            if key in live_tilts:
+                return live_tilts[key].get("temp_f")
+        # Assigned Tilt is not available in live_tilts at all - return None.
+        # This will trigger safety shutdown.
+        return None
     
     # No explicit assignment - use fallback logic
     # Return temperature from any available Tilt
@@ -1345,7 +1348,9 @@ def is_control_tilt_active(controller):
     Check if the Tilt being used for temperature control is currently active.
     
     For temperature control safety, uses a shorter timeout than general Tilt monitoring:
-    - Temperature control timeout: 2 × update_interval (default: 2 × 2 min = 4 minutes)
+    - Temperature control timeout: 2 × update_interval + 1 min buffer (default: 2×2+1 = 5 min)
+    - The extra minute prevents false shutdowns when the mini-pro's broadcast interval
+      aligns with the 60-second BLE scanner restart cycle.
     - This ensures KASA plugs turn off quickly if Tilt signal is lost
     - Much shorter than the general 30-minute inactivity timeout used for display/notifications
     
@@ -1403,14 +1408,24 @@ def is_control_tilt_active(controller):
     except Exception:
         update_interval_minutes = 2
     
-    # Temperature control timeout: 2 missed readings
-    temp_control_timeout_minutes = update_interval_minutes * 2
-    
-    # Check if the control Tilt has sent data within the temp control timeout
-    if control_color not in live_tilts:
-        return False
-    
-    tilt_info = live_tilts[control_color]
+    # Temperature control timeout: 2 missed readings + 1-minute buffer.
+    # The +1 buffer prevents false safety-shutdowns when the mini-pro's broadcast
+    # interval aligns with the 60-second BLE scanner restart cycle, which can
+    # create a gap that reaches exactly the 2× boundary.
+    temp_control_timeout_minutes = update_interval_minutes * 2 + 1
+
+    # Check if the control Tilt has sent data within the temp control timeout.
+    # When tilt_color is a composite key ("Color:MAC") fall back to the plain
+    # color key so a brief gap in composite-key writes (e.g. right after app
+    # restart, before the first mini-pro broadcast) does not falsely trigger the
+    # safety shutdown while the plain-key entry is still fresh.
+    tilt_key = control_color
+    if tilt_key not in live_tilts:
+        tilt_key = tilt_key_base(control_color)
+        if tilt_key not in live_tilts:
+            return False
+
+    tilt_info = live_tilts[tilt_key]
     timestamp_str = tilt_info.get('timestamp')
     if not timestamp_str:
         return False
@@ -2380,7 +2395,7 @@ def send_safety_shutdown_notification(tilt_color, low_limit, high_limit):
         update_interval_minutes = int(system_cfg.get("update_interval", 2))
     except Exception:
         update_interval_minutes = 2
-    timeout_minutes = update_interval_minutes * 2
+    timeout_minutes = update_interval_minutes * 2 + 1
     now = datetime.utcnow()
     
     subject = f"{brewery_name} - SAFETY SHUTDOWN: Control Tilt Offline"
@@ -2394,7 +2409,7 @@ Tilt Color: {tilt_color}
 SAFETY SHUTDOWN TRIGGERED
 
 The Tilt assigned to temperature control has not transmitted data within the
-safety timeout of {timeout_minutes} minutes ({update_interval_minutes}-minute update interval × 2).
+safety timeout of {timeout_minutes} minutes ({update_interval_minutes}-minute update interval × 2 + 1 min buffer).
 
 All Kasa plugs have been automatically turned OFF to prevent runaway heating/cooling.
 
@@ -5744,6 +5759,14 @@ def update_temp_config():
             low_limit = controller.get("low_limit", 0.0)
             high_limit = controller.get("high_limit", 100.0)
         
+        # Never wipe an existing tilt assignment with an empty submission.
+        # This can happen when the temp-config page is visited while the mini-pro
+        # is offline: the "Active Tilt Devices" group is empty, no option matches
+        # the saved composite key, the browser leaves the <select> blank, and the
+        # form submits with tilt_color="".  Preserve the existing value instead.
+        if not new_tilt_color:
+            new_tilt_color = controller.get("tilt_color", "")
+
         controller.update({
             "tilt_color": new_tilt_color,
             "low_limit": low_limit,
