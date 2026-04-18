@@ -155,10 +155,15 @@ if [ "$_svc_state" = "active" ] || [ "$_svc_state" = "activating" ]; then
         fi
         sleep 2
     done
-    # Service is running but Flask is not responding — fall through to a fresh start.
-    # The kill_port calls below will free the port so a new instance can bind it.
-    show_notification "Fermentatorium" "Service unresponsive — attempting fresh start…" "normal"
-    echo "WARNING: systemd service active but Flask did not respond after $((30 * 2)) s. Falling through to fresh start."
+    # Service is active but Flask is not responding — do NOT start a competing
+    # app.py here.  If we did, systemd would restart the service 10 s later and
+    # its new app.py would call stop_other_app_py(), killing our fresh instance,
+    # leaving port 5001 unreachable again.  Let systemd handle the restart.
+    show_notification "Fermentatorium" "Service unresponsive after $((30 * 2)) s — systemd will restart it automatically." "critical"
+    echo "WARNING: fermentatorium.service is active but Flask did not respond after $((30 * 2)) s."
+    echo "  systemd will restart the service automatically (Restart=always, RestartSec=10)."
+    echo "  Check the logs: journalctl -u fermentatorium.service -n 50 --no-pager"
+    exit 1
 fi
 
 show_notification "Fermentatorium" "Starting up — please wait…" "normal"
@@ -217,7 +222,12 @@ APP_PATH="$SCRIPT_DIR/app.py"
 # SKIP_BROWSER_OPEN tells app.py not to open its own browser window.
 # start.sh is responsible for opening the browser (below), so we avoid
 # two windows racing to open the same URL.
-env SKIP_BROWSER_OPEN=1 nohup "$PYTHON_PATH" "$APP_PATH" > app.log 2>&1 &
+# 9>&- closes the start.sh flock fd in the child process so app.py does not
+# inherit the lock.  Without this, app.py would hold fd 9 open, causing every
+# subsequent start.sh invocation (e.g. the desktop autostart on the next boot)
+# to fail flock -n 9 and exit silently — which is exactly why the browser
+# stopped auto-loading after linger was enabled.
+env SKIP_BROWSER_OPEN=1 nohup "$PYTHON_PATH" "$APP_PATH" > app.log 2>&1 9>&- &
 APP_PID=$!
 
 disown -h $APP_PID 2>/dev/null || true

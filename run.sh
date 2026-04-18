@@ -23,6 +23,9 @@ cd "$APP_DIR"
 # installations, causing a conflict.
 export FLASK_PORT="${FLASK_PORT:-5001}"
 
+# The systemd service has no display — suppress the browser-open code in app.py.
+export SKIP_BROWSER_OPEN=1
+
 if [[ -x "${APP_DIR}/venv/bin/python3" ]]; then
   PY="${APP_DIR}/venv/bin/python3"
 elif [[ -x "${APP_DIR}/.venv/bin/python3" ]]; then
