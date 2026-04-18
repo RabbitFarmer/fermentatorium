@@ -8270,7 +8270,7 @@ def list_backups():
 
 @app.route('/update_system', methods=['POST'])
 def update_system():
-    """Pull the latest code from the remote git repository."""
+    """Pull the latest code from the remote git repository and refresh dependencies."""
     try:
         result = subprocess.run(
             ['git', 'pull'],
@@ -8287,6 +8287,28 @@ def update_system():
         output = '\n'.join(parts)
         success = result.returncode == 0
         already_up_to_date = 'Already up to date' in output or 'Already up-to-date' in output
+
+        # After a successful pull that actually changed something, install any new
+        # or updated Python dependencies so the app can be restarted immediately
+        # without a separate manual pip step.
+        if success and not already_up_to_date:
+            req_file = os.path.join(_HERE, 'requirements.txt')
+            if os.path.isfile(req_file):
+                try:
+                    pip_result = subprocess.run(
+                        [sys.executable, '-m', 'pip', 'install', '-r', req_file],
+                        capture_output=True,
+                        text=True,
+                        timeout=300,
+                        cwd=_HERE,
+                    )
+                    pip_out = pip_result.stdout.strip() or pip_result.stderr.strip()
+                    if pip_out:
+                        output = output + '\n\n[pip] ' + pip_out
+                    if pip_result.returncode != 0:
+                        output = output + f'\n[pip] WARNING: dependency install failed — restart may require manual pip install.'
+                except subprocess.TimeoutExpired:
+                    output = output + '\n[pip] WARNING: dependency install timed out after 300 s — restart may require manual pip install.'
 
         return jsonify({
             'success': success,
