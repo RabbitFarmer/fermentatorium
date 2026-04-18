@@ -3506,66 +3506,6 @@ def _check_and_restart_kasa_proc():
         ctrl['cooling_error']         = True
         ctrl['cooling_error_msg']     = 'kasa_manager worker restarted — plug state unknown'
 
-# --- Raspberry Pi Connect watchdog ----------------------------------------
-# Raspberry Pi Connect (connect.raspberrypi.com) is a user-level systemd service
-# called rpi-connect.  Sessions can silently drop after first use.  This watchdog
-# checks the service status every 10 minutes and restarts it when it is found
-# inactive, keeping the tunnel alive without manual intervention.
-_RPI_CONNECT_CHECK_INTERVAL_SECONDS = 600  # 10 minutes
-_rpi_connect_last_check: float = 0.0
-
-def _check_and_restart_rpi_connect():
-    """Watchdog: check whether the rpi-connect user service is active; restart if not.
-
-    Raspberry Pi Connect runs as a *user* systemd service (not a system-level service),
-    so no elevated privileges are required — systemctl --user is sufficient.
-    The check is debounced to at most once every _RPI_CONNECT_CHECK_INTERVAL_SECONDS
-    seconds so that calling this function frequently (e.g. from the batch-monitoring
-    loop) does not cause excessive subprocess spawning.
-    """
-    global _rpi_connect_last_check
-    now = time.time()
-    if now - _rpi_connect_last_check < _RPI_CONNECT_CHECK_INTERVAL_SECONDS:
-        return
-    _rpi_connect_last_check = now
-
-    try:
-        # Probe whether the service unit even exists before attempting anything else.
-        probe = subprocess.run(
-            ['systemctl', '--user', 'cat', 'rpi-connect.service'],
-            capture_output=True, timeout=5
-        )
-        if probe.returncode != 0:
-            # Service not installed — nothing to do; reset the timer so we don't
-            # spam the check every 10 minutes on a non-Pi system.
-            return
-
-        # Check whether the service is currently active.
-        status = subprocess.run(
-            ['systemctl', '--user', 'is-active', 'rpi-connect'],
-            capture_output=True, text=True, timeout=5
-        )
-        active_state = status.stdout.strip()
-        if active_state == 'active':
-            return  # All good — nothing to do.
-
-        print(f"[RPI-CONNECT] Service state is '{active_state}' — attempting restart")
-        restart = subprocess.run(
-            ['systemctl', '--user', 'restart', 'rpi-connect'],
-            capture_output=True, text=True, timeout=15
-        )
-        if restart.returncode == 0:
-            print("[RPI-CONNECT] Service restarted successfully")
-            log_event('rpi_connect_restart', 'Raspberry Pi Connect service restarted by watchdog')
-        else:
-            err = restart.stderr.strip()
-            print(f"[RPI-CONNECT] Restart failed (rc={restart.returncode}): {err}")
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        # systemctl not available or timed out — ignore silently.
-        pass
-    except Exception as e:
-        print(f"[RPI-CONNECT] Watchdog error: {e}")
-
 # --- Control functions -----------------------------------------------------
 def control_heating(state, controller):
     enabled = controller.get("enable_heating")
@@ -4873,9 +4813,6 @@ def periodic_batch_monitoring():
             
             # Process notification retry queue with exponential backoff
             process_notification_retries()
-
-            # Keep Raspberry Pi Connect tunnel alive if installed
-            _check_and_restart_rpi_connect()
             
             # Check if it's time for daily reports
             notif_cfg = system_cfg.get('batch_notifications', {})
