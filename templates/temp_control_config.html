@@ -150,8 +150,44 @@
   </script>
   
   <script>
+    // Capture the current form state into an object (does not write to localStorage).
+    function _captureFormState() {
+      const sel = document.getElementById('tilt_color');
+      const lowLimit = document.getElementById('low_limit');
+      const highLimit = document.getElementById('high_limit');
+      const enableHeating = document.querySelector('[name="enable_heating"]');
+      const enableCooling = document.querySelector('[name="enable_cooling"]');
+      const heatingPlug = document.getElementById('heating_plug');
+      const heatingPort = document.getElementById('heating_plug_port');
+      const coolingPlug = document.getElementById('cooling_plug');
+      const coolingPort = document.getElementById('cooling_plug_port');
+      return {
+        tilt_color: sel ? sel.value : '',
+        low_limit: lowLimit ? lowLimit.value : '',
+        high_limit: highLimit ? highLimit.value : '',
+        power_off_variance: document.getElementById('power_off_variance') ? document.getElementById('power_off_variance').value : '0',
+        enable_heating: enableHeating ? enableHeating.checked : false,
+        enable_cooling: enableCooling ? enableCooling.checked : false,
+        heating_plug: heatingPlug ? heatingPlug.value : '',
+        heating_plug_port: heatingPort ? heatingPort.value : '',
+        cooling_plug: coolingPlug ? coolingPlug.value : '',
+        cooling_plug_port: coolingPort ? coolingPort.value : ''
+      };
+    }
+
+    // Persist the current form state to localStorage so it survives a page reload.
+    function _saveFormStateToStorage(controllerId) {
+      try {
+        const formStateKey = 'kasa_scan_form_state_' + controllerId;
+        localStorage.setItem(formStateKey, JSON.stringify(_captureFormState()));
+      } catch (e) {
+        console.warn('Failed to save form state to localStorage:', e);
+      }
+    }
+
     // On page load, check if there are any KASA URLs stored from scan results
-    // and restore any unsaved form state that was saved before navigating to the scan page.
+    // and restore any unsaved form state that was saved before navigating to the scan page
+    // or before a temp-control toggle caused a page reload.
     window.addEventListener('DOMContentLoaded', function() {
       const controllerId = {{ controller_id }};
       const formStateKey = 'kasa_scan_form_state_' + controllerId;
@@ -160,7 +196,14 @@
         try {
           const state = JSON.parse(savedState);
           const sel = document.getElementById('tilt_color');
-          if (sel && state.tilt_color !== undefined) sel.value = state.tilt_color;
+          if (sel && state.tilt_color !== undefined) {
+            sel.value = state.tilt_color;
+            // If a MAC-specific composite key is no longer in the select (tilt went
+            // offline while the user was away), fall back to the plain color name.
+            if (sel.value !== state.tilt_color && state.tilt_color.includes(':')) {
+              sel.value = state.tilt_color.split(':')[0];
+            }
+          }
           const lowLimit = document.getElementById('low_limit');
           if (lowLimit && state.low_limit !== undefined) lowLimit.value = state.low_limit;
           const highLimit = document.getElementById('high_limit');
@@ -201,29 +244,7 @@
 
     function saveFormStateAndScan() {
       const controllerId = {{ controller_id }};
-      const formStateKey = 'kasa_scan_form_state_' + controllerId;
-      const sel = document.getElementById('tilt_color');
-      const lowLimit = document.getElementById('low_limit');
-      const highLimit = document.getElementById('high_limit');
-      const enableHeating = document.querySelector('[name="enable_heating"]');
-      const enableCooling = document.querySelector('[name="enable_cooling"]');
-      const heatingPlug = document.getElementById('heating_plug');
-      const heatingPort = document.getElementById('heating_plug_port');
-      const coolingPlug = document.getElementById('cooling_plug');
-      const coolingPort = document.getElementById('cooling_plug_port');
-      const state = {
-        tilt_color: sel ? sel.value : '',
-        low_limit: lowLimit ? lowLimit.value : '',
-        high_limit: highLimit ? highLimit.value : '',
-        power_off_variance: document.getElementById('power_off_variance') ? document.getElementById('power_off_variance').value : '0',
-        enable_heating: enableHeating ? enableHeating.checked : false,
-        enable_cooling: enableCooling ? enableCooling.checked : false,
-        heating_plug: heatingPlug ? heatingPlug.value : '',
-        heating_plug_port: heatingPort ? heatingPort.value : '',
-        cooling_plug: coolingPlug ? coolingPlug.value : '',
-        cooling_plug_port: coolingPort ? coolingPort.value : ''
-      };
-      localStorage.setItem(formStateKey, JSON.stringify(state));
+      _saveFormStateToStorage(controllerId);
       window.location.href = '/scan_kasa_plugs?controller_id=' + controllerId;
     }
   </script>
@@ -379,6 +400,9 @@
           
           function sendTcToggle(controllerId, isActive, newSession) {
             document.getElementById('tcSessionModal').style.display = 'none';
+            // Save unsaved form data before the toggle causes a page reload so
+            // settings entered (or restored after a Kasa scan) are not lost.
+            _saveFormStateToStorage(controllerId);
             fetch('/toggle_temp_control', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -388,17 +412,20 @@
             .then(data => {
               if (!data.success) {
                 alert('Failed to toggle: ' + (data.error || 'Unknown error'));
+                // Clear the saved state since we are not reloading
+                try { localStorage.removeItem('kasa_scan_form_state_' + controllerId); } catch(e) {}
                 const toggle = document.getElementById('tc_toggle_' + controllerId);
                 if (toggle) { toggle.checked = !isActive; updateTcLabel(controllerId, !isActive); }
               } else if (data.redirect) {
                 window.location.href = data.redirect;
               } else {
-                // Reload page to reflect new state
+                // Reload page to reflect new state; saved form state will be restored on load
                 window.location.reload();
               }
             })
             .catch(err => {
               alert('Error: ' + err.message);
+              try { localStorage.removeItem('kasa_scan_form_state_' + controllerId); } catch(e) {}
               const toggle = document.getElementById('tc_toggle_' + controllerId);
               if (toggle) { toggle.checked = !isActive; updateTcLabel(controllerId, !isActive); }
             });

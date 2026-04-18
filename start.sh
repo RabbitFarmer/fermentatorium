@@ -49,7 +49,18 @@ show_notification() {
 # plain tab in the existing window and ignore --kiosk).
 open_browser_kiosk() {
     local url="$1"
-    [ -n "$DISPLAY" ] || return 0
+    # Support both X11 ($DISPLAY) and Wayland ($WAYLAND_DISPLAY).
+    # If neither is set, try DISPLAY=:0 as a last-resort fallback before
+    # giving up — this covers cases where the desktop session started but
+    # the variable was not exported into this shell (e.g. some autostart paths).
+    if [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]; then
+        if DISPLAY=:0 xdpyinfo > /dev/null 2>&1; then
+            export DISPLAY=:0
+        else
+            echo "[open_browser_kiosk] No display available — skipping browser open"
+            return 0
+        fi
+    fi
     local browser=""
     for candidate in chromium-browser chromium google-chrome google-chrome-stable; do
         if command -v "$candidate" > /dev/null 2>&1; then
