@@ -5302,8 +5302,12 @@ def test_external_logging():
             is_brewersfriend = url_lower.startswith('https://brewersfriend.com') or url_lower.startswith('http://brewersfriend.com')
         
         if is_brewersfriend:
+            # Brewers Friend Tilt API requires "name" to be a valid Tilt color
+            # (Red, Green, Black, Purple, Orange, Blue, Yellow, Pink).  The live
+            # forwarding code derives this from the real tilt reading, but for the
+            # test we use "Red" as a representative valid value.
             test_payload = {
-                "name": "TEST",
+                "name": "Red",
                 "temp": 68.5,
                 "temp_unit": "F",
                 "gravity": 1.050,
@@ -5359,10 +5363,33 @@ def test_external_logging():
                     'message': f'Connection successful! Status: {resp.status_code}'
                 })
             else:
-                # Don't expose response content in error messages for security
+                # Provide actionable hints for common HTTP error codes
+                if is_brewersfriend:
+                    if resp.status_code == 400:
+                        hint = (
+                            f'Brewers Friend returned HTTP 400 (Bad Request). '
+                            f'Check that your URL is in the correct format: '
+                            f'https://log.brewersfriend.com/tilt/YOUR_API_KEY'
+                        )
+                    elif resp.status_code == 401 or resp.status_code == 403:
+                        hint = (
+                            f'Brewers Friend returned HTTP {resp.status_code} (Unauthorized). '
+                            f'Your API key may be invalid. Verify the URL and key in your '
+                            f'Brewers Friend account settings.'
+                        )
+                    elif resp.status_code == 404:
+                        hint = (
+                            f'Brewers Friend returned HTTP 404 (Not Found). '
+                            f'The URL path appears incorrect — expected format: '
+                            f'https://log.brewersfriend.com/tilt/YOUR_API_KEY'
+                        )
+                    else:
+                        hint = f'Brewers Friend returned HTTP {resp.status_code}.'
+                else:
+                    hint = f'Connection failed with HTTP status {resp.status_code}'
                 return jsonify({
                     'success': False,
-                    'message': f'Connection failed with HTTP status {resp.status_code}'
+                    'message': hint
                 })
         except requests.exceptions.Timeout:
             return jsonify({
@@ -8503,6 +8530,17 @@ def open_browser(port=5001):
         '--disable-session-crashed-bubble',
     ]
 
+    # Build a subprocess environment that guarantees a display is available.
+    # When app.py is launched from a desktop autostart entry the parent process
+    # already has DISPLAY (X11) or WAYLAND_DISPLAY set and the child inherits
+    # it automatically.  The fallback to ":0" only fires when neither variable
+    # is present (e.g. an accidental headless run), so Chromium has a display
+    # to connect to instead of failing silently.
+    browser_env = os.environ.copy()
+    if not browser_env.get('DISPLAY') and not browser_env.get('WAYLAND_DISPLAY'):
+        browser_env['DISPLAY'] = ':0'
+        print("[LOG] DISPLAY not set — defaulting to :0 for browser launch")
+
     try:
         # 1) Chromium on Raspberry Pi OS / most Debian-based Linux
         if shutil.which('chromium-browser'):
@@ -8512,6 +8550,7 @@ def open_browser(port=5001):
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
+                env=browser_env,
             )
             print(f"[LOG] Opened browser in fullscreen mode at {url} using chromium-browser")
 
@@ -8523,6 +8562,7 @@ def open_browser(port=5001):
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
+                env=browser_env,
             )
             print(f"[LOG] Opened browser in fullscreen mode at {url} using chromium")
 
@@ -8534,6 +8574,7 @@ def open_browser(port=5001):
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
+                env=browser_env,
             )
             print(f"[LOG] Opened browser in fullscreen mode at {url} using google-chrome")
 
@@ -8545,17 +8586,22 @@ def open_browser(port=5001):
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
+                env=browser_env,
             )
             print(f"[LOG] Opened browser at {url} using open (macOS)")
 
         # 5) Generic Linux fallback via xdg-open
+        # start_new_session=True creates a new process group so the child
+        # is detached from the parent's session and won't receive SIGHUP —
+        # nohup is therefore not needed here.
         elif shutil.which('xdg-open'):
             subprocess.Popen(
-                ['nohup', 'xdg-open', url],
+                [shutil.which('xdg-open'), url],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
+                env=browser_env,
             )
             print(f"[LOG] Opened browser at {url} using xdg-open")
 
