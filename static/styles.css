@@ -262,14 +262,17 @@ body, body.page-bg {
 .status-above   { color: #c00; }
 .status-below   { color: #007bff; }
 
-/* Mobile: single-column grid */
+/* Mobile: single-column grid, cards keep their natural width instead of stretching
+   to fill the full screen.  On devices wider than ~560 px in portrait the grid
+   auto-fills with as many fixed-width columns as will fit (e.g. 2 columns on a
+   tablet held upright) matching the landscape "preferred card format". */
 @media (max-width: 699px) {
   :root { --temp-number-size: 32px; --metric-number-size: 18px; }
   .tiltcard-container {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     justify-items: center;
   }
-  .tilt-card { width: 92%; }
+  .tilt-card { width: var(--card-width); max-width: 92vw; }
 }
 
 /* ── Top navigation bar (main display) ── */

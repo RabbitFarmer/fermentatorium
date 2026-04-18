@@ -777,12 +777,17 @@ def localtime_filter(iso_str):
 
 @app.template_filter('ferm_days')
 def ferm_days_filter(date_str):
-    """Return the number of fermentation days from a YYYY-MM-DD date string to today."""
+    """Return the number of fermentation days from a YYYY-MM-DD date string to today.
+
+    Uses local time (respecting the timezone configured in system settings / the TZ
+    environment variable) so that users in non-UTC time zones see the correct day count
+    rather than the UTC date, which can differ by one day near midnight.
+    """
     try:
         if not date_str:
             return None
         start = datetime.strptime(str(date_str).strip(), '%Y-%m-%d').date()
-        delta = (datetime.utcnow().date() - start).days + 1
+        delta = (datetime.now().date() - start).days + 1
         return max(1, delta)
     except Exception:
         return None
@@ -1073,6 +1078,11 @@ tilt_status = {}
 
 last_tilt_log_ts = {}
 batch_notification_state = {}  # Track notification state per tilt/brewid
+
+# Per-URL timestamp tracker for external forwarding rate limiting.
+# Key: URL string, Value: datetime of last successful forward attempt.
+# Enforces system_cfg['external_refresh_rate'] (minutes) between sends.
+last_external_forward_ts: dict = {}
 
 # Rate-limiter for tilt_table saves: epoch timestamp of last save (0 = never saved)
 _tilt_table_last_saved: float = 0
@@ -1910,7 +1920,17 @@ def forward_to_third_party_if_configured(payload):
     
     if not urls_to_forward:
         return {"forwarded": False, "reason": "no external_url configured"}
-    
+
+    # Global external refresh rate — honours the "External Logging Refresh Rate"
+    # setting in System Settings so we don't hammer third-party services (e.g. Brewers
+    # Friend only accepts one entry every ~15 minutes per device).
+    try:
+        ext_refresh_minutes = int(system_cfg.get("external_refresh_rate", 15) or 15)
+    except (ValueError, TypeError):
+        ext_refresh_minutes = 15
+
+    now_dt = datetime.utcnow()
+
     # Forward to all configured URLs
     results = []
     for config in urls_to_forward:
@@ -1919,10 +1939,20 @@ def forward_to_third_party_if_configured(payload):
         send_json = config["send_json"]
         timeout = config.get("timeout", 8)
         field_map = config.get("field_map")
-        
+
+        # Per-URL rate limiting: skip if we forwarded to this URL too recently.
+        last_fwd = last_external_forward_ts.get(url)
+        if last_fwd is not None:
+            elapsed_minutes = (now_dt - last_fwd).total_seconds() / 60.0
+            if elapsed_minutes < ext_refresh_minutes:
+                results.append({"url": url, "forwarded": False,
+                                 "reason": f"rate limited ({elapsed_minutes:.1f} min < {ext_refresh_minutes} min interval)"})
+                print(f"[FORWARD] Skipping {url} — rate limited ({elapsed_minutes:.1f}/{ext_refresh_minutes} min)")
+                continue
+
         # Transform payload for Brewers Friend if needed (uses original payload)
         if "brewersfriend.com" in url.lower():
-            # Brewers Friend expects a specific format with numeric values
+            # Brewers Friend expects a specific JSON format; always use POST + JSON.
             transformed_payload = {
                 "name": payload.get("tilt_color", "Tilt"),
                 "temp": payload.get("temp_f") if payload.get("temp_f") is not None else 0,
@@ -1933,8 +1963,8 @@ def forward_to_third_party_if_configured(payload):
                 "comment": f"Batch: {payload.get('batch_name', '')} | BrewID: {payload.get('brewid', '')}"
             }
             forwarding_payload = transformed_payload
-            # Brewers Friend always uses JSON
             send_json = True
+            method = "POST"  # Brewers Friend requires POST regardless of user configuration
         elif field_map:
             # Apply field map transformation if provided and not Brewers Friend
             forwarding_payload = {}
@@ -1955,10 +1985,15 @@ def forward_to_third_party_if_configured(payload):
                 formdata = {k: ("" if v is None else v) for k, v in forwarding_payload.items() if isinstance(v, (str, int, float)) or v is None}
                 resp = requests.request(method, url, data=formdata, headers=headers, timeout=timeout)
             
+            # Record the timestamp on any attempt (success or HTTP error) so we
+            # respect the refresh-rate window even when the remote returns 4xx/5xx.
+            last_external_forward_ts[url] = now_dt
             result = {"url": url, "forwarded": True, "status_code": resp.status_code, "text": resp.text[:500]}
             results.append(result)
             print(f"[FORWARD] Successfully forwarded tilt {color} to {url}, status: {resp.status_code}")
         except Exception as e:
+            # Also update timestamp on network errors to avoid retry storms.
+            last_external_forward_ts[url] = now_dt
             result = {"url": url, "forwarded": False, "error": str(e)}
             results.append(result)
             print(f"[FORWARD] Error forwarding tilt {color} to {url}: {e}")
@@ -2770,6 +2805,12 @@ def check_fermentation_starting(color, brewid, cfg, state):
     """
     Detect fermentation start: 3 consecutive readings at least 0.010 below starting gravity.
     Saves the datetime when fermentation start notification is sent.
+
+    This logic is intentionally triggered by any sequence of 3 readings that are ≥ 0.010
+    below the recorded OG, including readings taken during a pre-fermentation gravity test
+    (e.g. when a brewer samples wort shortly after pitching and the Tilt captures the drop).
+    As long as 'actual_og' is set in Batch Settings, the first qualifying sequence of 3
+    consecutive low readings — regardless of when they occur — will fire the notification.
     """
     # Check if notification already sent (datetime will be present)
     if state.get('fermentation_start_datetime'):
@@ -3464,6 +3505,66 @@ def _check_and_restart_kasa_proc():
         ctrl['heating_error_msg']     = 'kasa_manager worker restarted — plug state unknown'
         ctrl['cooling_error']         = True
         ctrl['cooling_error_msg']     = 'kasa_manager worker restarted — plug state unknown'
+
+# --- Raspberry Pi Connect watchdog ----------------------------------------
+# Raspberry Pi Connect (connect.raspberrypi.com) is a user-level systemd service
+# called rpi-connect.  Sessions can silently drop after first use.  This watchdog
+# checks the service status every 10 minutes and restarts it when it is found
+# inactive, keeping the tunnel alive without manual intervention.
+_RPI_CONNECT_CHECK_INTERVAL_SECONDS = 600  # 10 minutes
+_rpi_connect_last_check: float = 0.0
+
+def _check_and_restart_rpi_connect():
+    """Watchdog: check whether the rpi-connect user service is active; restart if not.
+
+    Raspberry Pi Connect runs as a *user* systemd service (not a system-level service),
+    so no elevated privileges are required — systemctl --user is sufficient.
+    The check is debounced to at most once every _RPI_CONNECT_CHECK_INTERVAL_SECONDS
+    seconds so that calling this function frequently (e.g. from the batch-monitoring
+    loop) does not cause excessive subprocess spawning.
+    """
+    global _rpi_connect_last_check
+    now = time.time()
+    if now - _rpi_connect_last_check < _RPI_CONNECT_CHECK_INTERVAL_SECONDS:
+        return
+    _rpi_connect_last_check = now
+
+    try:
+        # Probe whether the service unit even exists before attempting anything else.
+        probe = subprocess.run(
+            ['systemctl', '--user', 'cat', 'rpi-connect.service'],
+            capture_output=True, timeout=5
+        )
+        if probe.returncode != 0:
+            # Service not installed — nothing to do; reset the timer so we don't
+            # spam the check every 10 minutes on a non-Pi system.
+            return
+
+        # Check whether the service is currently active.
+        status = subprocess.run(
+            ['systemctl', '--user', 'is-active', 'rpi-connect'],
+            capture_output=True, text=True, timeout=5
+        )
+        active_state = status.stdout.strip()
+        if active_state == 'active':
+            return  # All good — nothing to do.
+
+        print(f"[RPI-CONNECT] Service state is '{active_state}' — attempting restart")
+        restart = subprocess.run(
+            ['systemctl', '--user', 'restart', 'rpi-connect'],
+            capture_output=True, text=True, timeout=15
+        )
+        if restart.returncode == 0:
+            print("[RPI-CONNECT] Service restarted successfully")
+            log_event('rpi_connect_restart', 'Raspberry Pi Connect service restarted by watchdog')
+        else:
+            err = restart.stderr.strip()
+            print(f"[RPI-CONNECT] Restart failed (rc={restart.returncode}): {err}")
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        # systemctl not available or timed out — ignore silently.
+        pass
+    except Exception as e:
+        print(f"[RPI-CONNECT] Watchdog error: {e}")
 
 # --- Control functions -----------------------------------------------------
 def control_heating(state, controller):
@@ -4772,6 +4873,9 @@ def periodic_batch_monitoring():
             
             # Process notification retry queue with exponential backoff
             process_notification_retries()
+
+            # Keep Raspberry Pi Connect tunnel alive if installed
+            _check_and_restart_rpi_connect()
             
             # Check if it's time for daily reports
             notif_cfg = system_cfg.get('batch_notifications', {})
@@ -5271,6 +5375,7 @@ def test_external_logging():
                 "comment": "Test from Fermenter Controller"
             }
             send_json = True
+            method = "POST"  # Brewers Friend requires POST; override any user selection
         elif field_map_id and field_map_id != 'default':
             # Apply field map transformation if specified
             if field_map_id == 'custom' and custom_field_map:
