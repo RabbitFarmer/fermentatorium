@@ -186,7 +186,7 @@
     }
 
     // On page load, check if there are any KASA URLs stored from scan results
-    // and restore any unsaved form state that was saved before navigating to the scan page
+    // and restore any unsaved form state that was saved before navigating to the scan page,
     // or before a temp-control toggle caused a page reload.
     window.addEventListener('DOMContentLoaded', function() {
       const controllerId = {{ controller_id }};

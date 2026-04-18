@@ -8591,6 +8591,9 @@ def open_browser(port=5001):
             print(f"[LOG] Opened browser at {url} using open (macOS)")
 
         # 5) Generic Linux fallback via xdg-open
+        # start_new_session=True creates a new process group so the child
+        # is detached from the parent's session and won't receive SIGHUP —
+        # nohup is therefore not needed here.
         elif shutil.which('xdg-open'):
             subprocess.Popen(
                 [shutil.which('xdg-open'), url],
