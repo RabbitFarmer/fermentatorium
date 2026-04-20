@@ -58,10 +58,13 @@
     const fermentationComplete = {{ 'true' if tilt_cfg[tilt_color].get('notification_state', {}).get('fermentation_completion_datetime') else 'false' }};
     {% endif %}
     
-    async function loadData(limit = 3000) {
+    async function loadData() {
       document.getElementById('status').textContent = 'Loading data...';
 
-      let url = `/chart_data/${encodeURIComponent(tiltColor)}?limit=${limit}`;
+      // Use all=1 so the full data history is always fetched.
+      // This ensures the chart always squeezes the entire timeline into view
+      // rather than cutting off older readings to enforce a point-count limit.
+      let url = `/chart_data/${encodeURIComponent(tiltColor)}?all=1`;
       if (tcColor) url += `&tc_color=${encodeURIComponent(tcColor)}`;
       try {
         const response = await fetch(url);

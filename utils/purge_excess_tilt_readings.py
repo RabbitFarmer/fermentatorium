@@ -49,12 +49,15 @@ Usage (run from the repository root directory)
     python3 utils/purge_excess_tilt_readings.py --batch-files batches/myBrew.jsonl
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 # ---------------------------------------------------------------------------
 # Paths (resolved relative to this script's location → repo root)
@@ -84,7 +87,7 @@ def load_system_config(path: Path) -> dict:
     return {}
 
 
-def parse_ts(ts_str) -> datetime | None:
+def parse_ts(ts_str) -> Optional[datetime]:
     """Parse an ISO-8601 timestamp string into a UTC-aware datetime."""
     if not ts_str:
         return None
@@ -107,7 +110,7 @@ def parse_ts(ts_str) -> datetime | None:
 
 def make_backup(path: Path) -> Path:
     """Copy *path* to *path*.<timestamp>.bak and return the backup path."""
-    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     backup = path.with_suffix(f".{ts}.bak")
     shutil.copy2(path, backup)
     return backup
