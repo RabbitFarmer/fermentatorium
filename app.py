@@ -1480,12 +1480,15 @@ def log_tilt_reading(color, gravity, temp_f, rssi, mac="", is_pro=False):
     Log tilt readings with interval-based rate limiting and batch tracking.
     
     This function handles:
-    - Rate-limited logging based on tilt usage:
-      * Temperature control tilts: use system_cfg['update_interval'] (configurable, default 2 min)
-      * Fermentation tracking tilts: use system_cfg['tilt_logging_interval_minutes'] (configurable, default 15 min)
+    - Rate-limited logging for ALL active tilt devices (TEMPERATURE + GRAVITY) using
+      system_cfg['tilt_logging_interval_minutes'] ("Tilt Reading Logging Interval").
     - Recording readings to control log and batch-specific JSONL files
     - Forwarding to third-party services if configured
     - Triggering batch notifications (signal loss, fermentation start, etc.)
+
+    NOTE: Temperature-only readings for temperature control are handled separately
+    by log_periodic_temp_reading(), which runs at system_cfg['update_interval']
+    ("Update Interval") and stores readings in the in-memory temp_reading_buffer.
     
     Args:
         color: Tilt color identifier
@@ -1498,29 +1501,17 @@ def log_tilt_reading(color, gravity, temp_f, rssi, mac="", is_pro=False):
     cfg = tilt_cfg.get(color, {})
     brewid = cfg.get('brewid', '')
     
-    # Rate limiting based on tilt usage:
-    # - If tilt is assigned to temperature control: use system_cfg['update_interval'] for responsive control
-    # - Otherwise: use system_cfg['tilt_logging_interval_minutes'] for fermentation tracking
-    # Both intervals are configurable in System Settings page
-    # Multi-controller: use helper to find the controller owning this tilt (if any).
-    # Pass the MAC address so a MAC-qualified controller is found first.
+    # All tilt devices (TEMPERATURE + GRAVITY) are logged at tilt_logging_interval_minutes.
+    # This is the "Tilt Reading Logging Interval" setting in System Settings.
+    # Temperature-only readings for temp-control tilts are logged separately by
+    # log_periodic_temp_reading() at the "Update Interval" (update_interval).
     control_controller = _find_controller_by_tilt(color, mac=mac)
     is_control_tilt = control_controller is not None
     
-    if is_control_tilt:
-        # Use system_cfg['update_interval'] for temperature control tilt
-        # This keeps control tilt logging synchronized with the temperature control loop
-        try:
-            interval_minutes = int(system_cfg.get('update_interval', 2))
-        except (ValueError, TypeError):
-            interval_minutes = 2  # Fallback if not configured or invalid
-    else:
-        # Use system_cfg['tilt_logging_interval_minutes'] for fermentation tracking
-        # This is the "Tilt Reading Logging Interval" setting in System Settings
-        try:
-            interval_minutes = int(system_cfg.get('tilt_logging_interval_minutes', 15))
-        except (ValueError, TypeError):
-            interval_minutes = 15  # Fallback if not configured or invalid
+    try:
+        interval_minutes = int(system_cfg.get('tilt_logging_interval_minutes', 15))
+    except (ValueError, TypeError):
+        interval_minutes = 15  # Fallback if not configured or invalid
     
     now = datetime.utcnow()
     # Rate limit per MAC address so multiple tilts of the same color each log independently
