@@ -8407,7 +8407,9 @@ def exit_system():
 
     if request.method == 'POST':
         confirm = request.form.get('confirm', 'no')
-        if confirm == 'yes':
+        if confirm in ('yes', 'reboot'):
+            is_reboot = (confirm == 'reboot')
+
             # Set temp_control_active to False on every controller before shutdown
             # so the monitors start OFF on next startup (multi-controller aware).
             try:
@@ -8436,7 +8438,7 @@ def exit_system():
             except Exception as e:
                 print(f"[LOG] Error turning off plugs during shutdown: {e}")
 
-            # Schedule shutdown after response is delivered
+            # Schedule shutdown/reboot after response is delivered
             def shutdown_system():
                 time.sleep(SHUTDOWN_DELAY)
                 try:
@@ -8446,9 +8448,10 @@ def exit_system():
                 except Exception as e:
                     print(f"[LOG] Error during kasa_manager stop: {e}")
 
-                # Spawn a detached process that kills the browser and powers off
-                # the machine after Flask has exited.  Using start_new_session=True
-                # ensures the child survives the Flask process termination.
+                # Spawn a detached process that kills the browser then
+                # powers off or reboots the machine after Flask has exited.
+                # start_new_session=True ensures the child survives Flask termination.
+                os_cmd = 'sudo reboot 2>/dev/null || true' if is_reboot else 'sudo poweroff 2>/dev/null || true'
                 try:
                     subprocess.Popen(
                         [
@@ -8457,16 +8460,17 @@ def exit_system():
                             ' && pkill chromium-browser 2>/dev/null || true'
                             ' && pkill chromium 2>/dev/null || true'
                             ' && pkill google-chrome 2>/dev/null || true'
-                            ' ; sudo poweroff 2>/dev/null || true'
+                            ' ; ' + os_cmd
                         ],
                         stdin=subprocess.DEVNULL,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         start_new_session=True,
                     )
-                    print("[LOG] Browser kill and poweroff scheduled")
+                    action = "reboot" if is_reboot else "poweroff"
+                    print(f"[LOG] Browser kill and {action} scheduled")
                 except Exception as e:
-                    print(f"[LOG] Error scheduling browser kill / poweroff: {e}")
+                    print(f"[LOG] Error scheduling browser kill / system command: {e}")
 
                 # Shutdown Flask
                 os.kill(os.getpid(), signal.SIGINT)
@@ -8526,7 +8530,21 @@ def open_browser(port=5001):
         print(f"[LOG] Could not determine process uptime: {e}")
         time.sleep(1)
 
-    url = f'http://127.0.0.1:{port}'
+    # Use the machine's actual LAN IP so the browser address bar shows the
+    # network address (e.g. 192.168.1.242:5001) rather than localhost.
+    # The UDP connect trick (no data sent) is the standard way to discover the
+    # outbound interface IP without knowing the default gateway in advance.
+    # 8.8.8.8 is used as a dummy destination; no network traffic is sent.
+    # Falls back to 127.0.0.1 if the LAN IP cannot be determined.
+    try:
+        _s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        _s.connect(('8.8.8.8', 80))  # no data sent; discovers outbound interface IP
+        _local_ip = _s.getsockname()[0]
+        _s.close()
+    except Exception:
+        _local_ip = '127.0.0.1'
+    url = f'http://{_local_ip}:{port}'
+    print(f"[LOG] Browser will open to {url}")
 
     # Wait for Flask to actually be responding before opening the browser.
     # This avoids a "connection refused" splash on slow hardware.

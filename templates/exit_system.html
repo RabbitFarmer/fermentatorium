@@ -29,6 +29,18 @@
       cursor: pointer;
       font-weight: bold;
     }
+    .btn-reboot {
+      background: #e67e00;
+      color: white;
+      border: 2px solid #e67e00;
+      border-radius: 7px;
+      font-size: 1.15em;
+      min-width: 120px;
+      padding: 10px 16px;
+      margin: 0 8px;
+      cursor: pointer;
+      font-weight: bold;
+    }
     .btn-cancel {
       background: #bbb;
       color: #222;
@@ -48,15 +60,17 @@
     <h1 class="dashboard-title">EXIT SYSTEM</h1>
     <div style="max-width:500px; margin:0 auto; background:#fff; border-radius:8px; padding:30px; box-shadow:0 1px 6px rgba(0,0,0,0.06); text-align:center;">
       <div class="exit-warning">
-        Are you sure you want to shut down the system?<br>
-        All plugs will be turned OFF. The application and browser will close,
-        and the computer will power off.<br>
+        Are you sure you want to shut down or reboot the system?<br>
+        All plugs will be turned OFF. The application and browser will close.<br>
         <br>
         <b>This cannot be undone!</b>
       </div>
       <div class="center-form">
         <form method="post" action="/exit_system" style="display:inline;">
           <button type="submit" class="btn-exit" name="confirm" value="yes">YES, SHUT DOWN</button>
+        </form>
+        <form method="post" action="/exit_system" style="display:inline;">
+          <button type="submit" class="btn-reboot" name="confirm" value="reboot">REBOOT SYSTEM</button>
         </form>
         <form method="post" action="/exit_system" style="display:inline;">
           <button type="submit" class="btn-cancel" name="confirm" value="no">Cancel</button>
