@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <title>Temperature & Gravity Chart</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min"></script>
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2"></script>
   <style>
     body { font-family: Arial, sans-serif; margin: 16px; background: #f6f6f6; }
     #chart-container { max-width: 1200px; margin: auto; background: #ffffff; border-radius: 4px; padding: 16px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1); }
@@ -187,9 +187,10 @@
                 type: 'scatter',  // Explicitly set type to scatter for line chart
                 x: displayData.map(p => p.timestamp),
                 y: displayData.map(p => p.temp_f),
-                mode: 'lines',
+                mode: 'lines+markers',
                 name: displayLabel,
                 line: { color: displayColor, shape: 'linear', width: 1.5 },
+                marker: { size: 4, color: displayColor },
                 yaxis: 'y1',
                 connectgaps: false,
               });
@@ -204,9 +205,10 @@
             type: 'scatter',  // Explicitly set type to scatter for line chart
             x: dataPoints.map((p) => p.timestamp),
             y: dataPoints.map((p) => p.temp_f),
-            mode: 'lines',
+            mode: 'lines+markers',
             name: 'Temperature (°F)',
             line: { color: 'blue', shape: 'linear', width: 1.5 },
+            marker: { size: 4, color: 'blue' },
             yaxis: 'y1',
             connectgaps: false,
           };
@@ -219,9 +221,10 @@
         let tempMax = Math.max(...temps);
         let tempRange = null;
         if (temps.length > 0 && isFinite(tempMin) && isFinite(tempMax)) {
-          // Use data-driven range with 10% margin or minimum of 5°F margin for all charts
+          // Use data-driven range with a generous margin so small temperature
+          // variations don't appear as exaggerated swings.
           const dataRange = tempMax - tempMin;
-          const margin = Math.max(dataRange * 0.1, 5);  // 10% of range or 5°F minimum
+          const margin = Math.max(dataRange * 0.1, 15);  // 10% of range or 15°F minimum
           tempMin = tempMin - margin;
           tempMax = tempMax + margin;
           tempRange = [tempMin, tempMax];
@@ -464,9 +467,10 @@
             type: 'scatter',
             x: dataPoints.map((p) => p.timestamp),
             y: dataPoints.map((p) => parseFloat(p.gravity)),
-            mode: 'lines',
+            mode: 'lines+markers',
             name: 'Gravity',
             line: { color: '#E69D00', shape: 'linear', width: 3 },
+            marker: { size: 4, color: '#E69D00' },
             yaxis: 'y2',
             connectgaps: false,
           };

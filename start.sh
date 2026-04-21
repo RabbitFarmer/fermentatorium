@@ -40,6 +40,25 @@ show_notification() {
     fi
 }
 
+# Return the machine's primary LAN IP (e.g. 192.168.1.242).
+# Falls back to 127.0.0.1 if no LAN address can be determined.
+get_local_ip() {
+    local ip=""
+    # hostname -I lists all IPs; take the first one (primary interface)
+    if command -v hostname > /dev/null 2>&1; then
+        ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+    # Fallback: 'ip route get 1' uses 1.0.0.0 as a dummy destination to
+    # discover which source IP the kernel would use for an outbound packet.
+    if [ -z "$ip" ] && command -v ip > /dev/null 2>&1; then
+        ip=$(ip route get 1 2>/dev/null | awk '/src/{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
+    fi
+    if [ -z "$ip" ]; then
+        ip="127.0.0.1"
+    fi
+    echo "$ip"
+}
+
 # Open the browser in kiosk mode (no address bar, always fullscreen).
 # Tries Chromium (with --kiosk) first; falls back to xdg-open.
 # --kiosk gives a true kiosk display — the in-app "Exit Kiosk" button on
@@ -139,7 +158,7 @@ _cleanup_stale_port5000_entries
 # ── Already running? ──────────────────────────────────────────────────────────
 if curl -s --max-time 2 "http://127.0.0.1:$FLASK_PORT/" > /dev/null 2>&1; then
     show_notification "Fermentatorium" "Already running — opening dashboard." "normal"
-    open_browser_kiosk "http://127.0.0.1:$FLASK_PORT/"
+    open_browser_kiosk "http://$(get_local_ip):$FLASK_PORT/"
     exit 0
 fi
 
@@ -161,7 +180,7 @@ if [ "$_svc_state" = "active" ] || [ "$_svc_state" = "activating" ]; then
     for i in $(seq 1 $_svc_retries); do
         if curl -s --max-time 2 "http://127.0.0.1:$FLASK_PORT/" > /dev/null 2>&1; then
             show_notification "Fermentatorium" "Ready! Opening dashboard…" "normal"
-            open_browser_kiosk "http://127.0.0.1:$FLASK_PORT/?autostart=1"
+            open_browser_kiosk "http://$(get_local_ip):$FLASK_PORT/?autostart=1"
             exit 0
         fi
         sleep 2
@@ -274,7 +293,7 @@ done
 
 if [ "$APP_STARTED" = true ]; then
     show_notification "Fermentatorium" "Ready! Opening dashboard…" "normal"
-    open_browser_kiosk "http://127.0.0.1:$FLASK_PORT/?autostart=1"
+    open_browser_kiosk "http://$(get_local_ip):$FLASK_PORT/?autostart=1"
 else
     echo "ERROR: Application did not respond after $((RETRIES * RETRY_DELAY)) seconds."
     echo "Last 30 lines of app.log:"

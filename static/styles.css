@@ -272,6 +272,30 @@ body, body.page-bg {
   .tilt-card { width: 92%; }
 }
 
+/* Portrait / narrow screens: 2-column grid (700 – 959 px) */
+@media (min-width: 700px) and (max-width: 959px) {
+  .tiltcard-container {
+    grid-template-columns: repeat(2, var(--card-width));
+  }
+  /* display-mode-3/4 use wider cards (400 px); 2 per row still fits */
+  .display-mode-3 .tiltcard-container,
+  .display-mode-4 .tiltcard-container {
+    grid-template-columns: repeat(2, var(--card-width));
+  }
+}
+
+/* Medium screens: 3-column grid (960 – 1299 px) */
+@media (min-width: 960px) and (max-width: 1299px) {
+  .tiltcard-container {
+    grid-template-columns: repeat(3, var(--card-width));
+  }
+  /* display-mode-3/4 wide cards — keep 2 columns until there is room for 3 */
+  .display-mode-3 .tiltcard-container,
+  .display-mode-4 .tiltcard-container {
+    grid-template-columns: repeat(2, var(--card-width));
+  }
+}
+
 /* ── Top navigation bar (main display) ── */
 .top-nav-bar {
   display: flex;
