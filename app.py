@@ -8303,6 +8303,37 @@ def update_system():
         if result.stderr.strip():
             parts.append(result.stderr.strip())
         output = '\n'.join(parts)
+
+        # git refuses to pull when a tracked file has been locally modified and
+        # would be overwritten by the incoming commit.  On a standalone Pi this
+        # is never an intentional local edit, so discard the local changes and
+        # retry automatically.
+        if result.returncode != 0 and 'would be overwritten' in output:
+            original_error = output
+            checkout_result = subprocess.run(
+                ['git', 'checkout', '--', '.'],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=_HERE
+            )
+            if checkout_result.returncode == 0:
+                result = subprocess.run(
+                    ['git', 'pull'],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                    cwd=_HERE
+                )
+                retry_parts = ['[Auto-fix] Local modifications to tracked files were discarded so the update could proceed.']
+                if result.stdout.strip():
+                    retry_parts.append(result.stdout.strip())
+                if result.stderr.strip():
+                    retry_parts.append(result.stderr.strip())
+                output = '\n'.join(retry_parts)
+            else:
+                output = original_error + '\n[Auto-fix failed] Could not discard local changes: ' + (checkout_result.stderr.strip() or checkout_result.stdout.strip())
+
         success = result.returncode == 0
         already_up_to_date = 'Already up to date' in output or 'Already up-to-date' in output
 
