@@ -8246,6 +8246,72 @@ def list_backups():
         })
 
 
+def _repair_corrupt_git(repo_dir):
+    """Attempt to repair a corrupted local git repository.
+
+    Corruption (empty/zero-byte objects) commonly occurs on Raspberry Pi
+    SD cards after an unexpected power loss.  The recovery procedure is:
+      1. Remove zero-byte files under .git/objects/ so git stops complaining
+         about them.
+      2. Re-fetch all objects from the remote (fills in the gaps).
+      3. Hard-reset the working tree to FETCH_HEAD so the local branch and
+         working files match the latest remote state.
+
+    Returns (success: bool, message: str).
+    """
+    objects_dir = os.path.join(repo_dir, '.git', 'objects')
+    if not os.path.isdir(objects_dir):
+        return False, 'No .git/objects directory found — repository may not be a git clone.'
+
+    # Step 1: remove empty (zero-byte) object files.
+    removed = 0
+    for dirpath, _dirs, filenames in os.walk(objects_dir):
+        for fname in filenames:
+            fpath = os.path.join(dirpath, fname)
+            try:
+                if os.path.getsize(fpath) == 0:
+                    os.remove(fpath)
+                    removed += 1
+            except OSError:
+                pass
+
+    if removed == 0:
+        return False, 'No empty object files were found; unable to determine corruption cause.'
+
+    # Step 2: re-fetch all objects from origin.
+    fetch_result = subprocess.run(
+        ['git', 'fetch', 'origin'],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        cwd=repo_dir,
+    )
+    if fetch_result.returncode != 0:
+        fetch_err = (fetch_result.stderr.strip() or fetch_result.stdout.strip())
+        return False, f'Removed {removed} corrupted object(s) but could not fetch from origin: {fetch_err}'
+
+    # Step 3: hard-reset to the fetched HEAD so local branch and files are current.
+    reset_result = subprocess.run(
+        ['git', 'reset', '--hard', 'FETCH_HEAD'],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=repo_dir,
+    )
+    if reset_result.returncode != 0:
+        reset_err = (reset_result.stderr.strip() or reset_result.stdout.strip())
+        return False, f'Fetched successfully but could not reset to FETCH_HEAD: {reset_err}'
+
+    msg = (
+        f'Removed {removed} corrupted git object(s), re-fetched from GitHub, '
+        f'and reset to latest code.'
+    )
+    reset_out = reset_result.stdout.strip()
+    if reset_out:
+        msg += f'\n{reset_out}'
+    return True, msg
+
+
 @app.route('/update_system', methods=['POST'])
 def update_system():
     """Pull the latest code from the remote git repository and refresh dependencies."""
