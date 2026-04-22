@@ -27,7 +27,7 @@ import smtplib
 import sys
 import threading
 import time
-from collections import deque, defaultdict
+from collections import deque, defaultdict, namedtuple
 from datetime import datetime
 from glob import glob as glob_func
 from math import ceil
@@ -8246,6 +8246,117 @@ def list_backups():
         })
 
 
+_REMOTE_URL = 'https://github.com/RabbitFarmer/fermentatorium.git'
+_SubprocessResult = namedtuple('_SubprocessResult', ['returncode'])
+
+
+def _init_git_repo(repo_dir):
+    """Convert a plain directory into a git repo tracking the GitHub remote.
+
+    This is used when the app was deployed without a .git directory (e.g. via
+    deploy_to_opt.sh or a manual file copy).  The steps mirror what you would
+    run by hand:
+
+      git init
+      git remote add origin <url>
+      git fetch origin
+      git reset --hard origin/main
+
+    Returns (success: bool, message: str).
+    """
+    steps = [
+        (['git', 'init'], 'git init'),
+        (['git', 'remote', 'add', 'origin', _REMOTE_URL], 'git remote add origin'),
+        (['git', 'fetch', 'origin'], 'git fetch origin'),
+        (['git', 'reset', '--hard', 'origin/main'], 'git reset --hard origin/main'),
+    ]
+
+    for cmd, label in steps:
+        res = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=repo_dir,
+        )
+        if res.returncode != 0:
+            err = res.stderr.strip() or res.stdout.strip()
+            return False, f'[Auto-init] Failed at "{label}": {err}'
+
+    return True, (
+        '[Auto-init] This directory had no git repository. '
+        'Initialised git, fetched from GitHub, and reset to the latest code. '
+        'Your config files and data are untouched (they are gitignored). '
+        'Future updates will use a normal git pull.'
+    )
+
+
+def _repair_corrupt_git(repo_dir):
+    """Attempt to repair a corrupted local git repository.
+
+    Corruption (empty/zero-byte objects) commonly occurs on Raspberry Pi
+    SD cards after an unexpected power loss.  The recovery procedure is:
+      1. Remove zero-byte files under .git/objects/ so git stops complaining
+         about them.
+      2. Re-fetch all objects from the remote (fills in the gaps).
+      3. Hard-reset the working tree to FETCH_HEAD so the local branch and
+         working files match the latest remote state.
+
+    Returns (success: bool, message: str).
+    """
+    objects_dir = os.path.join(repo_dir, '.git', 'objects')
+    if not os.path.isdir(objects_dir):
+        return False, 'No .git/objects directory found — repository may not be a git clone.'
+
+    # Step 1: remove empty (zero-byte) object files.
+    removed = 0
+    for dirpath, _dirs, filenames in os.walk(objects_dir):
+        for fname in filenames:
+            fpath = os.path.join(dirpath, fname)
+            try:
+                if os.path.getsize(fpath) == 0:
+                    os.remove(fpath)
+                    removed += 1
+            except OSError:
+                pass
+
+    if removed == 0:
+        return False, 'No empty object files were found; unable to determine corruption cause.'
+
+    # Step 2: re-fetch all objects from origin.
+    fetch_result = subprocess.run(
+        ['git', 'fetch', 'origin'],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        cwd=repo_dir,
+    )
+    if fetch_result.returncode != 0:
+        fetch_err = (fetch_result.stderr.strip() or fetch_result.stdout.strip())
+        return False, f'Removed {removed} corrupted object(s) but could not fetch from origin: {fetch_err}'
+
+    # Step 3: hard-reset to the fetched HEAD so local branch and files are current.
+    reset_result = subprocess.run(
+        ['git', 'reset', '--hard', 'FETCH_HEAD'],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=repo_dir,
+    )
+    if reset_result.returncode != 0:
+        reset_err = (reset_result.stderr.strip() or reset_result.stdout.strip())
+        return False, f'Fetched successfully but could not reset to FETCH_HEAD: {reset_err}'
+
+    msg = (
+        f'Removed {removed} corrupted git object(s), re-fetched from GitHub, '
+        f'and reset to latest code.'
+    )
+    reset_out = reset_result.stdout.strip()
+    if reset_out:
+        msg += f'\n{reset_out}'
+    return True, msg
+
+
 @app.route('/update_system', methods=['POST'])
 def update_system():
     """Pull the latest code from the remote git repository and refresh dependencies."""
@@ -8293,6 +8404,15 @@ def update_system():
                 output = '\n'.join(retry_parts)
             else:
                 output = original_error + '\n[Auto-fix failed] Could not discard local changes: ' + (checkout_result.stderr.strip() or checkout_result.stdout.strip())
+
+        # git is not available in the working directory — the app was deployed
+        # without a .git folder (e.g. via deploy_to_opt.sh or a plain file
+        # copy).  Automatically convert the directory to a proper git clone so
+        # this and all future updates work normally.
+        elif result.returncode != 0 and 'not a git repository' in output.lower():
+            init_ok, init_msg = _init_git_repo(_HERE)
+            output = init_msg
+            result = _SubprocessResult(returncode=0 if init_ok else 1)
 
         success = result.returncode == 0
         already_up_to_date = 'Already up to date' in output or 'Already up-to-date' in output
