@@ -1012,6 +1012,60 @@ def ensure_temp_defaults():
 
 ensure_temp_defaults()
 
+def cleanup_phantom_tilt_assignments():
+    """
+    Clear controller tilt_color assignments for colors that have never been
+    physically detected (not in tilt_table).
+
+    These "phantom" entries arise from a previous code bug where the temp-config
+    dropdown showed all 8 Tilt colors regardless of which colors the user
+    actually owns.  The offline-placeholder feature makes them visible on the
+    main display as ghost tilt cards + TC cards for colors the user never owned.
+
+    Safety guard: cleanup is skipped entirely when tilt_table contains no
+    entries (fresh install, data not yet populated).  Without reference data we
+    cannot distinguish "never owned" from "haven't scanned yet", so it is safer
+    to do nothing and let the normal UI guard prevent new phantom assignments.
+
+    If an assignment is cleared and the user legitimately owns that color, they
+    can simply re-assign it in Temp Control settings once the tilt is powered on
+    and detected.
+    """
+    seen_colors = {
+        rec['tilt_color'].split(':', 1)[0]
+        for rec in tilt_table.values()
+        if rec.get('tilt_color')
+    }
+    seen_colors.discard('')  # defensive: remove any empty string from malformed records
+    # Only run when we have reference data; skip on a fresh/wiped installation.
+    if not seen_colors:
+        return
+
+    changed = False
+    for controller in temp_cfg.get('controllers', []):
+        tilt_color = controller.get("tilt_color", "")
+        if not tilt_color:
+            continue
+        base_color = tilt_color.split(':', 1)[0]
+        if base_color and base_color not in seen_colors:
+            cid = controller.get('controller_id', '?')
+            print(
+                f"[STARTUP] Cleared phantom tilt assignment '{tilt_color}' from "
+                f"controller {cid} — this color was never detected via BLE "
+                f"(not in tilt_table). Re-assign it in Temp Control settings "
+                f"once the tilt is powered on and detected."
+            )
+            controller["tilt_color"] = ""
+            changed = True
+
+    if changed:
+        try:
+            save_json(TEMP_CFG_FILE, temp_cfg)
+        except Exception as e:
+            print(f"[STARTUP] Could not persist phantom-assignment cleanup: {e}")
+
+cleanup_phantom_tilt_assignments()
+
 def ensure_all_tilts():
     try:
         for color in TILT_UUIDS.values():
