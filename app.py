@@ -1827,94 +1827,48 @@ def write_normalized_tilt_reading(payload, event_name="tilt_reading"):
 
 def forward_to_third_party_if_configured(payload):
     """
-    Forward tilt reading data to configured external services.
-    
-    Supports two configuration methods:
-    1. Per-tilt external_url in tilt_cfg[color] (highest priority)
-    2. System-wide external_url_0, external_url_1, external_url_2 in system_cfg
-    
-    The function will try to send to all configured URLs.
-    Automatically transforms the payload to Brewers Friend format if URL contains "brewersfriend.com".
+    Forward tilt reading data to configured external services (per-tilt config).
+
+    Config is read from tilt_cfg using a composite key "Color:MAC" first, then
+    falling back to the plain color key.  Rate limit is keyed by f"{url}|{mac}"
+    so each physical device has its own independent clock per URL.
+
+    Supported services: brewersfriend, brewstat, brewfather, user_defined.
+    Domain-sniff for brewersfriend.com kept as backward-compat fallback.
     """
     color = (payload.get("tilt_color") or "").upper()
     if not color:
         return {"forwarded": False, "reason": "no color"}
-    
+
     if requests is None:
         return {"forwarded": False, "reason": "requests library not available"}
-    
-    # Collect all URLs to forward to
-    urls_to_forward = []
-    
-    # 1. Check per-tilt configuration
-    tc = tilt_cfg.get(color) or {}
-    tilt_url = tc.get("external_url")
-    if tilt_url:
-        urls_to_forward.append({
-            "url": tilt_url,
-            "method": (tc.get("external_method") or "POST").upper(),
-            "send_json": bool(tc.get("external_json")) if ("external_json" in tc) else True
-        })
-    
-    # 2. Check system-wide configuration
-    # Support new format (external_urls array) and old format (external_url_0, etc.) for backwards compatibility
-    external_urls = system_cfg.get("external_urls", [])
-    
-    if external_urls and isinstance(external_urls, list):
-        # New format: per-URL configuration
-        for url_config in external_urls:
-            if not isinstance(url_config, dict):
-                continue
-            url = url_config.get("url", "").strip()
-            if not url:
-                continue
-            
-            # Get field map if specified
-            field_map_id = url_config.get("field_map_id", "default")
-            predefined_maps = get_predefined_field_maps()
-            field_map = predefined_maps.get(field_map_id, {}).get("map")
-            
-            # Handle custom field map JSON
-            if field_map_id == "custom" and url_config.get("custom_field_map"):
-                try:
-                    field_map = json.loads(url_config["custom_field_map"])
-                except (json.JSONDecodeError, ValueError, TypeError):
-                    field_map = None
-            
-            urls_to_forward.append({
-                "url": url,
-                "method": url_config.get("method", "POST").upper(),
-                "send_json": (url_config.get("content_type", "form") == "json"),
-                "timeout": int(url_config.get("timeout_seconds", 8)),
-                "field_map": field_map
-            })
-    else:
-        # Old format: external_url_0, external_url_1, external_url_2 with shared settings
-        for i in range(3):
-            sys_url = system_cfg.get(f"external_url_{i}")
-            if sys_url:
-                # Parse old external_field_map if present
-                field_map = None
-                if system_cfg.get("external_field_map"):
-                    try:
-                        field_map = json.loads(system_cfg["external_field_map"])
-                    except (json.JSONDecodeError, ValueError, TypeError):
-                        pass
-                
-                urls_to_forward.append({
-                    "url": sys_url,
-                    "method": system_cfg.get("external_method", "POST").upper(),
-                    "send_json": (system_cfg.get("external_content_type", "form") == "json"),
-                    "timeout": int(system_cfg.get("external_timeout_seconds", 8)),
-                    "field_map": field_map
-                })
-    
+
+    mac = payload.get("mac", "")
+    mac_n = normalize_mac(mac) if mac else None
+    composite_key = f"{color}:{mac_n}" if mac_n else None
+
+    # Find the tilt config entry (composite key first, then plain color)
+    tc = None
+    if composite_key and composite_key in tilt_cfg:
+        tc = tilt_cfg[composite_key]
+    elif color in tilt_cfg:
+        tc = tilt_cfg[color]
+
+    # Backward compat: migrate singular external_url to external_urls array
+    if tc and tc.get("external_url") and not tc.get("external_urls"):
+        tc = dict(tc)
+        tc["external_urls"] = [{
+            "service": "user_defined",
+            "url": tc["external_url"],
+            "method": tc.get("external_method", "POST"),
+            "content_type": tc.get("external_content_type", "form"),
+        }]
+
+    urls_to_forward = (tc or {}).get("external_urls", [])
+
     if not urls_to_forward:
         return {"forwarded": False, "reason": "no external_url configured"}
 
-    # Global external refresh rate — honours the "External Logging Refresh Rate"
-    # setting in System Settings so we don't hammer third-party services (e.g. Brewers
-    # Friend only accepts one entry every ~15 minutes per device).
     try:
         ext_refresh_minutes = int(system_cfg.get("external_refresh_rate", 15) or 15)
     except (ValueError, TypeError):
@@ -1922,50 +1876,90 @@ def forward_to_third_party_if_configured(payload):
 
     now_dt = datetime.utcnow()
 
-    # Forward to all configured URLs
-    results = []
-    for config in urls_to_forward:
-        url = config["url"]
-        method = config["method"]
-        send_json = config["send_json"]
-        timeout = config.get("timeout", 8)
-        field_map = config.get("field_map")
+    tilt_color = payload.get("tilt_color", "Tilt")
+    temp_f = payload.get("temp_f") or 0
+    gravity = payload.get("gravity") or 0
+    beer_name = payload.get("beer_name", "") or payload.get("batch_name", "")
 
-        # Per-URL rate limiting: skip if we forwarded to this URL too recently.
-        last_fwd = last_external_forward_ts.get(url)
+    results = []
+    for url_config in urls_to_forward:
+        if not isinstance(url_config, dict):
+            continue
+        url = url_config.get("url", "").strip()
+        if not url:
+            continue
+
+        service = url_config.get("service", "").lower()
+
+        # Rate limit key: per URL per MAC address
+        _rate_key = f"{url}|{mac}" if mac else url
+        last_fwd = last_external_forward_ts.get(_rate_key)
         if last_fwd is not None:
             elapsed_minutes = (now_dt - last_fwd).total_seconds() / 60.0
             if elapsed_minutes < ext_refresh_minutes:
                 results.append({"url": url, "forwarded": False,
-                                 "reason": f"rate limited ({elapsed_minutes:.1f} min < {ext_refresh_minutes} min interval)"})
-                print(f"[FORWARD] Skipping {url} — rate limited ({elapsed_minutes:.1f}/{ext_refresh_minutes} min)")
+                                 "reason": f"rate limited ({elapsed_minutes:.1f} min < {ext_refresh_minutes} min)"})
+                print(f"[FORWARD] Skipping {url} (tilt {color}/{mac}) — rate limited "
+                      f"({elapsed_minutes:.1f}/{ext_refresh_minutes} min)")
                 continue
 
-        # Transform payload for Brewers Friend if needed (uses original payload)
-        if "brewersfriend.com" in url.lower():
-            # Brewers Friend expects a specific JSON format; always use POST + JSON.
-            transformed_payload = {
-                "name": payload.get("tilt_color", "Tilt"),
-                "temp": payload.get("temp_f") if payload.get("temp_f") is not None else 0,
+        # Domain-sniff covers both explicit service="brewersfriend" and any existing
+        # per-tilt entry whose URL targets brewersfriend.com (exact host or subdomain).
+        try:
+            _parsed_url = urlparse(url)
+            _netloc = _parsed_url.netloc.lower()
+            _is_bf_netloc = (_netloc == "brewersfriend.com" or
+                             _netloc.endswith(".brewersfriend.com"))
+        except Exception:
+            _is_bf_netloc = False
+        is_brewersfriend = (service == "brewersfriend") or _is_bf_netloc
+
+        if is_brewersfriend:
+            forwarding_payload = {
+                "name": tilt_color,
+                "temp": temp_f,
                 "temp_unit": "F",
-                "gravity": payload.get("gravity") if payload.get("gravity") is not None else 0,
+                "gravity": gravity,
                 "gravity_unit": "G",
-                "beer": payload.get("beer_name", "") or payload.get("batch_name", ""),
+                "beer": beer_name,
                 "comment": f"Batch: {payload.get('batch_name', '')} | BrewID: {payload.get('brewid', '')}"
             }
-            forwarding_payload = transformed_payload
+            method = "POST"
             send_json = True
-            method = "POST"  # Brewers Friend requires POST regardless of user configuration
-        elif field_map:
-            # Apply field map transformation if provided and not Brewers Friend
-            forwarding_payload = {}
-            for logical_field, remote_field in field_map.items():
-                if logical_field in payload:
-                    forwarding_payload[remote_field] = payload[logical_field]
+        elif service == "brewstat":
+            forwarding_payload = {
+                "color": tilt_color.lower(),
+                "temp": temp_f,
+                "temp_unit": "F",
+                "gravity": gravity
+            }
+            method = "POST"
+            send_json = True
+        elif service == "brewfather":
+            forwarding_payload = {
+                "name": tilt_color,
+                "temp": temp_f,
+                "temp_unit": "F",
+                "gravity": gravity,
+                "gravity_unit": "G",
+                "device_source": "Tilt"
+            }
+            method = "POST"
+            send_json = True
         else:
-            # Use original payload if no transformation needed
-            forwarding_payload = payload
-        
+            # user_defined: apply field_map if provided
+            field_map = url_config.get("field_map")
+            if field_map and isinstance(field_map, dict):
+                forwarding_payload = {}
+                for logical_field, remote_field in field_map.items():
+                    if remote_field and logical_field in payload:
+                        forwarding_payload[remote_field] = payload[logical_field]
+            else:
+                forwarding_payload = payload
+            method = url_config.get("method", "POST").upper()
+            send_json = (url_config.get("content_type", "form") == "json")
+
+        timeout = int(url_config.get("timeout_seconds", 8))
         headers = {}
         try:
             if send_json:
@@ -1973,23 +1967,21 @@ def forward_to_third_party_if_configured(payload):
                 resp = requests.request(method, url, json=forwarding_payload, headers=headers, timeout=timeout)
             else:
                 headers["Content-Type"] = "application/x-www-form-urlencoded"
-                formdata = {k: ("" if v is None else v) for k, v in forwarding_payload.items() if isinstance(v, (str, int, float)) or v is None}
+                formdata = {k: ("" if v is None else v)
+                            for k, v in forwarding_payload.items()
+                            if isinstance(v, (str, int, float)) or v is None}
                 resp = requests.request(method, url, data=formdata, headers=headers, timeout=timeout)
-            
-            # Record the timestamp on any attempt (success or HTTP error) so we
-            # respect the refresh-rate window even when the remote returns 4xx/5xx.
-            last_external_forward_ts[url] = now_dt
+
+            last_external_forward_ts[_rate_key] = now_dt
             result = {"url": url, "forwarded": True, "status_code": resp.status_code, "text": resp.text[:500]}
             results.append(result)
-            print(f"[FORWARD] Successfully forwarded tilt {color} to {url}, status: {resp.status_code}")
+            print(f"[FORWARD] Tilt {color} ({mac}) → {url}, status: {resp.status_code}")
         except Exception as e:
-            # Also update timestamp on network errors to avoid retry storms.
-            last_external_forward_ts[url] = now_dt
+            last_external_forward_ts[_rate_key] = now_dt
             result = {"url": url, "forwarded": False, "error": str(e)}
             results.append(result)
-            print(f"[FORWARD] Error forwarding tilt {color} to {url}: {e}")
-    
-    # Return summary
+            print(f"[FORWARD] Error: tilt {color} ({mac}) → {url}: {e}")
+
     success_count = sum(1 for r in results if r.get("forwarded"))
     return {
         "forwarded": success_count > 0,
@@ -4933,45 +4925,9 @@ def system_config():
     active_tab = request.args.get('tab', 'main-settings')
     if active_tab not in VALID_SYSTEM_CONFIG_TABS:
         active_tab = 'main-settings'
-    
-    # Migrate old format to new format if needed
-    external_urls = system_cfg.get("external_urls", [])
-    
-    # If no external_urls but old format exists, migrate
-    if not external_urls:
-        for i in range(3):
-            name = system_cfg.get(f"external_name_{i}", "").strip()
-            url = system_cfg.get(f"external_url_{i}", "").strip()
-            if url:
-                url_config = {
-                    "name": name or f"Service {i + 1}",
-                    "url": url,
-                    "method": system_cfg.get("external_method", "POST"),
-                    "content_type": system_cfg.get("external_content_type", "form"),
-                    "timeout_seconds": int(system_cfg.get("external_timeout_seconds", 8)),
-                    "field_map_id": "default"
-                }
-                # If there's a custom field map, use it
-                if system_cfg.get("external_field_map"):
-                    url_config["field_map_id"] = "custom"
-                    url_config["custom_field_map"] = system_cfg.get("external_field_map")
-                external_urls.append(url_config)
-    
-    # Ensure we have exactly 3 slots (fill with empty ones if needed)
-    while len(external_urls) < 3:
-        external_urls.append({
-            "name": "",
-            "url": "",
-            "method": "POST",
-            "content_type": "form",
-            "timeout_seconds": 8,
-            "field_map_id": "default"
-        })
-    
+
     return render_template('system_config.html',
                          system_settings=system_cfg,
-                         external_urls=external_urls,
-                         predefined_field_maps=get_predefined_field_maps(),
                          active_tab=active_tab,
                          error_msg=request.args.get('error', ''),
                          force_iot_port=_FORCE_IOT_PORT)
@@ -5020,31 +4976,7 @@ def update_system_config():
         new_kasa_username != old_kasa_username or
         (new_kasa_password and new_kasa_password != old_kasa_password)
     )
-    
-    # Handle external URLs - support new per-URL configuration format
-    external_urls = []
-    for i in range(3):
-        name = data.get(f"external_name_{i}", "").strip()
-        url = data.get(f"external_url_{i}", "").strip()
-        
-        # Always create entry (even if URL is empty) to preserve settings
-        url_config = {
-            "name": name or f"Service {i + 1}",
-            "url": url,
-            "method": data.get(f"external_method_{i}", "POST"),
-            "content_type": data.get(f"external_content_type_{i}", "form"),
-            "timeout_seconds": int(data.get(f"external_timeout_seconds_{i}", 8)),
-            "field_map_id": data.get(f"external_field_map_id_{i}", "default")
-        }
-        
-        # If custom field map is selected, store the custom JSON
-        if url_config["field_map_id"] == "custom":
-            custom_map = data.get(f"external_custom_field_map_{i}", "").strip()
-            if custom_map:
-                url_config["custom_field_map"] = custom_map
-        
-        external_urls.append(url_config)
-    
+
     system_cfg.update({
         "brewery_name": data.get("brewery_name", ""),
         "brewer_name": data.get("brewer_name", ""),
@@ -5058,7 +4990,6 @@ def update_system_config():
         "display_mode": data.get("display_mode", "4"),
         "update_interval": data.get("update_interval", "2"),
         "external_refresh_rate": data.get("external_refresh_rate", system_cfg.get("external_refresh_rate", "15")),
-        "external_urls": external_urls,  # New format
         "warning_mode": data.get("warning_mode", "NONE"),
         "sending_email": data.get("sending_email", system_cfg.get('sending_email','')),
         "smtp_host": data.get("smtp_host", system_cfg.get('smtp_host', 'smtp.gmail.com')),
@@ -5074,21 +5005,6 @@ def update_system_config():
         "ntfy_topic": data.get("ntfy_topic", system_cfg.get("ntfy_topic", "")),
         "enable_kasa_activity_log": 'enable_kasa_activity_log' in data,
     })
-    
-    # Preserve old format fields for backward compatibility (only if external_urls is empty)
-    if not external_urls:
-        system_cfg.update({
-            "external_name_0": data.get("external_name_0", system_cfg.get('external_name_0','')),
-            "external_url_0": data.get("external_url_0", system_cfg.get('external_url_0','')),
-            "external_name_1": data.get("external_name_1", system_cfg.get('external_name_1','')),
-            "external_url_1": data.get("external_url_1", system_cfg.get('external_url_1','')),
-            "external_name_2": data.get("external_name_2", system_cfg.get('external_name_2','')),
-            "external_url_2": data.get("external_url_2", system_cfg.get('external_url_2','')),
-            "external_method": data.get("external_method", system_cfg.get('external_method','POST')),
-            "external_content_type": data.get("external_content_type", system_cfg.get('external_content_type','form')),
-            "external_timeout_seconds": data.get("external_timeout_seconds", system_cfg.get('external_timeout_seconds',8)),
-            "external_field_map": data.get("external_field_map", system_cfg.get('external_field_map','')),
-        })
     
     # Update temperature control notifications settings
     temp_control_notif = {
@@ -5233,70 +5149,35 @@ def test_external_logging():
     """
     try:
         data = request.get_json()
-        index = data.get('index', 0)
         url = data.get('url', '').strip()
-        
+
         if not url:
-            return jsonify({
-                'success': False,
-                'message': 'No URL provided'
-            })
-        
-        # Basic URL validation
+            return jsonify({'success': False, 'message': 'No URL provided'})
+
         if not (url.startswith('http://') or url.startswith('https://')):
-            return jsonify({
-                'success': False,
-                'message': 'URL must start with http:// or https://'
-            })
-        
-        # Create a test payload
-        test_payload = {
-            "tilt_color": "TEST",
-            "temp_f": 68.5,
-            "gravity": 1.050,
-            "brewid": "test_batch",
-            "batch_name": "Test Connection",
-            "beer_name": "Test Beer",
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "test": True
-        }
-        
-        # Get configuration settings from request (per-URL settings) or fall back to system config
-        method = data.get('method', system_cfg.get("external_method", "POST")).upper()
-        content_type = data.get('content_type', system_cfg.get("external_content_type", "form"))
-        send_json = (content_type == "json")
-        timeout = int(data.get('timeout_seconds', system_cfg.get("external_timeout_seconds", 8)) or 8)
-        
-        # Get field map settings
-        field_map_id = data.get('field_map_id', 'default')
-        custom_field_map = data.get('custom_field_map', '')
-        
-        # Helper function to apply field mapping
-        def apply_field_mapping(payload, field_map):
-            """Apply field mapping transformation to payload."""
-            transformed = {}
-            for logical_field, remote_field in field_map.items():
-                if logical_field in payload:
-                    transformed[remote_field] = payload[logical_field]
-            return transformed
-        
-        # Transform for Brewers Friend if needed
-        # Check if the URL contains brewersfriend.com as the domain (not in query params)
-        # Note: Brewers Friend transformation takes precedence over custom field maps
-        # to ensure compatibility with their API requirements
+            return jsonify({'success': False, 'message': 'URL must start with http:// or https://'})
+
+        # Service type from the new per-tilt config (or fallback for legacy callers)
+        service = (data.get('service') or '').strip().lower()
+
+        # Domain-sniff for Brewers Friend (backward compat with legacy callers)
         try:
             parsed = urlparse(url)
-            is_brewersfriend = 'brewersfriend.com' in parsed.netloc.lower()
+            _netloc = parsed.netloc.lower()
+            _is_bf_domain = (_netloc == 'brewersfriend.com' or
+                             _netloc.endswith('.brewersfriend.com'))
         except Exception:
-            # Fallback to simple string check if urlparse fails
-            url_lower = url.lower()
-            is_brewersfriend = url_lower.startswith('https://brewersfriend.com') or url_lower.startswith('http://brewersfriend.com')
-        
+            _is_bf_domain = False
+
+        is_brewersfriend = (service == 'brewersfriend') or _is_bf_domain
+
+        timeout = int(data.get('timeout_seconds', 8) or 8)
+        method = data.get('method', 'POST').upper()
+        send_json = True
+
+        # Build a service-appropriate test payload
         if is_brewersfriend:
-            # Brewers Friend Tilt API requires "name" to be a valid Tilt color
-            # (Red, Green, Black, Purple, Orange, Blue, Yellow, Pink).  The live
-            # forwarding code derives this from the real tilt reading, but for the
-            # test we use "Red" as a representative valid value.
+            # Brewers Friend requires a valid Tilt color in "name"
             test_payload = {
                 "name": "Red",
                 "temp": 68.5,
@@ -5304,105 +5185,101 @@ def test_external_logging():
                 "gravity": 1.050,
                 "gravity_unit": "G",
                 "beer": "Test Connection",
-                "comment": "Test from Fermenter Controller"
+                "comment": "Test from Fermentatorium"
             }
-            send_json = True
-            method = "POST"  # Brewers Friend requires POST; override any user selection
-        elif field_map_id and field_map_id != 'default':
-            # Apply field map transformation if specified
-            if field_map_id == 'custom' and custom_field_map:
-                try:
-                    field_map = json.loads(custom_field_map)
-                    test_payload = apply_field_mapping(test_payload, field_map)
-                except (json.JSONDecodeError, ValueError, TypeError) as e:
-                    # If custom field map is invalid, use original payload
-                    print(f"[WARNING] Invalid custom field map JSON for test connection: {e}")
-                    # Continue with original payload instead of failing the test
+            method = "POST"
+        elif service == 'brewstat':
+            test_payload = {
+                "color": "red",
+                "temp": 68.5,
+                "temp_unit": "F",
+                "gravity": 1.050
+            }
+            method = "POST"
+        elif service == 'brewfather':
+            test_payload = {
+                "name": "Red",
+                "temp": 68.5,
+                "temp_unit": "F",
+                "gravity": 1.050,
+                "gravity_unit": "G",
+                "device_source": "Tilt"
+            }
+            method = "POST"
+        else:
+            # user_defined — apply field_map if provided, otherwise send raw
+            raw_payload = {
+                "tilt_color": "Red",
+                "temp_f": 68.5,
+                "gravity": 1.050,
+                "brewid": "test_batch",
+                "batch_name": "Test Connection",
+                "beer_name": "Test Beer",
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "rssi": -70
+            }
+            field_map = data.get('field_map')
+            if field_map and isinstance(field_map, dict):
+                test_payload = {dest: raw_payload[src]
+                                for src, dest in field_map.items()
+                                if dest and src in raw_payload}
             else:
-                # Use predefined field map
-                predefined_maps = get_predefined_field_maps()
-                field_map = predefined_maps.get(field_map_id, {}).get("map")
-                if field_map:
-                    test_payload = apply_field_mapping(test_payload, field_map)
-        
-        # Attempt to send test data
+                test_payload = raw_payload
+            send_json = (data.get('content_type', 'json') == 'json')
+            method = data.get('method', 'POST').upper()
+
         if requests is None:
-            return jsonify({
-                'success': False,
-                'message': 'Requests library not available'
-            })
-        
+            return jsonify({'success': False, 'message': 'Requests library not available'})
+
         headers = {}
-        
         try:
             if send_json:
                 headers["Content-Type"] = "application/json"
                 resp = requests.request(method, url, json=test_payload, headers=headers, timeout=timeout)
             else:
                 headers["Content-Type"] = "application/x-www-form-urlencoded"
-                # Build form data, converting None to empty string and filtering to simple types
-                formdata = {}
-                for k, v in test_payload.items():
-                    if isinstance(v, (str, int, float, bool)) or v is None:
-                        formdata[k] = "" if v is None else v
+                formdata = {k: ("" if v is None else v)
+                            for k, v in test_payload.items()
+                            if isinstance(v, (str, int, float, bool)) or v is None}
                 resp = requests.request(method, url, data=formdata, headers=headers, timeout=timeout)
-            
-            # Check response
-            if resp.status_code >= 200 and resp.status_code < 300:
-                return jsonify({
-                    'success': True,
-                    'message': f'Connection successful! Status: {resp.status_code}'
-                })
-            else:
-                # Provide actionable hints for common HTTP error codes
-                if is_brewersfriend:
-                    if resp.status_code == 400:
-                        hint = (
-                            f'Brewers Friend returned HTTP 400 (Bad Request). '
-                            f'Check that your URL is in the correct format: '
-                            f'https://log.brewersfriend.com/tilt/YOUR_API_KEY'
-                        )
-                    elif resp.status_code == 401 or resp.status_code == 403:
-                        hint = (
-                            f'Brewers Friend returned HTTP {resp.status_code} (Unauthorized). '
-                            f'Your API key may be invalid. Verify the URL and key in your '
-                            f'Brewers Friend account settings.'
-                        )
-                    elif resp.status_code == 404:
-                        hint = (
-                            f'Brewers Friend returned HTTP 404 (Not Found). '
-                            f'The URL path appears incorrect — expected format: '
-                            f'https://log.brewersfriend.com/tilt/YOUR_API_KEY'
-                        )
-                    else:
-                        hint = f'Brewers Friend returned HTTP {resp.status_code}.'
+
+            if 200 <= resp.status_code < 300:
+                return jsonify({'success': True, 'message': f'Connection successful! Status: {resp.status_code}'})
+
+            # Provide actionable hints for common error codes
+            if is_brewersfriend:
+                if resp.status_code == 400:
+                    hint = ('Brewers Friend returned HTTP 400 (Bad Request). '
+                            'Check that your URL is in the correct format: '
+                            'https://log.brewersfriend.com/tilt/YOUR_API_KEY')
+                elif resp.status_code in (401, 403):
+                    hint = (f'Brewers Friend returned HTTP {resp.status_code} (Unauthorized). '
+                            'Your API key may be invalid. Verify the URL and key in your '
+                            'Brewers Friend account settings.')
+                elif resp.status_code == 404:
+                    hint = ('Brewers Friend returned HTTP 404 (Not Found). '
+                            'The URL path appears incorrect — expected format: '
+                            'https://log.brewersfriend.com/tilt/YOUR_API_KEY')
                 else:
-                    hint = f'Connection failed with HTTP status {resp.status_code}'
-                return jsonify({
-                    'success': False,
-                    'message': hint
-                })
+                    hint = f'Brewers Friend returned HTTP {resp.status_code}.'
+            else:
+                hint = f'Connection failed with HTTP status {resp.status_code}'
+            return jsonify({'success': False, 'message': hint})
+
         except requests.exceptions.Timeout:
-            return jsonify({
-                'success': False,
-                'message': f'Connection timeout after {timeout} seconds'
-            })
+            return jsonify({'success': False, 'message': f'Connection timeout after {timeout} seconds'})
         except requests.exceptions.ConnectionError:
-            return jsonify({
-                'success': False,
-                'message': 'Unable to connect to the specified URL. Please check the URL and network connection.'
-            })
+            return jsonify({'success': False,
+                            'message': 'Unable to connect to the specified URL. '
+                                       'Please check the URL and network connection.'})
         except Exception:
-            return jsonify({
-                'success': False,
-                'message': 'Request failed. Please check the URL and try again.'
-            })
-            
+            return jsonify({'success': False,
+                            'message': 'Request failed. Please check the URL and try again.'})
+
     except Exception:
-        return jsonify({
-            'success': False,
-            'message': 'An error occurred while testing the connection. Please verify your settings and try again.'
-        })
+        return jsonify({'success': False,
+                        'message': 'An error occurred while testing the connection. '
+                                   'Please verify your settings and try again.'})
 
 @app.route('/tilt_config', methods=['GET', 'POST'])
 def tilt_config():
@@ -5533,6 +5410,34 @@ def batch_settings():
             "temp_variance": temp_variance,
             "gravity_variance": gravity_variance,
         }
+
+        # Parse external logging URLs (device-level setting; up to 2 slots).
+        # Only update when the form submits ext_url_0/1 keys; otherwise preserve existing.
+        _FIELD_NAMES = ("temp_f", "gravity", "tilt_color", "beer_name",
+                        "batch_name", "brewid", "timestamp", "rssi")
+        if "ext_url_0" in data or "ext_url_1" in data:
+            new_external_urls = []
+            for i in range(2):
+                svc = data.get(f"ext_svc_{i}", "").strip()
+                ext_url = data.get(f"ext_url_{i}", "").strip()
+                if not ext_url:
+                    continue
+                url_entry = {"service": svc or "user_defined", "url": ext_url}
+                if svc == "user_defined":
+                    url_entry["method"] = data.get(f"ext_method_{i}", "POST")
+                    url_entry["content_type"] = data.get(f"ext_ctype_{i}", "json")
+                    field_map = {}
+                    for fname in _FIELD_NAMES:
+                        dest = data.get(f"ext_fm_{fname}_{i}", "").strip()
+                        if dest:
+                            field_map[fname] = dest
+                    if field_map:
+                        url_entry["field_map"] = field_map
+                new_external_urls.append(url_entry)
+            batch_entry["external_urls"] = new_external_urls
+        elif "external_urls" in existing:
+            # Preserve device-level external logging across batch changes
+            batch_entry["external_urls"] = existing["external_urls"]
         
         # Preserve existing notification_state when editing a batch
         if color in tilt_cfg and 'notification_state' in tilt_cfg[color]:
@@ -5628,7 +5533,8 @@ def batch_settings():
         system_settings=system_cfg,
         action=action,
         batch_history=batch_history,
-        color_map=COLOR_MAP
+        color_map=COLOR_MAP,
+        external_logging_urls=(config.get("external_urls") or []),
     )
 
 def get_last_activity(activity_type):
