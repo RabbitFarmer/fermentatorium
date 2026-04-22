@@ -518,115 +518,30 @@
 
       <!-- Logging Integrations Tab -->
       <div id="logging-integrations" class="tab-content {% if active_tab == 'logging-integrations' %}active{% endif %}">
-        <table class="config-table" style="width: 80%; margin: auto;">
+        <h3 style="text-align:center; margin-top:20px;">Logging Integrations</h3>
+        <p style="text-align:center; color:#555; font-style:italic; margin-bottom:24px;">
+          Per-tilt external logging (Brewers Friend, Brewstat.us, Brewfather, User-Defined) is now
+          configured per device on the
+          <a href="/batch_settings" style="color:#1a6;">Batch Settings</a> page.
+        </p>
+        <table class="config-table" style="width:70%; margin:auto;">
           <tr>
-            <td><label for="external_refresh_rate"><b>External Post Interval (minutes)</b></label></td>
-            <td><input type="number" name="external_refresh_rate" id="external_refresh_rate" value="{{ system_settings.get('external_refresh_rate','15') }}"></td>
+            <td><label for="external_refresh_rate"><b>External Post Interval (minutes)</b></label>
+              <div style="font-size:0.85em;color:#666;margin-top:4px;">
+                Global minimum interval between external posts for each physical device.
+              </div>
+            </td>
+            <td><input type="number" name="external_refresh_rate" id="external_refresh_rate"
+                       value="{{ system_settings.get('external_refresh_rate','15') }}"
+                       min="1" max="60" style="width:100px;"></td>
           </tr>
         </table>
-
-        {% for i in range(3) %}
-        <div style="border: 1px solid #ccc; margin: 20px auto; padding: 15px; width: 80%; background-color: #f9f9f9; border-radius: 5px;">
-          <h3 style="margin-top: 0; color: #333;">External Service {{ i + 1 }}</h3>
-          
-          <table class="config-table" style="width: 100%;">
-            <tr>
-              <td style="width:35%;"><label for="external_name_{{ i }}"><b>Service Name</b></label></td>
-              <td><input type="text" name="external_name_{{ i }}" id="external_name_{{ i }}" value="{{ external_urls[i].get('name', '') }}" placeholder="e.g., Brewers Friend" maxlength="30"></td>
-            </tr>
-            <tr>
-              <td><label for="external_url_{{ i }}"><b>URL</b></label></td>
-              <td><input type="text" name="external_url_{{ i }}" id="external_url_{{ i }}" value="{{ external_urls[i].get('url', '') }}" placeholder="https://..." onchange="toggleUrlSettings({{ i }})"></td>
-            </tr>
-          </table>
-          
-          <!-- Test Connection Button -->
-          <div style="text-align: center; margin-top: 15px;">
-            <button type="button" class="btn-action" onclick="testExternalConnection({{ i }})" style="margin-bottom: 10px;">
-              Test Connection
-            </button>
-            <div id="external-test-result-{{ i }}" style="margin-top: 10px; font-weight: bold;"></div>
-          </div>
-
-          <div id="url_settings_{{ i }}" style="{% if not external_urls[i].get('url') %}display:none;{% endif %} margin-top: 10px; padding: 10px; background-color: #fff; border-left: 3px solid #4CAF50;">
-            <h4 style="margin-top: 0; color: #555;">Connection Settings</h4>
-            <table class="config-table" style="width: 100%;">
-              <tr>
-                <td style="width:35%;"><label for="external_method_{{ i }}"><b>HTTP Method</b></label></td>
-                <td>
-                  <select name="external_method_{{ i }}" id="external_method_{{ i }}">
-                    <option value="POST" {% if external_urls[i].get('method', 'POST') == 'POST' %}selected{% endif %}>POST</option>
-                    <option value="GET" {% if external_urls[i].get('method', 'POST') == 'GET' %}selected{% endif %}>GET</option>
-                  </select>
-                </td>
-              </tr>
-              <tr>
-                <td><label for="external_content_type_{{ i }}"><b>Content Type</b></label></td>
-                <td>
-                  <select name="external_content_type_{{ i }}" id="external_content_type_{{ i }}">
-                    <option value="form" {% if external_urls[i].get('content_type', 'form') == 'form' %}selected{% endif %}>form (application/x-www-form-urlencoded)</option>
-                    <option value="json" {% if external_urls[i].get('content_type', 'form') == 'json' %}selected{% endif %}>json (application/json)</option>
-                  </select>
-                </td>
-              </tr>
-              <tr>
-                <td><label for="external_timeout_seconds_{{ i }}"><b>Request Timeout (seconds)</b></label></td>
-                <td>
-                  <input type="number" name="external_timeout_seconds_{{ i }}" id="external_timeout_seconds_{{ i }}" value="{{ external_urls[i].get('timeout_seconds', 8) }}" min="1" max="60">
-                  <div style="font-size:0.85em;color:#666;margin-top:4px;">Maximum time to wait for a response from the external service before timing out.</div>
-                </td>
-              </tr>
-              <tr>
-                <td><label for="external_field_map_id_{{ i }}"><b>Field Map Template</b></label></td>
-                <td>
-                  <select name="external_field_map_id_{{ i }}" id="external_field_map_id_{{ i }}" onchange="toggleCustomFieldMap({{ i }})">
-                    {% for map_id, map_info in predefined_field_maps.items() %}
-                    <option value="{{ map_id }}" {% if external_urls[i].get('field_map_id', 'default') == map_id %}selected{% endif %}>
-                      {{ map_info.name }} - {{ map_info.description }}
-                    </option>
-                    {% endfor %}
-                  </select>
-                </td>
-              </tr>
-            </table>
-
-            <div id="custom_field_map_{{ i }}" style="{% if external_urls[i].get('field_map_id', 'default') != 'custom' %}display:none;{% endif %} margin-top: 10px;">
-              <label for="external_custom_field_map_{{ i }}"><b>Custom Field Map (JSON)</b></label>
-              <textarea name="external_custom_field_map_{{ i }}" id="external_custom_field_map_{{ i }}" rows="4" style="width: 100%; font-family: monospace;" placeholder='{"gravity":"gravity","temp_f":"temp","tilt_color":"device"}'>{{ external_urls[i].get('custom_field_map', '') }}</textarea>
-              <div style="font-size:0.9em;color:#666;margin-top:6px;">
-                JSON mapping of logical field names to remote service parameter names.
-                Available fields: timestamp, tilt_color, gravity, temp_f, brew_id, device
-              </div>
-            </div>
-          </div>
-        </div>
-        {% endfor %}
-
         <div style="text-align:center; margin-top:20px;">
           <button type="button" onclick="window.location='/'" class="btn-action">Return</button>
           <button type="button" onclick="switchToTab('main-settings')" class="btn-action" style="margin-left:16px;">Back</button>
           <button type="submit" class="btn-primary" style="margin-left:16px;">Save</button>
           <button type="button" onclick="window.location='/system_config'" class="btn-secondary" style="margin-left:16px;">Cancel</button>
         </div>
-
-        <script>
-        // Functions for external logging configuration
-        function toggleUrlSettings(index) {
-          var urlInput = document.getElementById('external_url_' + index);
-          var settingsDiv = document.getElementById('url_settings_' + index);
-          if (urlInput && settingsDiv) {
-            settingsDiv.style.display = urlInput.value.trim() ? 'block' : 'none';
-          }
-        }
-
-        function toggleCustomFieldMap(index) {
-          var selectBox = document.getElementById('external_field_map_id_' + index);
-          var customDiv = document.getElementById('custom_field_map_' + index);
-          if (selectBox && customDiv) {
-            customDiv.style.display = (selectBox.value === 'custom') ? 'block' : 'none';
-          }
-        }
-        </script>
       </div>
 
       <!-- Backup / Restore / Update Tab -->
@@ -1046,60 +961,6 @@
       });
     }
 
-    // Test External Logging connection
-    function testExternalConnection(index) {
-      const resultDiv = document.getElementById('external-test-result-' + index);
-      const urlField = document.getElementById('external_url_' + index);
-      const url = urlField.value.trim();
-      
-      if (!url) {
-        resultDiv.innerHTML = '<span style="color: orange;">⚠ Please enter a URL before testing</span>';
-        return;
-      }
-      
-      // Get all configuration settings for this URL
-      const method = document.getElementById('external_method_' + index)?.value || 'POST';
-      const contentType = document.getElementById('external_content_type_' + index)?.value || 'form';
-      const timeout = document.getElementById('external_timeout_seconds_' + index)?.value || 8;
-      const fieldMapId = document.getElementById('external_field_map_id_' + index)?.value || 'default';
-      const customFieldMap = document.getElementById('external_custom_field_map_' + index)?.value || '';
-      
-      resultDiv.innerHTML = '<span style="color: blue;">Testing connection...</span>';
-      
-      fetch('/test_external_logging', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          index: index, 
-          url: url,
-          method: method,
-          content_type: contentType,
-          timeout_seconds: timeout,
-          field_map_id: fieldMapId,
-          custom_field_map: customFieldMap
-        })
-      })
-      .then(response => response.json())
-      .then(data => {
-        if (data.success) {
-          resultDiv.innerHTML = '<span style="color: green;">✓ ' + escapeHtml(data.message) + '</span>';
-        } else {
-          resultDiv.innerHTML = '<span style="color: red;">✗ ' + escapeHtml(data.message) + '</span>';
-        }
-      })
-      .catch(error => {
-        resultDiv.innerHTML = '<span style="color: red;">✗ Error: ' + escapeHtml(error.message) + '</span>';
-      });
-    }
-    
-    // Test External Logging connection (legacy function - kept for backwards compatibility)
-    function testExternalLogging(index) {
-      // Redirect to new function
-      testExternalConnection(index);
-    }
-    
     // Quick-fill SMTP fields for Outlook (host/port only — personal accounts cannot use basic SMTP auth)
     function fillOutlookSmtp() {
       document.getElementById('smtp_host').value = 'smtp-mail.outlook.com';

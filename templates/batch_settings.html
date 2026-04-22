@@ -45,6 +45,22 @@
     .calib-matrix input[type="number"] { width:100px; padding:5px 8px; border:1px solid #b0c8ee;
                                           border-radius:5px; font-size:0.95em; text-align:center; }
     .calib-adj-val { font-size:1.15em; font-weight:900; color:#1a55a0; }
+
+    /* External Logging section */
+    .ext-log-section { margin-top:20px; padding:14px; background:#f0f8f0; border:1px solid #b0d8b0; border-radius:8px; }
+    .ext-log-section .heading { font-size:1.1em; color:#1a6; margin-bottom:4px; }
+    .ext-slot { border:1px solid #c8e0c8; border-radius:6px; padding:12px; margin-bottom:12px; background:#fff; }
+    .ext-slot label { display:block; font-weight:700; margin-bottom:4px; }
+    .ext-slot input[type="text"] { width:100%; max-width:100%; box-sizing:border-box; }
+    .ext-slot select { padding:6px 8px; border:1px solid #ccc; border-radius:4px; }
+    .ext-help { font-size:0.85em; color:#555; margin-top:4px; background:#f9fff9; border-left:3px solid #4CAF50; padding:6px 10px; border-radius:3px; }
+    .ext-field-mapper { border-collapse:collapse; width:100%; margin-top:6px; }
+    .ext-field-mapper th { font-size:0.85em; color:#555; font-weight:700; text-align:left; padding:4px 8px; border-bottom:1px solid #ddd; }
+    .ext-field-mapper td { padding:3px 8px; font-size:0.9em; vertical-align:middle; }
+    .ext-field-mapper td:first-child { font-family:monospace; color:#333; width:130px; }
+    .ext-field-mapper td:nth-child(2) { color:#aaa; width:24px; text-align:center; }
+    .ext-field-mapper input[type="text"] { padding:4px 6px; border:1px solid #ccc; border-radius:4px; width:160px; max-width:100%; }
+    .ext-test-result { display:inline-block; margin-left:10px; font-weight:700; }
   </style>
 </head>
 <body>
@@ -170,6 +186,120 @@
           </div>
           <!-- ── End Calibration ── -->
 
+          <!-- ── External Logging ── -->
+          {% set _slots = external_logging_urls + [{}, {}] %}
+          <div class="ext-log-section">
+            <div class="heading">External Logging</div>
+            <p class="small-note" style="margin-bottom:12px;">
+              These settings are saved to this Tilt device and carry forward to future batches automatically.
+            </p>
+
+            {% for i in range(2) %}
+              {% set slot = _slots[i] %}
+              {% set svc  = slot.get('service', '') %}
+              {% set eurl = slot.get('url', '') %}
+              <div class="ext-slot" id="ext-slot-{{ i }}"
+                   {% if i == 1 and not eurl %}style="display:none;"{% endif %}>
+                <div style="font-weight:700; color:#1a6; margin-bottom:10px;">
+                  Service {{ i + 1 }}
+                  {% if i == 1 %}
+                    <button type="button" onclick="removeSecondSlot()"
+                            style="float:right;background:none;border:none;color:#c00;cursor:pointer;font-size:0.9em;">✕ Remove</button>
+                  {% endif %}
+                </div>
+
+                <div style="margin-bottom:8px;">
+                  <label>Service</label>
+                  <select name="ext_svc_{{ i }}" id="ext_svc_{{ i }}"
+                          onchange="onServiceChange({{ i }})">
+                    <option value=""{% if not svc %} selected{% endif %}>(none — slot unused)</option>
+                    <option value="brewersfriend"{% if svc == 'brewersfriend' %} selected{% endif %}>Brewers Friend</option>
+                    <option value="brewstat"{% if svc == 'brewstat' %} selected{% endif %}>Brewstat.us</option>
+                    <option value="brewfather"{% if svc == 'brewfather' %} selected{% endif %}>Brewfather</option>
+                    <option value="user_defined"{% if svc == 'user_defined' %} selected{% endif %}>User-Defined</option>
+                  </select>
+                </div>
+
+                <div id="ext-url-row-{{ i }}"
+                     style="margin-bottom:8px;{% if not svc %} display:none;{% endif %}">
+                  <label>URL</label>
+                  <input type="text" name="ext_url_{{ i }}" id="ext_url_{{ i }}"
+                         value="{{ eurl }}"
+                         placeholder="{{ '' }}" style="width:100%;max-width:100%;box-sizing:border-box;">
+                  <div id="ext-help-{{ i }}" class="ext-help"
+                       style="{% if not svc %} display:none;{% endif %}">
+                    {%- if svc == 'brewersfriend' -%}
+                      URL format: <code>https://log.brewersfriend.com/tilt/{API_KEY}</code> — find your API Key: Profile → Security → API Key
+                    {%- elif svc == 'brewstat' -%}
+                      URL format: <code>https://www.brewstat.us/tilt/{DEVICE_TOKEN}</code> — find your token in the Brewstat.us dashboard
+                    {%- elif svc == 'brewfather' -%}
+                      URL format: <code>https://log.brewfather.net/stream?id={STREAM_ID}</code> — find your Stream ID: Settings → Power-ups → Custom Stream
+                    {%- elif svc == 'user_defined' -%}
+                      Enter any URL. Use the field mapper below to map internal field names to your endpoint's expected field names.
+                    {%- endif -%}
+                  </div>
+                </div>
+
+                <!-- User-defined extras -->
+                {% set fm = slot.get('field_map', {}) %}
+                <div id="ext-userdef-{{ i }}"
+                     style="{% if svc != 'user_defined' %} display:none;{% endif %}">
+                  <div class="form-row" style="margin-bottom:8px; gap:16px;">
+                    <div>
+                      <label>HTTP Method</label>
+                      <select name="ext_method_{{ i }}">
+                        <option value="POST"{% if slot.get('method','POST') == 'POST' %} selected{% endif %}>POST</option>
+                        <option value="GET"{% if slot.get('method','POST') == 'GET' %} selected{% endif %}>GET</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label>Content Type</label>
+                      <select name="ext_ctype_{{ i }}">
+                        <option value="json"{% if slot.get('content_type','json') == 'json' %} selected{% endif %}>JSON</option>
+                        <option value="form"{% if slot.get('content_type','json') == 'form' %} selected{% endif %}>Form-encoded</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div style="margin-bottom:8px;">
+                    <label>Field Mapper</label>
+                    <p class="small-note">Map internal field names to your endpoint's expected parameter names. Leave blank to omit that field.</p>
+                    <table class="ext-field-mapper">
+                      <tr><th>Internal Field</th><th></th><th>Destination Field Name</th></tr>
+                      {% for fname in ['temp_f', 'gravity', 'tilt_color', 'beer_name', 'batch_name', 'brewid', 'timestamp', 'rssi'] %}
+                      <tr>
+                        <td>{{ fname }}</td>
+                        <td>→</td>
+                        <td>
+                          <input type="text" name="ext_fm_{{ fname }}_{{ i }}"
+                                 value="{{ fm.get(fname, '') }}"
+                                 placeholder="{{ fname }}">
+                        </td>
+                      </tr>
+                      {% endfor %}
+                    </table>
+                  </div>
+                </div>
+
+                <!-- Test Connection button -->
+                <div id="ext-test-row-{{ i }}"
+                     style="margin-top:10px;{% if not eurl %} display:none;{% endif %}">
+                  <button type="button" class="btn-action" onclick="testExtConn({{ i }})">
+                    Test Connection
+                  </button>
+                  <span class="ext-test-result" id="ext-test-result-{{ i }}"></span>
+                </div>
+              </div>
+            {% endfor %}
+
+            <div id="add-second-btn"
+                 style="margin-top:8px;{% if _slots[1].get('url') %} display:none;{% endif %}">
+              <button type="button" class="btn-secondary" onclick="showSecondSlot()">
+                + Add Second Service
+              </button>
+            </div>
+          </div>
+          <!-- ── End External Logging ── -->
+
           <div style="text-align:center; margin-top:20px;">
             <button type="button" onclick="window.location='/'" class="btn-action" style="margin-right:16px;">Return</button>
             <button type="submit" class="btn-primary" style="margin-right:16px;">Save</button>
@@ -223,6 +353,113 @@
           ? (LIVE_GRAVITY + gv).toFixed(3)
           : '--';
       }
+    }
+
+    var SERVICE_HELP = {
+      'brewersfriend': 'URL format: https://log.brewersfriend.com/tilt/{API_KEY} — find your API Key: Profile \u2192 Security \u2192 API Key',
+      'brewstat':      'URL format: https://www.brewstat.us/tilt/{DEVICE_TOKEN} — find your token in the Brewstat.us dashboard',
+      'brewfather':    'URL format: https://log.brewfather.net/stream?id={STREAM_ID} — find your Stream ID: Settings \u2192 Power-ups \u2192 Custom Stream',
+      'user_defined':  'Enter any URL. Use the field mapper below to map internal field names to your endpoint\'s expected field names.'
+    };
+    var SERVICE_PLACEHOLDER = {
+      'brewersfriend': 'https://log.brewersfriend.com/tilt/YOUR_API_KEY',
+      'brewstat':      'https://www.brewstat.us/tilt/YOUR_DEVICE_TOKEN',
+      'brewfather':    'https://log.brewfather.net/stream?id=YOUR_STREAM_ID',
+      'user_defined':  'https://yourserver.local/api/tilt'
+    };
+
+    function onServiceChange(i) {
+      var svc = document.getElementById('ext_svc_' + i).value;
+      var urlRow  = document.getElementById('ext-url-row-' + i);
+      var helpDiv = document.getElementById('ext-help-' + i);
+      var userDef = document.getElementById('ext-userdef-' + i);
+      var testRow = document.getElementById('ext-test-row-' + i);
+      var urlInput = document.getElementById('ext_url_' + i);
+
+      if (svc) {
+        urlRow.style.display  = '';
+        helpDiv.style.display = '';
+        helpDiv.textContent   = SERVICE_HELP[svc] || '';
+        if (urlInput) urlInput.placeholder = SERVICE_PLACEHOLDER[svc] || '';
+      } else {
+        urlRow.style.display  = 'none';
+        helpDiv.style.display = 'none';
+      }
+      if (userDef) userDef.style.display = (svc === 'user_defined') ? '' : 'none';
+      if (testRow) testRow.style.display = (svc && urlInput && urlInput.value.trim()) ? '' : 'none';
+    }
+
+    function showSecondSlot() {
+      document.getElementById('ext-slot-1').style.display = '';
+      document.getElementById('add-second-btn').style.display = 'none';
+    }
+
+    function removeSecondSlot() {
+      var slot = document.getElementById('ext-slot-1');
+      // Clear all fields in slot 1
+      slot.querySelectorAll('input, select').forEach(function(el) {
+        if (el.tagName === 'SELECT') el.selectedIndex = 0;
+        else el.value = '';
+      });
+      slot.style.display = 'none';
+      document.getElementById('add-second-btn').style.display = '';
+      document.getElementById('ext-test-result-1').textContent = '';
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function testExtConn(i) {
+      var resultDiv = document.getElementById('ext-test-result-' + i);
+      var urlField  = document.getElementById('ext_url_' + i);
+      var svcField  = document.getElementById('ext_svc_' + i);
+
+      if (!urlField || !urlField.value.trim()) {
+        resultDiv.innerHTML = '<span style="color:orange;">⚠ Enter a URL first</span>';
+        return;
+      }
+
+      resultDiv.innerHTML = '<span style="color:#555;">Testing…</span>';
+
+      var svc = svcField ? svcField.value : '';
+      var payload = { url: urlField.value.trim(), service: svc };
+
+      // For user_defined, collect method, content_type, and field_map
+      if (svc === 'user_defined') {
+        var methodEl = document.querySelector('select[name="ext_method_' + i + '"]');
+        var ctypeEl  = document.querySelector('select[name="ext_ctype_' + i + '"]');
+        if (methodEl) payload.method = methodEl.value;
+        if (ctypeEl)  payload.content_type = ctypeEl.value;
+        var fieldMap = {};
+        var fnames = ['temp_f','gravity','tilt_color','beer_name','batch_name','brewid','timestamp','rssi'];
+        fnames.forEach(function(fn) {
+          var el = document.querySelector('input[name="ext_fm_' + fn + '_' + i + '"]');
+          if (el && el.value.trim()) fieldMap[fn] = el.value.trim();
+        });
+        if (Object.keys(fieldMap).length) payload.field_map = fieldMap;
+      }
+
+      fetch('/test_external_logging', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          resultDiv.innerHTML = '<span style="color:green;">✓ ' + escapeHtml(data.message) + '</span>';
+        } else {
+          resultDiv.innerHTML = '<span style="color:red;">✗ ' + escapeHtml(data.message) + '</span>';
+        }
+      })
+      .catch(function(err) {
+        resultDiv.innerHTML = '<span style="color:red;">✗ ' + escapeHtml(err.message) + '</span>';
+      });
     }
   </script>
 </body>
