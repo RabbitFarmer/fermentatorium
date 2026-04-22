@@ -1904,10 +1904,12 @@ def forward_to_third_party_if_configured(payload):
                 continue
 
         # Domain-sniff covers both explicit service="brewersfriend" and any existing
-        # per-tilt entry whose URL happens to contain brewersfriend.com in the netloc.
+        # per-tilt entry whose URL targets brewersfriend.com (exact host or subdomain).
         try:
             _parsed_url = urlparse(url)
-            _is_bf_netloc = "brewersfriend.com" in _parsed_url.netloc.lower()
+            _netloc = _parsed_url.netloc.lower()
+            _is_bf_netloc = (_netloc == "brewersfriend.com" or
+                             _netloc.endswith(".brewersfriend.com"))
         except Exception:
             _is_bf_netloc = False
         is_brewersfriend = (service == "brewersfriend") or _is_bf_netloc
@@ -5161,7 +5163,9 @@ def test_external_logging():
         # Domain-sniff for Brewers Friend (backward compat with legacy callers)
         try:
             parsed = urlparse(url)
-            _is_bf_domain = 'brewersfriend.com' in parsed.netloc.lower()
+            _netloc = parsed.netloc.lower()
+            _is_bf_domain = (_netloc == 'brewersfriend.com' or
+                             _netloc.endswith('.brewersfriend.com'))
         except Exception:
             _is_bf_domain = False
 
