@@ -225,7 +225,7 @@
                   <label>URL</label>
                   <input type="text" name="ext_url_{{ i }}" id="ext_url_{{ i }}"
                          value="{{ eurl }}"
-                         placeholder="{{ '' }}" style="width:100%;max-width:100%;box-sizing:border-box;">
+                         style="width:100%;max-width:100%;box-sizing:border-box;">
                   <div id="ext-help-{{ i }}" class="ext-help"
                        style="{% if not svc %} display:none;{% endif %}">
                     {%- if svc == 'brewersfriend' -%}
@@ -356,10 +356,10 @@
     }
 
     var SERVICE_HELP = {
-      'brewersfriend': 'URL format: https://log.brewersfriend.com/tilt/{API_KEY} — find your API Key: Profile \u2192 Security \u2192 API Key',
-      'brewstat':      'URL format: https://www.brewstat.us/tilt/{DEVICE_TOKEN} — find your token in the Brewstat.us dashboard',
-      'brewfather':    'URL format: https://log.brewfather.net/stream?id={STREAM_ID} — find your Stream ID: Settings \u2192 Power-ups \u2192 Custom Stream',
-      'user_defined':  'Enter any URL. Use the field mapper below to map internal field names to your endpoint\'s expected field names.'
+      'brewersfriend': 'URL format: https://log.brewersfriend.com/tilt/{API_KEY} \u2014 find your API Key: Profile \u2192 Security \u2192 API Key',
+      'brewstat':      'URL format: https://www.brewstat.us/tilt/{DEVICE_TOKEN} \u2014 find your token in the Brewstat.us dashboard',
+      'brewfather':    'URL format: https://log.brewfather.net/stream?id={STREAM_ID} \u2014 find your Stream ID: Settings \u2192 Power-ups \u2192 Custom Stream',
+      'user_defined':  'Enter any URL. Use the field mapper below to map internal field names to your endpoint\u2019s expected field names.'
     };
     var SERVICE_PLACEHOLDER = {
       'brewersfriend': 'https://log.brewersfriend.com/tilt/YOUR_API_KEY',
