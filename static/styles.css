@@ -262,14 +262,24 @@ body, body.page-bg {
 .status-above   { color: #c00; }
 .status-below   { color: #007bff; }
 
-/* Mobile: single-column grid */
-@media (max-width: 699px) {
+/* Mobile: single-column grid (phones, ≤479 px) */
+@media (max-width: 479px) {
   :root { --temp-number-size: 32px; --metric-number-size: 18px; }
   .tiltcard-container {
     grid-template-columns: 1fr;
     justify-items: center;
   }
   .tilt-card { width: 92%; }
+}
+
+/* Small tablet / large phone portrait: 2-column grid (480 – 699 px) */
+@media (min-width: 480px) and (max-width: 699px) {
+  :root { --temp-number-size: 28px; --metric-number-size: 16px; }
+  .tiltcard-container {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-items: center;
+  }
+  .tilt-card { width: 100%; }
 }
 
 /* Portrait / narrow screens: 2-column grid (700 – 959 px) */

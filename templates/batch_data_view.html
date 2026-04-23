@@ -18,11 +18,43 @@
     .btn-print { padding:10px 20px; background-color:#4CAF50; color:white; border:none; cursor:pointer; font-size:16px; font-weight:bold; border-radius:5px; text-decoration:none; display:inline-block; }
     .info-banner { background:#e3f2fd; padding:12px; border-radius:6px; margin-bottom:16px; }
     .no-print { }
-    
+
+    /* ── Reading Frequency section ── */
+    .freq-cards { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
+    .freq-card  { flex:1; min-width:120px; padding:10px 14px; background:#f9f9f9; border:1px solid #ddd; border-radius:6px; text-align:center; }
+    .freq-card .fc-value { font-size:1.5em; font-weight:700; color:#1a6; }
+    .freq-card .fc-label { font-size:0.8em; color:#666; margin-top:2px; }
+    .freq-card.fc-warn .fc-value { color:#e65100; }
+    .freq-card.fc-danger .fc-value { color:#c62828; }
+
+    .freq-bar-wrap { background:#e0e0e0; border-radius:4px; height:18px; width:100%; display:flex; overflow:hidden; margin-bottom:12px; }
+    .freq-bar-on   { background:#4CAF50; height:100%; }
+    .freq-bar-late { background:#f44336; height:100%; }
+    .freq-bar-early{ background:#ff9800; height:100%; }
+
+    .verdict { padding:12px 16px; border-radius:6px; font-weight:700; font-size:1em; margin-bottom:16px; }
+    .verdict-ok   { background:#e8f5e9; color:#1b5e20; border-left:4px solid #4CAF50; }
+    .verdict-warn { background:#fff3e0; color:#e65100; border-left:4px solid #ff9800; }
+    .verdict-bad  { background:#ffebee; color:#c62828; border-left:4px solid #f44336; }
+
+    .gap-table { width:100%; border-collapse:collapse; font-size:0.85em; margin-top:8px; }
+    .gap-table th { background:#424242; color:#fff; padding:7px 10px; text-align:left; position:sticky; top:0; }
+    .gap-table td { padding:6px 10px; border-bottom:1px solid #eee; }
+    .gap-table tr.on_time  td:last-child { color:#2e7d32; font-weight:700; }
+    .gap-table tr.late     td:last-child { color:#c62828; font-weight:700; }
+    .gap-table tr.early    td:last-child { color:#e65100; font-weight:700; }
+    .gap-table .badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:0.8em; font-weight:700; }
+    .badge-on_time  { background:#e8f5e9; color:#2e7d32; }
+    .badge-late     { background:#ffebee; color:#c62828; }
+    .badge-early    { background:#fff3e0; color:#e65100; }
+
+    details.gap-details summary { cursor:pointer; font-weight:700; color:#1565C0; margin-top:10px; user-select:none; }
+
     @media print {
       .no-print { display:none !important; }
       .review-container { box-shadow:none; margin:0; padding:10px; }
       .data-table th { position:static; }
+      details.gap-details { display:none; }
     }
   </style>
 </head>
@@ -48,6 +80,114 @@
           <strong>Range:</strong> All data
         {% endif %}
       </div>
+
+      {# ── Reading Frequency Conformance ── #}
+      {% if freq_stats and freq_stats.total_gaps > 0 %}
+      <div class="subheading">Reading Frequency Conformance</div>
+
+      {# Verdict banner #}
+      {% set cp = freq_stats.conformance_pct %}
+      {% if cp is not none %}
+        {% if cp >= 90 %}
+          <div class="verdict verdict-ok">✅ {{ cp }}% of reading intervals conform to the {{ freq_stats.expected_interval_min }}-minute logging spec ({{ freq_stats.on_time }} of {{ freq_stats.total_gaps }} gaps on time).</div>
+        {% elif cp >= 70 %}
+          <div class="verdict verdict-warn">⚠️ {{ cp }}% of reading intervals conform to the {{ freq_stats.expected_interval_min }}-minute spec — {{ freq_stats.late }} late gap(s) and {{ freq_stats.early }} early gap(s) detected.</div>
+        {% else %}
+          <div class="verdict verdict-bad">❌ Only {{ cp }}% of reading intervals conform to the {{ freq_stats.expected_interval_min }}-minute spec — {{ freq_stats.late }} late (missed) gap(s) and {{ freq_stats.early }} early gap(s) detected.</div>
+        {% endif %}
+      {% endif %}
+
+      {# Summary cards #}
+      <div class="freq-cards">
+        <div class="freq-card">
+          <div class="fc-value">{{ freq_stats.expected_interval_min }} min</div>
+          <div class="fc-label">Expected Interval</div>
+        </div>
+        <div class="freq-card">
+          <div class="fc-value">{{ freq_stats.total_gaps }}</div>
+          <div class="fc-label">Total Intervals</div>
+        </div>
+        <div class="freq-card">
+          <div class="fc-value" style="color:#2e7d32;">{{ freq_stats.on_time }}</div>
+          <div class="fc-label">On Time</div>
+        </div>
+        <div class="freq-card{% if freq_stats.late > 0 %} fc-danger{% endif %}">
+          <div class="fc-value">{{ freq_stats.late }}</div>
+          <div class="fc-label">Late / Missed</div>
+        </div>
+        <div class="freq-card{% if freq_stats.early > 0 %} fc-warn{% endif %}">
+          <div class="fc-value">{{ freq_stats.early }}</div>
+          <div class="fc-label">Early</div>
+        </div>
+        <div class="freq-card">
+          <div class="fc-value">{{ freq_stats.avg_gap_minutes }} min</div>
+          <div class="fc-label">Avg Gap</div>
+        </div>
+        <div class="freq-card">
+          <div class="fc-value">{{ freq_stats.min_gap_minutes }}–{{ freq_stats.max_gap_minutes }} min</div>
+          <div class="fc-label">Min–Max Gap</div>
+        </div>
+        {% if freq_stats.conformance_pct is not none %}
+        <div class="freq-card{% if freq_stats.conformance_pct < 70 %} fc-danger{% elif freq_stats.conformance_pct < 90 %} fc-warn{% endif %}">
+          <div class="fc-value">{{ freq_stats.conformance_pct }}%</div>
+          <div class="fc-label">Conformance</div>
+        </div>
+        {% endif %}
+      </div>
+
+      {# Proportional conformance bar #}
+      {% if freq_stats.total_gaps > 0 %}
+        {% set pct_on    = (freq_stats.on_time  / freq_stats.total_gaps * 100) | round(1) %}
+        {% set pct_late  = (freq_stats.late     / freq_stats.total_gaps * 100) | round(1) %}
+        {% set pct_early = (freq_stats.early    / freq_stats.total_gaps * 100) | round(1) %}
+        <div class="freq-bar-wrap" title="Green = on time, Red = late/missed, Orange = early">
+          <div class="freq-bar-on"    style="width:{{ pct_on }}%"   title="On time: {{ pct_on }}%"></div>
+          <div class="freq-bar-late"  style="width:{{ pct_late }}%" title="Late: {{ pct_late }}%"></div>
+          <div class="freq-bar-early" style="width:{{ pct_early }}%" title="Early: {{ pct_early }}%"></div>
+        </div>
+        <div style="font-size:0.8em; color:#666; margin-bottom:8px;">
+          <span style="color:#4CAF50;">■</span> On time &nbsp;
+          <span style="color:#f44336;">■</span> Late / missed &nbsp;
+          <span style="color:#ff9800;">■</span> Early
+        </div>
+      {% endif %}
+
+      {# Per-gap detail table (collapsed by default) #}
+      <details class="gap-details no-print">
+        <summary>▶ Show per-interval detail ({{ freq_stats.gap_list|length }} rows{% if freq_stats.total_gaps > freq_stats.gap_list|length %}, capped at {{ freq_stats.gap_list|length }}{% endif %})</summary>
+        <div style="max-height:400px; overflow-y:auto; margin-top:8px;">
+          <table class="gap-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Gap (min)</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for g in freq_stats.gap_list %}
+              <tr class="{{ g.status }}">
+                <td>{{ loop.index }}</td>
+                <td>{{ g.from_ts }}</td>
+                <td>{{ g.to_ts }}</td>
+                <td>{{ g.gap_min }}</td>
+                <td><span class="badge badge-{{ g.status }}">
+                  {% if g.status == 'on_time' %}✓ On time
+                  {% elif g.status == 'late' %}⚠ Late
+                  {% else %}↑ Early{% endif %}
+                </span></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      {% elif freq_stats %}
+      <p style="color:#999; font-style:italic;">Not enough readings to analyse frequency (need at least 2 timestamped samples).</p>
+      {% endif %}
+      {# ── End Reading Frequency ── #}
 
       <div class="subheading">All Fermentation Data</div>
       <table class="data-table">
