@@ -6376,6 +6376,92 @@ def calculate_batch_statistics(batch_data, batch_info):
     return stats
 
 
+def calculate_reading_frequency_stats(samples, expected_interval_minutes):
+    """
+    Analyse how well tilt reading timestamps conform to the configured logging interval.
+
+    Returns a dict with:
+      expected_interval_min  – the setting from system_cfg
+      total_gaps             – number of consecutive-pair intervals examined
+      on_time                – gaps within ±50 % of expected (0.5x–1.5x)
+      late                   – gaps > 1.5x expected (missed / delayed readings)
+      early                  – gaps < 0.5x expected (unexpected extra reads)
+      avg_gap_minutes        – mean gap (rounded to 1 dp)
+      min_gap_minutes        – shortest gap
+      max_gap_minutes        – longest gap
+      conformance_pct        – % of gaps that are on-time (0–100)
+      gap_list               – list of dicts per gap (capped at 500 rows):
+                               {from_ts, to_ts, gap_min, status}
+    """
+    result = {
+        'expected_interval_min': expected_interval_minutes,
+        'total_gaps': 0,
+        'on_time': 0,
+        'late': 0,
+        'early': 0,
+        'avg_gap_minutes': None,
+        'min_gap_minutes': None,
+        'max_gap_minutes': None,
+        'conformance_pct': None,
+        'gap_list': [],
+    }
+
+    if len(samples) < 2:
+        return result
+
+    # Parse timestamps
+    parsed = []
+    for s in samples:
+        ts_raw = s.get('timestamp')
+        if not ts_raw:
+            continue
+        try:
+            ts = datetime.fromisoformat(str(ts_raw).replace('Z', '+00:00'))
+            parsed.append((ts, ts_raw))
+        except Exception:
+            pass
+
+    parsed.sort(key=lambda x: x[0])
+
+    if len(parsed) < 2:
+        return result
+
+    lo = expected_interval_minutes * 0.5
+    hi = expected_interval_minutes * 1.5
+    gaps = []
+    for i in range(1, len(parsed)):
+        gap_min = (parsed[i][0] - parsed[i - 1][0]).total_seconds() / 60.0
+        if gap_min < lo:
+            status = 'early'
+        elif gap_min > hi:
+            status = 'late'
+        else:
+            status = 'on_time'
+        gaps.append({
+            'from_ts': parsed[i - 1][1],
+            'to_ts': parsed[i][1],
+            'gap_min': round(gap_min, 1),
+            'status': status,
+        })
+
+    on_time = sum(1 for g in gaps if g['status'] == 'on_time')
+    late    = sum(1 for g in gaps if g['status'] == 'late')
+    early   = sum(1 for g in gaps if g['status'] == 'early')
+    all_mins = [g['gap_min'] for g in gaps]
+
+    result['total_gaps']      = len(gaps)
+    result['on_time']         = on_time
+    result['late']            = late
+    result['early']           = early
+    result['avg_gap_minutes'] = round(sum(all_mins) / len(all_mins), 1)
+    result['min_gap_minutes'] = round(min(all_mins), 1)
+    result['max_gap_minutes'] = round(max(all_mins), 1)
+    result['conformance_pct'] = round(on_time / len(gaps) * 100, 1) if gaps else None
+    result['gap_list']        = gaps[:500]   # cap to avoid huge pages
+    return result
+
+
+
 @app.route('/batch_data_view/<brewid>')
 def batch_data_view(brewid):
     """
@@ -6446,12 +6532,20 @@ def batch_data_view(brewid):
     
     # Calculate statistics
     stats = calculate_batch_statistics(batch_data, batch_info)
+
+    # Calculate reading-frequency conformance against the configured logging interval
+    try:
+        expected_interval = int(system_cfg.get('tilt_logging_interval_minutes', 15))
+    except (ValueError, TypeError):
+        expected_interval = 15
+    freq_stats = calculate_reading_frequency_stats(all_samples, expected_interval)
     
     return render_template('batch_data_view.html',
                          batch=batch_info,
                          color=color,
                          samples=all_samples,
                          stats=stats,
+                         freq_stats=freq_stats,
                          color_map=COLOR_MAP,
                          start_idx=start_idx,
                          end_idx=end_idx)
