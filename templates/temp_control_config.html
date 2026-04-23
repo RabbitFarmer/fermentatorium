@@ -548,10 +548,181 @@
         </form>
       </div>
 
+      <!-- Temperature Schedule section (inputs reference tempConfigForm via form= attribute) -->
+      <div class="section" id="schedule_section">
+        <h2>Temperature Schedule</h2>
+        <p class="small" style="margin:0 0 10px 0;">
+          Define up to {{ max_schedule_steps }} steps that automatically adjust temperature limits as fermentation progresses.
+          Steps are evaluated in order; the last step whose trigger is satisfied becomes active.
+          When the schedule is enabled it overrides the Low/High Limit fields above.
+        </p>
+
+        <div class="form-row" style="margin-bottom:12px;">
+          <label for="schedule_enabled_cb">Enable Schedule:</label>
+          <input type="checkbox" id="schedule_enabled_cb" name="schedule_enabled" form="tempConfigForm"
+                 {% if temp_control.schedule_enabled %}checked{% endif %}>
+          <span class="small">When checked, active step limits override the manual Low/High Limits above.</span>
+        </div>
+
+        {% if temp_control.schedule_enabled and temp_control.schedule_active_step is defined and temp_control.schedule_active_step is not none and temp_control.schedule_active_step >= 0 %}
+        <div style="background:#e8f5e9; border:1px solid #a5d6a7; border-radius:4px; padding:6px 10px; margin-bottom:10px; font-size:0.9em;">
+          ✔ Schedule active — currently on step {{ temp_control.schedule_active_step + 1 }}.
+        </div>
+        {% endif %}
+
+        <table id="schedule_table" style="width:100%; border-collapse:collapse; font-size:0.95em;">
+          <thead>
+            <tr style="text-align:left; background:#f5f5f5;">
+              <th style="padding:6px 8px; border-bottom:2px solid #ddd;">#</th>
+              <th style="padding:6px 8px; border-bottom:2px solid #ddd;">Trigger</th>
+              <th style="padding:6px 8px; border-bottom:2px solid #ddd;">Value</th>
+              <th style="padding:6px 8px; border-bottom:2px solid #ddd;">Low Limit (°F)</th>
+              <th style="padding:6px 8px; border-bottom:2px solid #ddd;">High Limit (°F)</th>
+              <th style="padding:6px 8px; border-bottom:2px solid #ddd;"></th>
+            </tr>
+          </thead>
+          <tbody id="schedule_tbody">
+            <!-- Rows injected by JavaScript from temp_control.schedule -->
+          </tbody>
+        </table>
+
+        <div style="margin-top:10px; display:flex; gap:10px; align-items:center;">
+          <button type="button" id="add_step_btn" class="btn" onclick="addScheduleStep()">+ Add Step</button>
+          <span class="small" id="step_count_note"></span>
+        </div>
+
+        <!-- Hidden input carries the serialised schedule to the form on submit -->
+        <input type="hidden" name="schedule_json" id="schedule_json_input" form="tempConfigForm" value="">
+      </div>
+
+      <script>
+        (function () {
+          var MAX_STEPS = {{ max_schedule_steps }};
+          var initialSteps = {{ temp_control.schedule | tojson }};
+
+          function updateStepNumbers() {
+            var rows = document.querySelectorAll('#schedule_tbody tr');
+            rows.forEach(function (row, idx) {
+              var numCell = row.querySelector('.step-num');
+              if (numCell) numCell.textContent = idx + 1;
+            });
+            var addBtn = document.getElementById('add_step_btn');
+            var note   = document.getElementById('step_count_note');
+            if (addBtn) addBtn.disabled = rows.length >= MAX_STEPS;
+            if (note)   note.textContent = rows.length + ' / ' + MAX_STEPS + ' steps';
+          }
+
+          function onTriggerTypeChange(sel) {
+            var row = sel.closest('tr');
+            var valueCell = row.querySelector('.trigger-value-cell');
+            var valueInput = row.querySelector('.trigger-value-input');
+            if (sel.value === 'fermentation_complete') {
+              valueInput.value = '';
+              valueInput.disabled = true;
+              valueCell.querySelector('.trigger-unit').textContent = '';
+            } else if (sel.value === 'time') {
+              valueInput.disabled = false;
+              valueCell.querySelector('.trigger-unit').textContent = 'days';
+            } else {
+              valueInput.disabled = false;
+              valueCell.querySelector('.trigger-unit').textContent = 'SG';
+            }
+          }
+
+          function buildRow(step) {
+            var triggerType   = step.trigger_type   || 'time';
+            var triggerValue  = (step.trigger_value !== undefined && step.trigger_value !== null) ? step.trigger_value : '';
+            var lowLimit      = (step.low_limit  !== undefined) ? step.low_limit  : '';
+            var highLimit     = (step.high_limit !== undefined) ? step.high_limit : '';
+
+            var unitLabel = triggerType === 'time' ? 'days' : (triggerType === 'gravity' ? 'SG' : '');
+            var valueDisabled = (triggerType === 'fermentation_complete') ? 'disabled' : '';
+
+            var tr = document.createElement('tr');
+            tr.innerHTML =
+              '<td style="padding:4px 8px;"><span class="step-num"></span></td>' +
+              '<td style="padding:4px 8px;">' +
+                '<select class="trigger-type-sel" onchange="onTriggerTypeChange(this)" style="width:180px;">' +
+                  '<option value="time"' + (triggerType === 'time' ? ' selected' : '') + '>Days elapsed &ge;</option>' +
+                  '<option value="gravity"' + (triggerType === 'gravity' ? ' selected' : '') + '>Gravity &le;</option>' +
+                  '<option value="fermentation_complete"' + (triggerType === 'fermentation_complete' ? ' selected' : '') + '>Fermentation complete</option>' +
+                '</select>' +
+              '</td>' +
+              '<td class="trigger-value-cell" style="padding:4px 8px;">' +
+                '<input type="number" class="trigger-value-input" step="any" min="0" style="width:80px;" value="' + triggerValue + '" ' + valueDisabled + '>' +
+                '<span class="trigger-unit" style="margin-left:4px; font-size:0.9em; color:#555;">' + unitLabel + '</span>' +
+              '</td>' +
+              '<td style="padding:4px 8px;">' +
+                '<input type="number" class="low-limit-input" step="0.1" min="32" max="212" style="width:80px;" value="' + lowLimit + '" placeholder="e.g. 65">' +
+              '</td>' +
+              '<td style="padding:4px 8px;">' +
+                '<input type="number" class="high-limit-input" step="0.1" min="32" max="212" style="width:80px;" value="' + highLimit + '" placeholder="e.g. 68">' +
+              '</td>' +
+              '<td style="padding:4px 8px;">' +
+                '<button type="button" class="btn" style="color:#900; border-color:#f00;" onclick="removeScheduleStep(this)">Remove</button>' +
+              '</td>';
+            return tr;
+          }
+
+          window.addScheduleStep = function () {
+            var tbody = document.getElementById('schedule_tbody');
+            if (tbody.rows.length >= MAX_STEPS) return;
+            var tr = buildRow({trigger_type: 'time', trigger_value: 0, low_limit: '', high_limit: ''});
+            tbody.appendChild(tr);
+            updateStepNumbers();
+          };
+
+          window.removeScheduleStep = function (btn) {
+            var row = btn.closest('tr');
+            row.parentNode.removeChild(row);
+            updateStepNumbers();
+          };
+
+          window.onTriggerTypeChange = onTriggerTypeChange;
+
+          function serializeSchedule() {
+            var steps = [];
+            var rows = document.querySelectorAll('#schedule_tbody tr');
+            rows.forEach(function (row) {
+              var triggerType  = row.querySelector('.trigger-type-sel').value;
+              var triggerValue = row.querySelector('.trigger-value-input').value;
+              var lowLimit     = row.querySelector('.low-limit-input').value;
+              var highLimit    = row.querySelector('.high-limit-input').value;
+              var step = {
+                trigger_type: triggerType,
+                low_limit: parseFloat(lowLimit) || 0,
+                high_limit: parseFloat(highLimit) || 0
+              };
+              if (triggerType !== 'fermentation_complete') {
+                step.trigger_value = parseFloat(triggerValue) || 0;
+              }
+              steps.push(step);
+            });
+            document.getElementById('schedule_json_input').value = JSON.stringify(steps);
+          }
+
+          // Populate table from server-supplied schedule
+          var tbody = document.getElementById('schedule_tbody');
+          initialSteps.forEach(function (step) {
+            tbody.appendChild(buildRow(step));
+          });
+          updateStepNumbers();
+
+          // Serialize schedule before the main form submits
+          var form = document.getElementById('tempConfigForm');
+          if (form) {
+            form.addEventListener('submit', function () {
+              serializeSchedule();
+            });
+          }
+        }());
+      </script>
+
       <div class="section">
         <h2>Runtime Status</h2>
         <div class="form-row"><label>Mode:</label> <strong>{{ temp_control.mode|default('Off') }}</strong></div>
         <div class="form-row"><label>Status:</label> <strong>{{ temp_control.status|default('Unknown') }}</strong></div>
+
         
         <!-- Heating Status -->
         <div class="form-row">
