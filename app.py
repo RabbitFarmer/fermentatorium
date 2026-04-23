@@ -1003,6 +1003,9 @@ def ensure_temp_defaults_for_controller(controller):
     # Ensure tilt_color is always a string — a JSON null would break template split() calls.
     if controller.get("tilt_color") is None:
         controller["tilt_color"] = ""
+    # Temperature schedule: ordered list of steps (max 10), each with a trigger and target limits.
+    controller.setdefault("schedule_enabled", False)
+    controller.setdefault("schedule", [])
 
 def ensure_temp_defaults():
     """Ensure all 3 controllers have required default fields."""
@@ -3736,6 +3739,108 @@ def control_cooling(state, controller):
     controller["cooler_pending_since"] = time.time()
     controller["cooler_pending_action"] = state
 
+# --- Temperature schedule logic -------------------------------------------
+MAX_SCHEDULE_STEPS = 10
+_SECONDS_PER_DAY = 86400.0
+
+def _is_schedule_trigger_met(step, tilt_color_key):
+    """
+    Return True if a schedule step's trigger condition is currently satisfied.
+
+    Trigger types:
+      "time"                  — days elapsed since ferm_start_date >= trigger_value
+      "gravity"               — current adjusted gravity <= trigger_value
+      "fermentation_complete" — fermentation completion has been detected for this tilt
+    """
+    trigger_type = step.get("trigger_type", "time")
+    trigger_value = step.get("trigger_value")
+    base_color = tilt_key_base(tilt_color_key) if tilt_color_key else ""
+
+    if trigger_type == "time":
+        if trigger_value is None:
+            return False
+        cfg = tilt_cfg.get(base_color, {})
+        ferm_start = cfg.get("ferm_start_date", "")
+        if not ferm_start:
+            return False
+        try:
+            start_dt = datetime.strptime(ferm_start, "%Y-%m-%d")
+            days_elapsed = (datetime.utcnow() - start_dt).total_seconds() / _SECONDS_PER_DAY
+            return days_elapsed >= float(trigger_value)
+        except Exception:
+            return False
+
+    elif trigger_type == "gravity":
+        if trigger_value is None:
+            return False
+        tilt_data = live_tilts.get(tilt_color_key) or live_tilts.get(base_color, {})
+        gravity = tilt_data.get("adj_gravity") or tilt_data.get("gravity")
+        if gravity is None:
+            return False
+        try:
+            return float(gravity) <= float(trigger_value)
+        except Exception:
+            return False
+
+    elif trigger_type == "fermentation_complete":
+        cfg = tilt_cfg.get(base_color, {})
+        brewid = cfg.get("brewid", "")
+        if not brewid:
+            return False
+        return bool(batch_notification_state.get(brewid, {}).get("fermentation_completion_datetime"))
+
+    return False
+
+
+def apply_schedule_step(controller):
+    """
+    Evaluate the temperature schedule for a controller and, if a step's trigger
+    is satisfied, override the controller's low_limit and high_limit for this
+    control cycle.  Called once per control loop for each active controller.
+
+    Steps are evaluated in order; the *last* step whose trigger is met wins,
+    so later steps supersede earlier ones as fermentation progresses.
+    No effect when schedule_enabled is False or the schedule list is empty.
+    """
+    if not controller.get("schedule_enabled", False):
+        return
+    schedule = controller.get("schedule", [])
+    if not schedule:
+        return
+
+    tilt_color_key = controller.get("tilt_color", "")
+
+    active_idx = -1
+    for i, step in enumerate(schedule):
+        if _is_schedule_trigger_met(step, tilt_color_key):
+            active_idx = i
+
+    if active_idx < 0:
+        return  # no trigger fired yet — leave limits unchanged
+
+    step = schedule[active_idx]
+    try:
+        new_low = float(step["low_limit"])
+        new_high = float(step["high_limit"])
+    except (KeyError, TypeError, ValueError):
+        return
+
+    prev_idx = controller.get("schedule_active_step", -1)
+    if active_idx != prev_idx:
+        controller["schedule_active_step"] = active_idx
+        append_control_log("schedule_step_applied", {
+            "controller_id": controller.get("controller_id", 0),
+            "step_index": active_idx,
+            "trigger_type": step.get("trigger_type", "time"),
+            "trigger_value": step.get("trigger_value"),
+            "new_low_limit": new_low,
+            "new_high_limit": new_high,
+        })
+
+    controller["low_limit"] = new_low
+    controller["high_limit"] = new_high
+
+
 # --- Temperature control logic (normalized + limited logging) -------------
 def temperature_control_logic():
     """
@@ -3818,6 +3923,9 @@ def temperature_control_logic_single(temp_cfg):
     else:
         # Tilt unavailable - fall back to last cached value
         temp = temp_cfg.get("current_temp")
+
+    # Apply temperature schedule override before reading limits for this cycle.
+    apply_schedule_step(temp_cfg)
 
     low = temp_cfg.get("low_limit")
     high = temp_cfg.get("high_limit")
@@ -4758,7 +4866,9 @@ def periodic_temp_control():
                     'current_temp', 'last_reading_time',
                     # Temperature limits should only change via web UI /update_temp_config
                     # Exclude from periodic reload to prevent corruption from stale/invalid file values
-                    'low_limit', 'high_limit'
+                    'low_limit', 'high_limit',
+                    # Schedule runtime tracking — which step is currently active
+                    'schedule_active_step',
                 ]
                 
                 # Update each controller, preserving runtime state
@@ -5784,7 +5894,8 @@ def temp_config():
         assigned_tilt_label=assigned_tilt_label,
         heating_last_activity=heating_last_activity,
         cooling_last_activity=cooling_last_activity,
-        force_iot_port=_FORCE_IOT_PORT
+        force_iot_port=_FORCE_IOT_PORT,
+        max_schedule_steps=MAX_SCHEDULE_STEPS
     )
 
 
@@ -5892,6 +6003,46 @@ def update_temp_config():
             "mode": data.get("mode", controller.get('mode','')),
             "status": data.get("status", controller.get('status',''))
         })
+
+        # Parse temperature schedule
+        schedule_enabled = 'schedule_enabled' in data
+        schedule_json_raw = data.get("schedule_json", "").strip()
+        if schedule_json_raw:
+            try:
+                parsed_steps = json.loads(schedule_json_raw)
+                if isinstance(parsed_steps, list):
+                    valid_steps = []
+                    for step in parsed_steps[:MAX_SCHEDULE_STEPS]:
+                        trigger_type = step.get("trigger_type", "time")
+                        if trigger_type not in ("time", "gravity", "fermentation_complete"):
+                            continue
+                        try:
+                            step_low = float(step["low_limit"])
+                            step_high = float(step["high_limit"])
+                        except (KeyError, TypeError, ValueError):
+                            continue
+                        if step_high <= step_low:
+                            continue
+                        entry = {
+                            "trigger_type": trigger_type,
+                            "low_limit": step_low,
+                            "high_limit": step_high,
+                        }
+                        if trigger_type in ("time", "gravity"):
+                            try:
+                                entry["trigger_value"] = float(step["trigger_value"])
+                            except (KeyError, TypeError, ValueError):
+                                continue
+                        valid_steps.append(entry)
+                    controller["schedule"] = valid_steps
+                else:
+                    print(f"[LOG] schedule_json is not a list — keeping existing schedule")
+            except (json.JSONDecodeError, Exception) as e:
+                print(f"[LOG] Failed to parse schedule_json: {e} — keeping existing schedule")
+        else:
+            # Empty submission means the schedule editor was shown with no steps
+            controller["schedule"] = []
+        controller["schedule_enabled"] = schedule_enabled
 
         # Remove duplicate plug assignments: if a plug URL now assigned to this controller
         # was previously assigned to another controller (or to both roles on this controller),
