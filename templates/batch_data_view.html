@@ -154,7 +154,7 @@
 
       {# Per-gap detail table (collapsed by default) #}
       <details class="gap-details no-print">
-        <summary>▶ Show per-interval detail ({{ freq_stats.gap_list|length }} rows{% if freq_stats.total_gaps > 500 %}, capped at 500{% endif %})</summary>
+        <summary>▶ Show per-interval detail ({{ freq_stats.gap_list|length }} rows{% if freq_stats.total_gaps > freq_stats.gap_list|length %}, capped at {{ freq_stats.gap_list|length }}{% endif %})</summary>
         <div style="max-height:400px; overflow-y:auto; margin-top:8px;">
           <table class="gap-table">
             <thead>
