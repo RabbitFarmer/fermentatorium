@@ -15,21 +15,69 @@
     .controls button:hover { background-color: #45a049; }
     .controls button.active { background-color: #2E7D32; }
     .date-range { text-align: center; margin-top: 8px; font-size: 14px; color: #555; display: none; }
+
+    /* Print/Export modal */
+    #printModal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center; }
+    #printModal.open { display:flex; }
+    #printModalBox { background:#fff; border-radius:8px; padding:24px 28px; min-width:280px; box-shadow:0 4px 20px rgba(0,0,0,0.25); }
+    #printModalBox h3 { margin:0 0 16px; font-size:1.1em; }
+    .pm-group { margin-bottom:14px; }
+    .pm-group label { font-weight:600; display:block; margin-bottom:6px; }
+    .pm-row { display:flex; gap:8px; flex-wrap:wrap; }
+    .pm-btn { padding:7px 14px; border:2px solid #4CAF50; border-radius:5px; background:#fff; color:#333; cursor:pointer; font-size:14px; font-weight:600; transition:background 0.15s,color 0.15s; }
+    .pm-btn.selected { background:#4CAF50; color:#fff; }
+    .pm-btn:hover { background:#e8f5e9; }
+    .pm-action { padding:8px 18px; background:#4CAF50; color:#fff; border:none; border-radius:5px; cursor:pointer; font-weight:bold; font-size:14px; margin-right:8px; }
+    .pm-action:hover { background:#45a049; }
+    .pm-cancel { padding:8px 14px; background:#eee; border:none; border-radius:5px; cursor:pointer; font-size:14px; }
+    .pm-cancel:hover { background:#ddd; }
+
     @media print {
       .controls { display: none; }
+      #printModal { display: none !important; }
       body { background: white; margin: 0; }
+    }
+    @media print and (orientation: landscape) {
+      #tempChart { height: 80vh; }
     }
   </style>
 </head>
 <body>
   <h2 style="text-align: center;">Temperature & Gravity Chart</h2>
   <div class="controls">
-    <button id="print">Print</button>
+    <button id="printBtn">Print / Export</button>
     {% if tilt_color == "TempControl" %}
     <button id="export">Export CSV</button>
     {% endif %}
     <button id="return">Return</button>
     <span id="status"></span>
+  </div>
+
+  <!-- Print / Export modal -->
+  <div id="printModal" role="dialog" aria-modal="true" aria-label="Print and Export Options">
+    <div id="printModalBox">
+      <h3>Print / Export Chart</h3>
+      <div class="pm-group">
+        <label>Format</label>
+        <div class="pm-row">
+          <button class="pm-btn selected" data-fmt="print">Print</button>
+          <button class="pm-btn" data-fmt="pdf">PDF</button>
+          <button class="pm-btn" data-fmt="jpg">JPG</button>
+          <button class="pm-btn" data-fmt="png">PNG</button>
+        </div>
+      </div>
+      <div class="pm-group" id="orientGroup">
+        <label>Orientation</label>
+        <div class="pm-row">
+          <button class="pm-btn selected" data-orient="portrait">Portrait</button>
+          <button class="pm-btn" data-orient="landscape">Landscape</button>
+        </div>
+      </div>
+      <div style="margin-top:18px;">
+        <button class="pm-action" id="pmGo">Go</button>
+        <button class="pm-cancel" id="pmCancel">Cancel</button>
+      </div>
+    </div>
   </div>
 
   <div id="chart-container">
@@ -554,9 +602,55 @@
       }
     }
 
-    // Add print button functionality
-    document.getElementById('print').addEventListener('click', () => {
-      window.print();
+    // Print / Export modal logic
+    const printModal   = document.getElementById('printModal');
+    const pmGo         = document.getElementById('pmGo');
+    const pmCancel     = document.getElementById('pmCancel');
+    const orientGroup  = document.getElementById('orientGroup');
+    let selectedFmt    = 'print';
+    let selectedOrient = 'portrait';
+
+    document.querySelectorAll('[data-fmt]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-fmt]').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        selectedFmt = btn.dataset.fmt;
+        // Orientation only applies to print/pdf
+        orientGroup.style.display = (selectedFmt === 'jpg' || selectedFmt === 'png') ? 'none' : '';
+      });
+    });
+    document.querySelectorAll('[data-orient]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('[data-orient]').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        selectedOrient = btn.dataset.orient;
+      });
+    });
+
+    document.getElementById('printBtn').addEventListener('click', () => {
+      printModal.classList.add('open');
+    });
+    pmCancel.addEventListener('click', () => printModal.classList.remove('open'));
+    printModal.addEventListener('click', e => { if (e.target === printModal) printModal.classList.remove('open'); });
+
+    pmGo.addEventListener('click', () => {
+      printModal.classList.remove('open');
+      if (selectedFmt === 'jpg' || selectedFmt === 'png') {
+        const chartEl = document.getElementById('tempChart');
+        Plotly.downloadImage(chartEl, {
+          format: selectedFmt,
+          width: 1200,
+          height: 600,
+          filename: 'fermentatorium_chart'
+        });
+      } else {
+        // Print or PDF — inject a temporary @page style for orientation
+        const styleId = '_print_orient_style';
+        let s = document.getElementById(styleId);
+        if (!s) { s = document.createElement('style'); s.id = styleId; document.head.appendChild(s); }
+        s.textContent = `@media print { @page { size: ${selectedFmt === 'pdf' ? 'A4' : 'letter'} ${selectedOrient}; } }`;
+        window.print();
+      }
     });
     
     // Add return button functionality

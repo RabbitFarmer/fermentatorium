@@ -135,6 +135,7 @@
               <div class="batch-detail"><strong>Brew ID:</strong> {{ batch.brewid[:8] if batch.brewid else 'N/A' }}{% if batch.ferm_start_date %} | <strong>Start Date:</strong> {{ batch.ferm_start_date }}{% endif %}</div>
             </div>
             <div class="batch-actions">
+              <a href="/batch_data_view/{{ batch.brewid }}" class="btn btn-view">[View]</a>
               <form action="/export_batch_csv" method="POST" style="display:inline;">
                 <input type="hidden" name="brewid" value="{{ batch.brewid }}">
                 <button type="submit" class="btn btn-export">Export CSV</button>

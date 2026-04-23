@@ -5973,6 +5973,7 @@ def toggle_temp_control():
             new_session = new_session.lower() in ('true', '1')
         
         # If turning ON and new_session is requested, archive the existing log
+        # and reset the tilt batch data so a fresh batch can be configured
         if new_state and new_session:
             try:
                 tilt_color = controller.get("tilt_color", "unknown")
@@ -5993,6 +5994,64 @@ def toggle_temp_control():
             except Exception as e:
                 print(f"[LOG] Error archiving temp control log: {e}")
                 return jsonify({"success": False, "error": f"Failed to archive log: {str(e)}"}), 500
+
+            # Also reset the tilt batch data for this controller's tilt color
+            base_color = tilt_key_base(controller.get("tilt_color", ""))
+            if base_color and base_color in tilt_cfg:
+                old_cfg = tilt_cfg[base_color]
+                old_brewid = old_cfg.get("brewid")
+                if old_brewid:
+                    try:
+                        rotate_and_archive_old_history(base_color, old_brewid, old_cfg)
+                    except Exception as e:
+                        print(f"[LOG] Error archiving old batch history on new session: {e}")
+                # Preserve beer name and recipe fields as a starting point, clear batch-specific fields
+                tilt_cfg[base_color] = {
+                    "beer_name": old_cfg.get("beer_name", ""),
+                    "batch_name": "",
+                    "ferm_start_date": "",
+                    "recipe_og": old_cfg.get("recipe_og", ""),
+                    "recipe_fg": old_cfg.get("recipe_fg", ""),
+                    "recipe_abv": old_cfg.get("recipe_abv", ""),
+                    "actual_og": None,
+                    "brewid": "",
+                    "og_confirmed": False,
+                    "notification_state": {
+                        "fermentation_start_datetime": None,
+                        "fermentation_completion_datetime": None,
+                        "og_notification_sent": False,
+                        "fermentation_start_notification_sent": False,
+                        "fermentation_complete_notification_sent": False,
+                    },
+                    "temp_variance": old_cfg.get("temp_variance", 0),
+                    "gravity_variance": old_cfg.get("gravity_variance", 0),
+                    "external_urls": old_cfg.get("external_urls", []),
+                }
+                save_json(TILT_CONFIG_FILE, tilt_cfg)
+                print(f"[LOG] New session: reset batch data for {base_color}")
+
+        # If continuing an existing session, restore batch data if it was cleared
+        elif new_state and not new_session:
+            base_color = tilt_key_base(controller.get("tilt_color", ""))
+            if base_color and base_color in tilt_cfg:
+                existing = tilt_cfg[base_color]
+                if not existing.get("brewid"):
+                    # brewid is missing — try to restore from the most recent batch file
+                    try:
+                        history_path = f'batches/batch_history_{base_color}.json'
+                        if os.path.exists(history_path):
+                            with open(history_path, 'r') as hf:
+                                history = json.load(hf)
+                            if history:
+                                latest = history[-1]
+                                existing["brewid"] = latest.get("brewid", "")
+                                existing["ferm_start_date"] = latest.get("ferm_start_date", existing.get("ferm_start_date", ""))
+                                existing["beer_name"] = existing.get("beer_name") or latest.get("beer_name", "")
+                                existing["batch_name"] = existing.get("batch_name") or latest.get("batch_name", "")
+                                save_json(TILT_CONFIG_FILE, tilt_cfg)
+                                print(f"[LOG] Existing session: restored batch data for {base_color} from history (brewid={existing['brewid']})")
+                    except Exception as e:
+                        print(f"[LOG] Could not restore batch data for {base_color}: {e}")
         
         controller['temp_control_active'] = new_state
         
@@ -6023,8 +6082,15 @@ def toggle_temp_control():
         # Save the state
         save_json(TEMP_CFG_FILE, temp_cfg)
         
-        # If this was a new session, signal that we should redirect to temp_config
-        redirect_url = f"/temp_config?controller_id={controller_id}" if (new_state and new_session) else None
+        # New Session: redirect to batch settings so the user can configure the new batch
+        if new_state and new_session:
+            base_color = tilt_key_base(controller.get("tilt_color", ""))
+            if base_color:
+                redirect_url = f"/batch_settings?tilt_color={base_color}"
+            else:
+                redirect_url = f"/temp_config?controller_id={controller_id}"
+        else:
+            redirect_url = None
         return jsonify({"success": True, "active": new_state, "redirect": redirect_url})
     except Exception as e:
         print(f"[LOG] Error toggling temp control: {e}")
@@ -7192,8 +7258,8 @@ def chart_data_for(tilt_color):
                         elif obj.get('event') == 'batch_metadata':
                             # Skip metadata entries
                             continue
-                        elif 'timestamp' in obj or 'gravity' in obj or 'temp_f' in obj:
-                            # Legacy format - direct object
+                        elif not obj.get('event') and ('timestamp' in obj or 'gravity' in obj or 'temp_f' in obj):
+                            # Legacy format - direct object with no event field
                             payload = obj
                         else:
                             # Unknown format, skip
