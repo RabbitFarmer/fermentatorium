@@ -3741,6 +3741,7 @@ def control_cooling(state, controller):
 
 # --- Temperature schedule logic -------------------------------------------
 MAX_SCHEDULE_STEPS = 10
+_SECONDS_PER_DAY = 86400.0
 
 def _is_schedule_trigger_met(step, tilt_color_key):
     """
@@ -3764,7 +3765,7 @@ def _is_schedule_trigger_met(step, tilt_color_key):
             return False
         try:
             start_dt = datetime.strptime(ferm_start, "%Y-%m-%d")
-            days_elapsed = (datetime.utcnow() - start_dt).total_seconds() / 86400.0
+            days_elapsed = (datetime.utcnow() - start_dt).total_seconds() / _SECONDS_PER_DAY
             return days_elapsed >= float(trigger_value)
         except Exception:
             return False
