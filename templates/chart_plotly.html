@@ -648,7 +648,7 @@
         const styleId = '_print_orient_style';
         let s = document.getElementById(styleId);
         if (!s) { s = document.createElement('style'); s.id = styleId; document.head.appendChild(s); }
-        s.textContent = `@media print { @page { size: ${selectedFmt === 'pdf' ? 'A4' : 'letter'} ${selectedOrient}; } }`;
+        s.textContent = `@media print { @page { size: ${selectedOrient}; } }`;
         window.print();
       }
     });

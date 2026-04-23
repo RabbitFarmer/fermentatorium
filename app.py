@@ -6046,8 +6046,10 @@ def toggle_temp_control():
                                 latest = history[-1]
                                 existing["brewid"] = latest.get("brewid", "")
                                 existing["ferm_start_date"] = latest.get("ferm_start_date", existing.get("ferm_start_date", ""))
-                                existing["beer_name"] = existing.get("beer_name") or latest.get("beer_name", "")
-                                existing["batch_name"] = existing.get("batch_name") or latest.get("batch_name", "")
+                                if existing.get("beer_name") is None:
+                                    existing["beer_name"] = latest.get("beer_name", "")
+                                if existing.get("batch_name") is None:
+                                    existing["batch_name"] = latest.get("batch_name", "")
                                 save_json(TILT_CONFIG_FILE, tilt_cfg)
                                 print(f"[LOG] Existing session: restored batch data for {base_color} from history (brewid={existing['brewid']})")
                     except Exception as e:
