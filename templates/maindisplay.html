@@ -842,16 +842,31 @@
        TC cards (.temp-ctrl-card) carry data-for-tilt="<Color>" so we can match
        them to their tilt card and place them in the same column as the tilt and
        in the immediately following grid row (tilt's row + 1).
-       On mobile (≤ 699 px) explicit placement is cleared and cards flow naturally. */
+       Column count mirrors the CSS breakpoints so TC cards stay anchored even
+       on 2-column tablet layouts (480–959 px). */
     function positionTempCards() {
       var pageContainer = document.querySelector('.page-container');
       var container     = document.querySelector('.tiltcard-container');
       if (!pageContainer || !container) return;
 
-      var cols = pageContainer.classList.contains('display-mode-3') ? 3 : 4;
+      var w   = window.innerWidth;
+      var is3 = pageContainer.classList.contains('display-mode-3');
+      var is4 = pageContainer.classList.contains('display-mode-4');
 
-      // On narrow screens clear explicit positions and let the grid auto-flow
-      if (window.innerWidth <= 699) {
+      // Derive column count to match the active CSS grid breakpoint:
+      //   ≤479 px  → 1 col  (phone single-column)
+      //   480–699  → 2 cols (small tablet / large phone portrait)
+      //   700–959  → 2 cols (tablet portrait — all display modes)
+      //   960–1299 → 2 cols for display-mode-3/4, otherwise 3 cols
+      //   ≥1300    → 3 cols for display-mode-3, otherwise 4 cols
+      var cols;
+      if (w <= 479)       cols = 1;
+      else if (w <= 959)  cols = 2;
+      else if (w <= 1299) cols = (is3 || is4) ? 2 : 3;
+      else                cols = is3 ? 3 : 4;
+
+      // Single-column: clear explicit positions and let the grid auto-flow
+      if (cols === 1) {
         container.querySelectorAll('.temp-ctrl-card').forEach(function(card) {
           card.style.gridColumn = '';
           card.style.gridRow    = '';
