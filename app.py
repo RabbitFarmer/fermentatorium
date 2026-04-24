@@ -1981,8 +1981,7 @@ def forward_to_third_party_if_configured(payload):
                 "temp_unit": "F",
                 "gravity": gravity,
                 "gravity_unit": "G",
-                "beer": beer_name,
-                "comment": f"Batch: {payload.get('batch_name', '')} | BrewID: {payload.get('brewid', '')}"
+                "device_source": "Tilt"
             }
             method = "POST"
             send_json = True
@@ -5373,8 +5372,7 @@ def test_external_logging():
                 "temp_unit": "F",
                 "gravity": 1.050,
                 "gravity_unit": "G",
-                "beer": "Test Connection",
-                "comment": "Test from Fermentatorium"
+                "device_source": "Tilt"
             }
             method = "POST"
         elif service == 'brewstat':
