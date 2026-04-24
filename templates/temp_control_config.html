@@ -166,6 +166,7 @@
         low_limit: lowLimit ? lowLimit.value : '',
         high_limit: highLimit ? highLimit.value : '',
         power_off_variance: document.getElementById('power_off_variance') ? document.getElementById('power_off_variance').value : '0',
+        max_run_minutes: document.getElementById('max_run_minutes') ? document.getElementById('max_run_minutes').value : '0',
         enable_heating: enableHeating ? enableHeating.checked : false,
         enable_cooling: enableCooling ? enableCooling.checked : false,
         heating_plug: heatingPlug ? heatingPlug.value : '',
@@ -210,6 +211,8 @@
           if (highLimit && state.high_limit !== undefined) highLimit.value = state.high_limit;
           const powVariance = document.getElementById('power_off_variance');
           if (powVariance && state.power_off_variance !== undefined) powVariance.value = state.power_off_variance;
+          const maxRunMinutes = document.getElementById('max_run_minutes');
+          if (maxRunMinutes && state.max_run_minutes !== undefined) maxRunMinutes.value = state.max_run_minutes;
           const enableHeating = document.querySelector('[name="enable_heating"]');
           if (enableHeating && state.enable_heating !== undefined) enableHeating.checked = state.enable_heating;
           const enableCooling = document.querySelector('[name="enable_cooling"]');
@@ -491,6 +494,19 @@
               Heating shuts off at <em>High Limit − Variance</em>.
               Cooling shuts off at <em>Low Limit + Variance</em>.
               Set to 0 to use the limits directly.
+            </span>
+          </div>
+
+          <div class="form-row">
+            <label for="max_run_minutes">Max Run Time (minutes):</label>
+            <input id="max_run_minutes" name="max_run_minutes" type="number" step="1"
+                   value="{{ temp_control.max_run_minutes if temp_control.max_run_minutes is not none else '0' }}"
+                   placeholder="e.g., 30"
+                   min="0" max="1440" style="width:80px;">
+            <span class="small">
+              Heating or cooling turns off after this many minutes, even if the temperature threshold
+              has not been reached yet (either/or with Temp Variance above).
+              Set to 0 to disable the timer.
             </span>
           </div>
 
