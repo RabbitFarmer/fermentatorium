@@ -223,9 +223,15 @@
                 <div id="ext-url-row-{{ i }}"
                      style="margin-bottom:8px;{% if not svc %} display:none;{% endif %}">
                   <label>URL</label>
-                  <input type="text" name="ext_url_{{ i }}" id="ext_url_{{ i }}"
-                         value="{{ eurl }}"
-                         style="width:100%;max-width:100%;box-sizing:border-box;">
+                  <div style="display:flex;align-items:center;gap:6px;">
+                    <input type="{{ 'password' if svc and svc != 'user_defined' else 'text' }}"
+                           name="ext_url_{{ i }}" id="ext_url_{{ i }}"
+                           value="{{ eurl }}"
+                           style="flex:1;box-sizing:border-box;">
+                    <button type="button" id="ext-url-toggle-{{ i }}"
+                            onclick="toggleExtUrl({{ i }})"
+                            style="padding:4px 8px;font-size:0.85em;white-space:nowrap;{% if not svc or svc == 'user_defined' %}display:none;{% endif %}">Show</button>
+                  </div>
                   <div id="ext-help-{{ i }}" class="ext-help"
                        style="{% if not svc %} display:none;{% endif %}">
                     {%- if svc == 'brewersfriend' -%}
@@ -370,11 +376,12 @@
 
     function onServiceChange(i) {
       var svc = document.getElementById('ext_svc_' + i).value;
-      var urlRow  = document.getElementById('ext-url-row-' + i);
-      var helpDiv = document.getElementById('ext-help-' + i);
-      var userDef = document.getElementById('ext-userdef-' + i);
-      var testRow = document.getElementById('ext-test-row-' + i);
-      var urlInput = document.getElementById('ext_url_' + i);
+      var urlRow    = document.getElementById('ext-url-row-' + i);
+      var helpDiv   = document.getElementById('ext-help-' + i);
+      var userDef   = document.getElementById('ext-userdef-' + i);
+      var testRow   = document.getElementById('ext-test-row-' + i);
+      var urlInput  = document.getElementById('ext_url_' + i);
+      var toggleBtn = document.getElementById('ext-url-toggle-' + i);
 
       if (svc) {
         urlRow.style.display  = '';
@@ -385,8 +392,28 @@
         urlRow.style.display  = 'none';
         helpDiv.style.display = 'none';
       }
+      // Mask URL for known services; leave plain text for user_defined
+      var masked = svc && svc !== 'user_defined';
+      if (urlInput) urlInput.type = masked ? 'password' : 'text';
+      if (toggleBtn) {
+        toggleBtn.style.display = masked ? '' : 'none';
+        toggleBtn.textContent = 'Show';
+      }
       if (userDef) userDef.style.display = (svc === 'user_defined') ? '' : 'none';
       if (testRow) testRow.style.display = (svc && urlInput && urlInput.value.trim()) ? '' : 'none';
+    }
+
+    function toggleExtUrl(i) {
+      var input = document.getElementById('ext_url_' + i);
+      var btn   = document.getElementById('ext-url-toggle-' + i);
+      if (!input || !btn) return;
+      if (input.type === 'password') {
+        input.type = 'text';
+        btn.textContent = 'Hide';
+      } else {
+        input.type = 'password';
+        btn.textContent = 'Show';
+      }
     }
 
     function showSecondSlot() {
