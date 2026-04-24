@@ -1982,7 +1982,7 @@ def forward_to_third_party_if_configured(payload):
                 "comment": f"Batch: {payload.get('batch_name', '')} | BrewID: {payload.get('brewid', '')}"
             }
             method = "POST"
-            send_json = True
+            send_json = False
         elif service == "brewstat":
             forwarding_payload = {
                 "color": tilt_color.lower(),
@@ -5341,7 +5341,7 @@ def test_external_logging():
 
         # Build a service-appropriate test payload
         if is_brewersfriend:
-            # Brewers Friend requires a valid Tilt color in "name"
+            # Brewers Friend Tilt endpoint expects form-encoded data (matches original Tilt firmware)
             test_payload = {
                 "name": "Red",
                 "temp": 68.5,
@@ -5352,6 +5352,7 @@ def test_external_logging():
                 "comment": "Test from Fermentatorium"
             }
             method = "POST"
+            send_json = False
         elif service == 'brewstat':
             test_payload = {
                 "color": "red",
