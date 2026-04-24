@@ -1000,6 +1000,9 @@ def ensure_temp_defaults_for_controller(controller):
     controller.setdefault("swapped_plugs_detected", False)
     controller.setdefault("swapped_plugs_notified", False)
     controller.setdefault("swapped_plug_type", "")  # "heating" or "cooling"
+    # Max run time timer: turn off heating/cooling after this many minutes regardless of temperature.
+    # 0 = disabled (use variance/threshold only).
+    controller.setdefault("max_run_minutes", 0)
     # Ensure tilt_color is always a string — a JSON null would break template split() calls.
     if controller.get("tilt_color") is None:
         controller["tilt_color"] = ""
@@ -4042,9 +4045,15 @@ def temperature_control_logic_single(temp_cfg):
     # When both H+C are active the midpoint is used instead (unchanged).
     power_off_variance = float(temp_cfg.get("power_off_variance") or 0)
 
+    # Max run time timer: either/or with the variance threshold.
+    # When > 0, heating or cooling turns OFF after this many minutes regardless of temperature.
+    # Uses heater_baseline_time / cooler_baseline_time (set in kasa_result_listener on confirmed ON).
+    max_run_minutes = float(temp_cfg.get("max_run_minutes") or 0)
+
     # Heating control:
     # - Turn ON when temp <= low_limit
-    # - Turn OFF at midpoint (both H+C) or (high_limit - variance) (heating only)
+    # - Turn OFF at midpoint (both H+C) or (high_limit - variance) (heating only),
+    #   OR when the max run timer expires (whichever comes first).
     # Note: if the off-threshold is None (no high limit configured), heating will not
     # turn off between readings — this matches the original single-mode behaviour.
     if enable_heat:
@@ -4054,6 +4063,13 @@ def temperature_control_logic_single(temp_cfg):
             heat_off_threshold = high - power_off_variance
         else:
             heat_off_threshold = high
+
+        # Check max run time for heating (either/or with variance threshold)
+        heater_timer_expired = False
+        if max_run_minutes > 0 and temp_cfg.get("heater_on") and temp_cfg.get("heater_baseline_time"):
+            elapsed_heat_minutes = (time.time() - temp_cfg["heater_baseline_time"]) / 60.0
+            if elapsed_heat_minutes >= max_run_minutes:
+                heater_timer_expired = True
 
         if low is not None and temp <= low:
             # Temperature at or below low limit - turn heating ON
@@ -4069,8 +4085,8 @@ def temperature_control_logic_single(temp_cfg):
                 temp_cfg["below_limit_trigger_armed"] = False
                 # Arm the above_limit trigger for when temp rises to high limit
                 temp_cfg["above_limit_trigger_armed"] = True
-        elif heat_off_threshold is not None and temp >= heat_off_threshold:
-            # Temperature at or above turn-off threshold - turn heating OFF
+        elif heater_timer_expired or (heat_off_threshold is not None and temp >= heat_off_threshold):
+            # Turn heating OFF: either max run time expired or temp reached turn-off threshold
             control_heating("off", temp_cfg)
             # Arm the below_limit trigger for when temp drops to low limit again
             temp_cfg["below_limit_trigger_armed"] = True
@@ -4081,7 +4097,8 @@ def temperature_control_logic_single(temp_cfg):
 
     # Cooling control:
     # - Turn ON when temp >= high_limit
-    # - Turn OFF at midpoint (both H+C) or (low_limit + variance) (cooling only)
+    # - Turn OFF at midpoint (both H+C) or (low_limit + variance) (cooling only),
+    #   OR when the max run timer expires (whichever comes first).
     # Note: if the off-threshold is None (no low limit configured), cooling will not
     # turn off between readings — this matches the original single-mode behaviour.
     if enable_cool:
@@ -4091,6 +4108,13 @@ def temperature_control_logic_single(temp_cfg):
             cool_off_threshold = low + power_off_variance
         else:
             cool_off_threshold = low
+
+        # Check max run time for cooling (either/or with variance threshold)
+        cooler_timer_expired = False
+        if max_run_minutes > 0 and temp_cfg.get("cooler_on") and temp_cfg.get("cooler_baseline_time"):
+            elapsed_cool_minutes = (time.time() - temp_cfg["cooler_baseline_time"]) / 60.0
+            if elapsed_cool_minutes >= max_run_minutes:
+                cooler_timer_expired = True
 
         if high is not None and temp >= high:
             # Temperature at or above high limit - turn cooling ON
@@ -4106,8 +4130,8 @@ def temperature_control_logic_single(temp_cfg):
                 temp_cfg["above_limit_trigger_armed"] = False
                 # Arm the below_limit trigger for when temp drops to low limit
                 temp_cfg["below_limit_trigger_armed"] = True
-        elif cool_off_threshold is not None and temp <= cool_off_threshold:
-            # Temperature at or below turn-off threshold - turn cooling OFF
+        elif cooler_timer_expired or (cool_off_threshold is not None and temp <= cool_off_threshold):
+            # Turn cooling OFF: either max run time expired or temp reached turn-off threshold
             control_cooling("off", temp_cfg)
             # Arm the above_limit trigger for when temp rises to high limit again
             temp_cfg["above_limit_trigger_armed"] = True
@@ -5982,6 +6006,18 @@ def update_temp_config():
         else:
             power_off_variance = 0.0
 
+        # Parse optional max run time (non-negative integer minutes, default 0 = disabled).
+        # Heating/cooling turns off after this many minutes regardless of temperature.
+        max_run_minutes_value = data.get('max_run_minutes', '').strip()
+        if max_run_minutes_value:
+            try:
+                max_run_minutes = max(0, int(float(max_run_minutes_value)))
+            except (ValueError, TypeError):
+                max_run_minutes = controller.get("max_run_minutes", 0)
+                print(f"[LOG] Invalid max_run_minutes value '{max_run_minutes_value}', keeping existing {max_run_minutes}")
+        else:
+            max_run_minutes = 0
+
         # Never wipe an existing tilt assignment with an empty submission.
         # This can happen when the temp-config page is visited while the mini-pro
         # is offline: the "Active Tilt Devices" group is empty, no option matches
@@ -5995,6 +6031,7 @@ def update_temp_config():
             "low_limit": low_limit,
             "high_limit": high_limit,
             "power_off_variance": power_off_variance,
+            "max_run_minutes": max_run_minutes,
             "enable_heating": 'enable_heating' in data,
             "enable_cooling": 'enable_cooling' in data,
             "heating_plug": data.get("heating_plug", ""),
