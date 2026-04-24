@@ -1985,7 +1985,7 @@ def forward_to_third_party_if_configured(payload):
                 "comment": f"Batch: {payload.get('batch_name', '')} | BrewID: {payload.get('brewid', '')}"
             }
             method = "POST"
-            send_json = False
+            send_json = True
         elif service == "brewstat":
             forwarding_payload = {
                 "color": tilt_color.lower(),
@@ -5365,7 +5365,8 @@ def test_external_logging():
 
         # Build a service-appropriate test payload
         if is_brewersfriend:
-            # Brewers Friend Tilt endpoint expects form-encoded data (matches original Tilt firmware)
+            # Brewers Friend stream endpoint accepts JSON (same as TiltBridge firmware)
+            # URL format: https://log.brewersfriend.com/stream/YOUR_API_KEY
             test_payload = {
                 "name": "Red",
                 "temp": 68.5,
@@ -5376,7 +5377,6 @@ def test_external_logging():
                 "comment": "Test from Fermentatorium"
             }
             method = "POST"
-            send_json = False
         elif service == 'brewstat':
             test_payload = {
                 "color": "red",
@@ -5440,7 +5440,7 @@ def test_external_logging():
                 if resp.status_code == 400:
                     hint = ('Brewers Friend returned HTTP 400 (Bad Request). '
                             'Check that your URL is in the correct format: '
-                            'https://log.brewersfriend.com/tilt/YOUR_API_KEY')
+                            'https://log.brewersfriend.com/stream/YOUR_API_KEY')
                 elif resp.status_code in (401, 403):
                     hint = (f'Brewers Friend returned HTTP {resp.status_code} (Unauthorized). '
                             'Your API key may be invalid. Verify the URL and key in your '
@@ -5448,7 +5448,7 @@ def test_external_logging():
                 elif resp.status_code == 404:
                     hint = ('Brewers Friend returned HTTP 404 (Not Found). '
                             'The URL path appears incorrect — expected format: '
-                            'https://log.brewersfriend.com/tilt/YOUR_API_KEY')
+                            'https://log.brewersfriend.com/stream/YOUR_API_KEY')
                 else:
                     hint = f'Brewers Friend returned HTTP {resp.status_code}.'
             else:
