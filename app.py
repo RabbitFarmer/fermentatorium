@@ -1885,6 +1885,30 @@ def write_normalized_tilt_reading(payload, event_name="tilt_reading"):
         print(f"[LOG] write_normalized_tilt_reading failed: {e}")
         return False
 
+_EXTERNAL_LOG_FILE = os.path.join("logs", "external_logging.jsonl")
+
+def _write_external_log(tilt_color, url, service, success, status_code=None, error=None):
+    """Append one JSON line to logs/external_logging.jsonl for visibility."""
+    try:
+        os.makedirs("logs", exist_ok=True)
+        from logger import _now_ts
+        entry = {
+            "ts": _now_ts(),
+            "tilt": tilt_color,
+            "service": service or "user_defined",
+            "url": url,
+            "success": success,
+        }
+        if status_code is not None:
+            entry["status_code"] = status_code
+        if error:
+            entry["error"] = error
+        with open(_EXTERNAL_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as exc:
+        print(f"[LOG] Failed to write external_logging.jsonl: {exc}")
+
+
 def forward_to_third_party_if_configured(payload):
     """
     Forward tilt reading data to configured external services (per-tilt config).
@@ -2035,11 +2059,13 @@ def forward_to_third_party_if_configured(payload):
             result = {"url": url, "forwarded": True, "status_code": resp.status_code, "text": resp.text[:500]}
             results.append(result)
             print(f"[FORWARD] Tilt {color} ({mac}) → {url}, status: {resp.status_code}")
+            _write_external_log(color, url, service, True, resp.status_code)
         except Exception as e:
             last_external_forward_ts[_rate_key] = now_dt
             result = {"url": url, "forwarded": False, "error": str(e)}
             results.append(result)
             print(f"[FORWARD] Error: tilt {color} ({mac}) → {url}: {e}")
+            _write_external_log(color, url, service, False, error=str(e))
 
     success_count = sum(1 for r in results if r.get("forwarded"))
     return {
@@ -7658,6 +7684,11 @@ def log_management():
         if os.path.exists(notifications_log_path):
             size_bytes = os.path.getsize(notifications_log_path)
             notifications_log_size = _format_file_size(size_bytes)
+
+        # Get external logging log info
+        external_logging_size = "0 bytes"
+        if os.path.exists(_EXTERNAL_LOG_FILE):
+            external_logging_size = _format_file_size(os.path.getsize(_EXTERNAL_LOG_FILE))
         
         # Get application logs
         app_logs = []
@@ -7760,6 +7791,7 @@ def log_management():
                              temp_logs=temp_logs,
                              kasa_log_size=kasa_log_size,
                              notifications_log_size=notifications_log_size,
+                             external_logging_size=external_logging_size,
                              app_logs=app_logs,
                              batches=batches,
                              success_message=request.args.get('success'),
@@ -7995,6 +8027,22 @@ def archive_notifications_log():
             return redirect(url_for('log_management', error='Notifications log not found'))
     except Exception as e:
         print(f"[LOG] Error archiving notifications log: {e}")
+        return redirect(url_for('log_management', error=f'Error archiving log: {str(e)}'))
+
+
+@app.route('/archive_external_log', methods=['POST'])
+def archive_external_log():
+    """Archive and reset the external logging activity log."""
+    try:
+        if os.path.exists(_EXTERNAL_LOG_FILE):
+            backup_name = f"{_EXTERNAL_LOG_FILE}.{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.bak"
+            shutil.copy2(_EXTERNAL_LOG_FILE, backup_name)
+            open(_EXTERNAL_LOG_FILE, 'w').close()
+            return redirect(url_for('log_management', success='External logging log archived and reset'))
+        else:
+            return redirect(url_for('log_management', error='External logging log not found'))
+    except Exception as e:
+        print(f"[LOG] Error archiving external logging log: {e}")
         return redirect(url_for('log_management', error=f'Error archiving log: {str(e)}'))
 
 
