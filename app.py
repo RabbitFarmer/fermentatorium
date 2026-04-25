@@ -2029,8 +2029,13 @@ def forward_to_third_party_if_configured(payload):
                 "temp_unit": "F",
                 "gravity": gravity,
                 "gravity_unit": "G",
-                "device_source": "Tilt"
+                "device_source": "Tilt",
             }
+            if beer_name:
+                forwarding_payload["beer"] = beer_name
+            rssi = payload.get("rssi")
+            if rssi is not None:
+                forwarding_payload["RSSI"] = rssi
             method = "POST"
             send_json = True
         elif service == "brewstat":
@@ -5439,7 +5444,9 @@ def test_external_logging():
                 "temp_unit": "F",
                 "gravity": 1.050,
                 "gravity_unit": "G",
-                "device_source": "Tilt"
+                "device_source": "Tilt",
+                "beer": "Test Beer",
+                "RSSI": -70
             }
             method = "POST"
         elif service == 'brewstat':
