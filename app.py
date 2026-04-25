@@ -1944,12 +1944,20 @@ def forward_to_third_party_if_configured(payload):
 
     # Backward compat: migrate singular external_url to external_urls array
     if tc and tc.get("external_url") and not tc.get("external_urls"):
+        _mig_url = tc["external_url"]
+        try:
+            _mig_parsed = urlparse(_mig_url)
+            _mig_netloc = _mig_parsed.netloc.lower()
+            _mig_is_bf = (_mig_netloc == "brewersfriend.com" or
+                          _mig_netloc.endswith(".brewersfriend.com"))
+        except Exception:
+            _mig_is_bf = False
         tc = dict(tc)
         tc["external_urls"] = [{
-            "service": "user_defined",
-            "url": tc["external_url"],
-            "method": tc.get("external_method", "POST"),
-            "content_type": tc.get("external_content_type", "form"),
+            "service": "brewersfriend" if _mig_is_bf else "user_defined",
+            "url": _mig_url,
+            "method": "POST" if _mig_is_bf else tc.get("external_method", "POST"),
+            "content_type": "json" if _mig_is_bf else tc.get("external_content_type", "form"),
         }]
 
     urls_to_forward = (tc or {}).get("external_urls", [])
@@ -2002,6 +2010,18 @@ def forward_to_third_party_if_configured(payload):
             _is_bf_netloc = False
         is_brewersfriend = (service == "brewersfriend") or _is_bf_netloc
 
+        # Restrict: brewersfriend service must target a brewersfriend.com URL.
+        if service == "brewersfriend" and not _is_bf_netloc:
+            results.append({"url": url, "forwarded": False,
+                             "reason": "brewersfriend service requires a brewersfriend.com URL"})
+            print(f"[FORWARD] Skipping {url} (tilt {color}) — "
+                  f"'brewersfriend' service requires a brewersfriend.com URL")
+            continue
+
+        # Use the effective service name in logs so entries that reach Brewers Friend
+        # via domain-sniff are not misleadingly labelled as "user_defined".
+        effective_service = "brewersfriend" if is_brewersfriend else service
+
         if is_brewersfriend:
             forwarding_payload = {
                 "name": tilt_color,
@@ -2009,8 +2029,13 @@ def forward_to_third_party_if_configured(payload):
                 "temp_unit": "F",
                 "gravity": gravity,
                 "gravity_unit": "G",
-                "device_source": "Tilt"
+                "device_source": "Tilt",
             }
+            if beer_name:
+                forwarding_payload["beer"] = beer_name
+            rssi = payload.get("rssi")
+            if rssi is not None:
+                forwarding_payload["RSSI"] = rssi
             method = "POST"
             send_json = True
         elif service == "brewstat":
@@ -2064,14 +2089,14 @@ def forward_to_third_party_if_configured(payload):
             result = {"url": url, "forwarded": fwd_success, "status_code": resp.status_code, "text": resp.text[:500]}
             results.append(result)
             print(f"[FORWARD] Tilt {color} ({mac}) → {url}, status: {resp.status_code}")
-            _write_external_log(color, url, service, fwd_success, resp.status_code,
+            _write_external_log(color, url, effective_service, fwd_success, resp.status_code,
                                 payload=forwarding_payload, response_body=resp.text)
         except Exception as e:
             last_external_forward_ts[_rate_key] = now_dt
             result = {"url": url, "forwarded": False, "error": str(e)}
             results.append(result)
             print(f"[FORWARD] Error: tilt {color} ({mac}) → {url}: {e}")
-            _write_external_log(color, url, service, False, error=str(e),
+            _write_external_log(color, url, effective_service, False, error=str(e),
                                 payload=forwarding_payload)
 
     success_count = sum(1 for r in results if r.get("forwarded"))
@@ -5419,7 +5444,9 @@ def test_external_logging():
                 "temp_unit": "F",
                 "gravity": 1.050,
                 "gravity_unit": "G",
-                "device_source": "Tilt"
+                "device_source": "Tilt",
+                "beer": "Test Beer",
+                "RSSI": -70
             }
             method = "POST"
         elif service == 'brewstat':
@@ -5673,6 +5700,17 @@ def batch_settings():
                             break
                 if not ext_url:
                     continue
+                # Auto-correct service type: if the URL targets brewersfriend.com, always
+                # use the "brewersfriend" service regardless of what was submitted.
+                try:
+                    _svc_parsed = urlparse(ext_url)
+                    _svc_netloc = _svc_parsed.netloc.lower()
+                    _svc_is_bf = (_svc_netloc == "brewersfriend.com" or
+                                  _svc_netloc.endswith(".brewersfriend.com"))
+                except Exception:
+                    _svc_is_bf = False
+                if _svc_is_bf:
+                    svc = "brewersfriend"
                 url_entry = {"service": svc or "user_defined", "url": ext_url}
                 if svc == "user_defined":
                     url_entry["method"] = data.get(f"ext_method_{i}", "POST")
