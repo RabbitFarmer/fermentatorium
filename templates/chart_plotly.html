@@ -506,8 +506,8 @@
               range: tempRange || [50, 80],
             },
             showlegend: true,
-            legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: -0.2 },
-            margin: { l: 50, r: 50, t: 70, b: 80 },
+            legend: { orientation: 'v', x: 1.02, xanchor: 'left', y: 1, yanchor: 'top' },
+            margin: { l: 50, r: 160, t: 70, b: 60 },
           };
         } else {
           // For regular tilt data, include gravity
@@ -580,8 +580,8 @@
               range: gravityRange,
             },
             showlegend: true,
-            legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: -0.2 },
-            margin: { l: 50, r: 50, t: 50, b: 50 },
+            legend: { orientation: 'v', x: 1.02, xanchor: 'left', y: 1, yanchor: 'top' },
+            margin: { l: 50, r: 160, t: 50, b: 50 },
           };
         }
 
