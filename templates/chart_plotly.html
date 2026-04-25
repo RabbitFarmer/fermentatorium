@@ -510,8 +510,8 @@
               range: tempRange || [50, 80],
             },
             showlegend: true,
-            legend: { orientation: 'v', x: 1.02, xanchor: 'left', y: 1, yanchor: 'top' },
-            margin: { l: 50, r: 160, t: 70, b: 60 },
+            legend: { orientation: 'v', x: 0.99, xanchor: 'right', y: 0.99, yanchor: 'top' },
+            margin: { l: 50, r: 20, t: 70, b: 60 },
           };
         } else {
           // For regular tilt data, include gravity
@@ -584,14 +584,14 @@
               range: gravityRange,
             },
             showlegend: true,
-            legend: { orientation: 'v', x: 1.02, xanchor: 'left', y: 1, yanchor: 'top' },
-            margin: { l: 50, r: 160, t: 50, b: 50 },
+            legend: { orientation: 'v', x: 0.99, xanchor: 'right', y: 0.99, yanchor: 'top' },
+            margin: { l: 50, r: 20, t: 50, b: 50 },
           };
         }
 
         // Plotly configuration to show the modebar (chart tools)
         const config = {
-          displayModeBar: true,
+          displayModeBar: 'hover',
           modeBarButtonsToRemove: [],
           displaylogo: false,
           responsive: true

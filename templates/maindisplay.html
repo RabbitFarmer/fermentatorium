@@ -1473,6 +1473,7 @@
   (function () {
     var DESIGN_WIDTH_4 = 1724;
     var DESIGN_WIDTH_3 = 1276;
+    var _lastPhysVW = null;
     function applyDisplayZoom() {
       var el = document.querySelector('.page-container');
       if (!el) { document.documentElement.style.zoom = ''; return; }
@@ -1480,9 +1481,17 @@
       var is3 = el.classList.contains('display-mode-3');
       if (!is4 && !is3) { document.documentElement.style.zoom = ''; return; }
       var designWidth = is4 ? DESIGN_WIDTH_4 : DESIGN_WIDTH_3;
-      var vw = window.innerWidth;
+      // window.innerWidth changes when CSS zoom is applied (Chrome/Android reports
+      // the scaled layout viewport).  Compensate by multiplying back by the zoom
+      // we previously set so we always work with the physical viewport width.
+      var currentZoom = parseFloat(document.documentElement.style.zoom) || 1;
+      var physVW = Math.round(window.innerWidth * currentZoom);
+      // Guard: if the physical viewport did not change (e.g. this resize event
+      // was triggered by our own zoom change) do nothing to break the loop.
+      if (physVW === _lastPhysVW) return;
+      _lastPhysVW = physVW;
       document.documentElement.style.zoom =
-        vw < designWidth ? String((vw / designWidth).toFixed(4)) : '';
+        physVW < designWidth ? String((physVW / designWidth).toFixed(4)) : '';
     }
     applyDisplayZoom();
     window.addEventListener('resize', applyDisplayZoom);
