@@ -6586,12 +6586,89 @@ def batch_review(brewid):
     
     # Calculate statistics from batch data
     stats = calculate_batch_statistics(batch_data, batch_info)
-    
+
+    # Separate notification/event entries from sample data
+    batch_events = [
+        e for e in batch_data
+        if e.get('event_type')
+    ]
+
+    # Calculate reading-frequency conformance for the batch review page
+    all_samples_for_freq = []
+    for entry in batch_data:
+        if entry.get('event') in ['sample', 'SAMPLE', 'tilt_reading']:
+            all_samples_for_freq.append(entry.get('payload', entry))
+    try:
+        expected_interval = int(system_cfg.get('tilt_logging_interval_minutes', 15))
+    except (ValueError, TypeError):
+        expected_interval = 15
+    freq_stats = calculate_reading_frequency_stats(all_samples_for_freq, expected_interval)
+
+    # Load temperature control records that overlap this batch's time range
+    temp_events = []
+    try:
+        safe_color = color.lower().replace(' ', '_')
+        tc_log_path = os.path.join(TEMP_CONTROL_DIR, f'temp_control_log_{safe_color}.jsonl')
+        if not os.path.exists(tc_log_path):
+            tc_log_path = LOG_PATH  # fallback to shared log
+
+        # Determine batch time bounds from sample data
+        timestamps_all = [
+            e.get('timestamp') or (e.get('payload') or {}).get('timestamp')
+            for e in batch_data
+            if e.get('timestamp') or (e.get('payload') or {}).get('timestamp')
+        ]
+        batch_start_ts = None
+        batch_end_ts = None
+        if timestamps_all:
+            parsed_ts = []
+            for t in timestamps_all:
+                try:
+                    parsed_ts.append(datetime.fromisoformat(str(t).replace('Z', '+00:00')))
+                except Exception:
+                    pass
+            if parsed_ts:
+                batch_start_ts = min(parsed_ts)
+                batch_end_ts = max(parsed_ts)
+
+        if os.path.exists(tc_log_path):
+            with open(tc_log_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except Exception:
+                        continue
+                    # Filter by tilt_color when reading shared log
+                    if tc_log_path == LOG_PATH:
+                        if entry.get('tilt_color', '').split(':', 1)[0].lower() != safe_color:
+                            continue
+                    # Filter by time range if we have batch bounds
+                    if batch_start_ts and batch_end_ts:
+                        entry_ts_raw = entry.get('timestamp')
+                        if entry_ts_raw:
+                            try:
+                                entry_ts = datetime.fromisoformat(
+                                    str(entry_ts_raw).replace('Z', '+00:00')
+                                )
+                                if entry_ts < batch_start_ts or entry_ts > batch_end_ts:
+                                    continue
+                            except Exception:
+                                pass
+                    temp_events.append(entry)
+    except Exception:
+        pass
+
     return render_template('batch_review.html',
                          batch=batch_info,
                          color=color,
                          batch_data=batch_data,
                          stats=stats,
+                         freq_stats=freq_stats,
+                         batch_events=batch_events,
+                         temp_events=temp_events,
                          color_map=COLOR_MAP)
 
 
@@ -6619,10 +6696,15 @@ def calculate_batch_statistics(batch_data, batch_info):
         'avg_temp': None,
         'min_temp': None,
         'max_temp': None,
-        'estimated_abv': None
+        'estimated_abv': None,
+        'fermentation_rate': None,   # gravity units per day (recent)
+        'rate_status': None,         # 'Rapid' / 'Active' / 'Slowing' / 'Stalled / Complete'
+        'ferm_status': None,         # human-readable fermentation status
     }
     
     if not all_samples:
+        # No data at all
+        stats['ferm_status'] = 'Awaiting First Reading'
         return stats
     
     # Calculate temperature statistics from ALL samples
@@ -6662,6 +6744,75 @@ def calculate_batch_statistics(batch_data, batch_info):
             stats['duration_days'] = duration.days
         except Exception:
             pass
+    
+    # --- Fermentation rate: gravity drop per day using up to last 5 readings ---
+    # Requires at least 2 timestamped readings; uses whichever are available (up to 5).
+    recent_grav_ts = []
+    for s in all_samples:
+        g = s.get('gravity')
+        ts_raw = s.get('timestamp')
+        if g is not None and ts_raw:
+            try:
+                ts = datetime.fromisoformat(str(ts_raw).replace('Z', '+00:00'))
+                recent_grav_ts.append((ts, float(g)))
+            except Exception:
+                pass
+    if len(recent_grav_ts) >= 2:
+        last_five = recent_grav_ts[-5:]
+        earliest_ts, earliest_g = last_five[0]
+        latest_ts, latest_g = last_five[-1]
+        elapsed_days = (latest_ts - earliest_ts).total_seconds() / 86400.0
+        if elapsed_days > 0:
+            # A positive rate means gravity is dropping (active fermentation)
+            rate = round((earliest_g - latest_g) / elapsed_days, 4)
+            stats['fermentation_rate'] = rate
+            if rate > 0.010:
+                stats['rate_status'] = 'Rapid'
+            elif rate >= 0.003:
+                stats['rate_status'] = 'Active'
+            elif rate >= 0.001:
+                stats['rate_status'] = 'Slowing'
+            else:
+                stats['rate_status'] = 'Stalled / Complete'
+    
+    # --- Fermentation status descriptor ---
+    notif_state = batch_info.get('notification_state', {}) or {}
+    ferm_start_dt = notif_state.get('fermentation_start_datetime')
+    ferm_comp_dt = notif_state.get('fermentation_completion_datetime')
+    batch_closed = batch_info.get('active') is False
+    
+    if batch_closed and ferm_comp_dt:
+        try:
+            dt = datetime.fromisoformat(str(ferm_comp_dt).replace('Z', '+00:00'))
+            stats['ferm_status'] = f'Fermentation Complete — {dt.strftime("%Y-%m-%d")}'
+        except Exception:
+            stats['ferm_status'] = 'Fermentation Complete'
+    elif batch_closed:
+        closed_at = batch_info.get('closed_at') or ''
+        try:
+            dt = datetime.fromisoformat(str(closed_at).replace('Z', '+00:00'))
+            stats['ferm_status'] = f'Batch Closed — {dt.strftime("%Y-%m-%d")}'
+        except Exception:
+            stats['ferm_status'] = 'Batch Closed'
+    elif ferm_comp_dt:
+        try:
+            dt = datetime.fromisoformat(str(ferm_comp_dt).replace('Z', '+00:00'))
+            stats['ferm_status'] = f'Fermentation Complete — {dt.strftime("%Y-%m-%d")}'
+        except Exception:
+            stats['ferm_status'] = 'Fermentation Complete'
+    elif ferm_start_dt:
+        if stats['rate_status'] in ('Stalled / Complete', 'Slowing'):
+            stats['ferm_status'] = 'Fermentation Slowing / Near Complete'
+        else:
+            try:
+                dt = datetime.fromisoformat(str(ferm_start_dt).replace('Z', '+00:00'))
+                stats['ferm_status'] = f'Active Fermentation — started {dt.strftime("%Y-%m-%d")}'
+            except Exception:
+                stats['ferm_status'] = 'Active Fermentation'
+    elif all_samples:
+        stats['ferm_status'] = 'Pre-Fermentation / Conditioning'
+    else:
+        stats['ferm_status'] = 'Awaiting First Reading'
     
     return stats
 
