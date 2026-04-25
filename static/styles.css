@@ -280,6 +280,13 @@ body, body.page-bg {
     justify-items: center;
   }
   .tilt-card { width: 100%; }
+  /* display-mode-4 sets --metric-number-size: 32px at element level, overriding
+     the :root reduction above.  Re-apply the small-screen sizes explicitly so
+     numbers fit inside the narrow (~200 px) fluid columns without being clipped. */
+  .display-mode-4 {
+    --metric-number-size: 16px;
+    --temp-number-size: 28px;
+  }
 }
 
 /* Portrait / narrow screens: 2-column grid (700 – 959 px) */
@@ -300,6 +307,13 @@ body, body.page-bg {
   .display-mode-3 .temp-ctrl-card,
   .display-mode-4 .temp-ctrl-card {
     width: 100%;
+  }
+  /* display-mode-4 element-level font sizes (32 px / 48 px) override :root.
+     Reduce them for this fluid-column range so values don't clip in narrow
+     cards (≈ 324 px at the 700 px end of the range).                         */
+  .display-mode-4 {
+    --metric-number-size: 24px;
+    --temp-number-size: 36px;
   }
 }
 
