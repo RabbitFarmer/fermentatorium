@@ -2055,10 +2055,11 @@ def forward_to_third_party_if_configured(payload):
                 resp = requests.request(method, url, data=formdata, headers=headers, timeout=timeout)
 
             last_external_forward_ts[_rate_key] = now_dt
-            result = {"url": url, "forwarded": True, "status_code": resp.status_code, "text": resp.text[:500]}
+            fwd_success = (200 <= resp.status_code < 300)
+            result = {"url": url, "forwarded": fwd_success, "status_code": resp.status_code, "text": resp.text[:500]}
             results.append(result)
             print(f"[FORWARD] Tilt {color} ({mac}) → {url}, status: {resp.status_code}")
-            _write_external_log(color, url, service, True, resp.status_code)
+            _write_external_log(color, url, service, fwd_success, resp.status_code)
         except Exception as e:
             last_external_forward_ts[_rate_key] = now_dt
             result = {"url": url, "forwarded": False, "error": str(e)}
@@ -5382,6 +5383,10 @@ def test_external_logging():
         # Service type from the new per-tilt config (or fallback for legacy callers)
         service = (data.get('service') or '').strip().lower()
 
+        # Tilt color supplied by the caller (batch_settings page sends the real color;
+        # system_config saved-logger test has no tilt context so falls back to "Red").
+        tilt_color = (data.get('tilt_color') or 'Red').strip() or 'Red'
+
         # Domain-sniff for Brewers Friend (backward compat with legacy callers)
         try:
             parsed = urlparse(url)
@@ -5402,7 +5407,7 @@ def test_external_logging():
             # Brewers Friend stream endpoint accepts JSON (same as TiltBridge firmware)
             # URL format: https://log.brewersfriend.com/stream/YOUR_API_KEY
             test_payload = {
-                "name": "Red",
+                "name": tilt_color,
                 "temp": 68.5,
                 "temp_unit": "F",
                 "gravity": 1.050,
@@ -5412,7 +5417,7 @@ def test_external_logging():
             method = "POST"
         elif service == 'brewstat':
             test_payload = {
-                "color": "red",
+                "color": tilt_color.lower(),
                 "temp": 68.5,
                 "temp_unit": "F",
                 "gravity": 1.050
@@ -5420,7 +5425,7 @@ def test_external_logging():
             method = "POST"
         elif service == 'brewfather':
             test_payload = {
-                "name": "Red",
+                "name": tilt_color,
                 "temp": 68.5,
                 "temp_unit": "F",
                 "gravity": 1.050,
@@ -5431,7 +5436,7 @@ def test_external_logging():
         else:
             # user_defined — apply field_map if provided, otherwise send raw
             raw_payload = {
-                "tilt_color": "Red",
+                "tilt_color": tilt_color,
                 "temp_f": 68.5,
                 "gravity": 1.050,
                 "brewid": "test_batch",
@@ -7866,6 +7871,11 @@ def view_log():
             if log_file != 'notifications_log.jsonl':
                 return "Invalid log file", 400
             filepath = 'logs/notifications_log.jsonl'
+        elif log_type == 'external':
+            # External logging activity log
+            if log_file != 'external_logging.jsonl':
+                return "Invalid external log file name. Expected: external_logging.jsonl", 400
+            filepath = _EXTERNAL_LOG_FILE
         else:
             # Application log - restrict to alphanumeric, dash, underscore, single dot before .log
             if not re.match(r'^[a-zA-Z0-9\-_]+\.log$', log_file):

@@ -558,7 +558,7 @@
 
       resultDiv.innerHTML = '<span style="color:#555;">Testing…</span>';
 
-      var payload = { url: testUrl, service: testSvc };
+      var payload = { url: testUrl, service: testSvc, tilt_color: {{ selected_tilt | tojson }} };
 
       // For user_defined, collect method, content_type, and field_map
       if (testSvc === 'user_defined') {
