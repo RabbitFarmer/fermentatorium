@@ -287,10 +287,19 @@ body, body.page-bg {
   .tiltcard-container {
     grid-template-columns: repeat(2, var(--card-width));
   }
-  /* display-mode-3/4 use wider cards (400 px); 2 per row still fits */
+  /* display-mode-3/4 have 400 px cards which overflow on typical portrait tablets
+     (2 × 400 + 24 gap + 28 padding = 852 px > 768 px).  Use fluid columns so
+     cards fill the available width without clipping.                           */
   .display-mode-3 .tiltcard-container,
   .display-mode-4 .tiltcard-container {
-    grid-template-columns: repeat(2, var(--card-width));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-items: stretch;
+  }
+  .display-mode-3 .tilt-card,
+  .display-mode-4 .tilt-card,
+  .display-mode-3 .temp-ctrl-card,
+  .display-mode-4 .temp-ctrl-card {
+    width: 100%;
   }
 }
 
@@ -299,8 +308,9 @@ body, body.page-bg {
   .tiltcard-container {
     grid-template-columns: repeat(3, var(--card-width));
   }
-  /* display-mode-3/4 wide cards — keep 2 columns until there is room for 3 */
-  .display-mode-3 .tiltcard-container,
+  /* display-mode-3: show 3 columns here too — applyDisplayZoom scales the page
+     down so 3 × 400 px fits even at ~960 px (landscape tablet).              */
+  /* display-mode-4 wide cards still need 2 columns at this width. */
   .display-mode-4 .tiltcard-container {
     grid-template-columns: repeat(2, var(--card-width));
   }
