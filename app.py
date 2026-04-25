@@ -2029,6 +2029,7 @@ def forward_to_third_party_if_configured(payload):
             _excel_epoch = datetime(1899, 12, 30)
             timepoint = (now_dt - _excel_epoch).total_seconds() / 86400.0
             forwarding_payload = {
+                "name": beer_name or "",
                 "Timepoint": timepoint,
                 "Temp": temp_f,
                 "SG": gravity,
@@ -5443,6 +5444,7 @@ def test_external_logging():
             _excel_epoch = datetime(1899, 12, 30)
             timepoint = (datetime.utcnow() - _excel_epoch).total_seconds() / 86400.0
             test_payload = {
+                "name": "Test Beer",
                 "Timepoint": timepoint,
                 "Temp": 68.5,
                 "SG": 1.050,
