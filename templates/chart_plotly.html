@@ -395,66 +395,70 @@
             });
           }
           
-          // Add horizontal lines for low and high temperature limits
-          // Extract limit values from data points (use most recent values)
-          let lowLimit = null;
-          let highLimit = null;
-          
-          // Find the most recent limits from data points (iterate backwards)
-          for (let i = allDataPoints.length - 1; i >= 0; i--) {
-            const p = allDataPoints[i];
-            // Get low limit if not yet found
-            if (lowLimit === null && p.low_limit !== null && p.low_limit !== undefined && !isNaN(parseFloat(p.low_limit))) {
-              lowLimit = parseFloat(p.low_limit);
+          // Add step-function limit lines that reflect changes over time.
+          // When the user adjusts high/low limits mid-fermentation the chart
+          // shows each period with the limits that were actually in effect.
+
+          // Scan all data points in chronological order and collect every
+          // timestamp where a limit value is explicitly defined.
+          const lowLimitChanges = [];   // [{ts, value}, …]
+          const highLimitChanges = [];  // [{ts, value}, …]
+          for (const p of allDataPoints) {
+            if (!p.timestamp) continue;
+            if (p.low_limit !== null && p.low_limit !== undefined) {
+              const v = parseFloat(p.low_limit);
+              if (!isNaN(v)) lowLimitChanges.push({ ts: p.timestamp, value: v });
             }
-            // Get high limit if not yet found
-            if (highLimit === null && p.high_limit !== null && p.high_limit !== undefined && !isNaN(parseFloat(p.high_limit))) {
-              highLimit = parseFloat(p.high_limit);
-            }
-            // Break early if we have both limits
-            if (lowLimit !== null && highLimit !== null) {
-              break;
+            if (p.high_limit !== null && p.high_limit !== undefined) {
+              const v = parseFloat(p.high_limit);
+              if (!isNaN(v)) highLimitChanges.push({ ts: p.timestamp, value: v });
             }
           }
-          
-          // Calculate limit line boundaries based on actual data points
-          // This prevents the line from extending from the left axis border to the first data point
-          let limitLineStart = null;
+
+          // Remove consecutive entries that share the same timestamp AND value
+          // so only actual change-points remain (keeps traces clean).
+          const dedupeConsecutive = (changes) =>
+            changes.filter((c, i) =>
+              i === 0 ||
+              c.value !== changes[i - 1].value ||
+              String(c.ts) !== String(changes[i - 1].ts)
+            );
+
+          const dedupedLow  = dedupeConsecutive(lowLimitChanges);
+          const dedupedHigh = dedupeConsecutive(highLimitChanges);
+
+          // Determine the end of the chart (last data point timestamp).
+          // The step-function trace needs to be extended to this point so the
+          // final limit segment fills the visible chart area.
           let limitLineEnd = null;
           if (dataPoints.length > 0) {
-            // Use first and last data point timestamps
-            limitLineStart = dataPoints[0].timestamp;
             limitLineEnd = dataPoints[dataPoints.length - 1].timestamp;
           }
-          
-          // Add low limit line (blue horizontal line)
-          if (lowLimit !== null && limitLineStart && limitLineEnd) {
-            traces.push({
+
+          // Helper: build a Plotly step-function trace for one limit series.
+          // Plotly's shape:'hv' draws horizontal-then-vertical steps, which
+          // naturally shows "this limit was in effect from time A to time B".
+          const buildLimitTrace = (changes, name, color) => {
+            const xs = changes.map(c => c.ts).concat([limitLineEnd]);
+            const ys = changes.map(c => c.value).concat([changes[changes.length - 1].value]);
+            return {
               type: 'scatter',
-              x: [limitLineStart, limitLineEnd],
-              y: [lowLimit, lowLimit],
+              x: xs,
+              y: ys,
               mode: 'lines',
-              name: 'Low Limit',
-              line: { color: '#0066CC', width: 2.5, dash: 'dash' },
+              name,
+              line: { color, width: 2.5, dash: 'dash', shape: 'hv' },
               yaxis: 'y1',
               showlegend: true,
-              hoverinfo: 'y',
-            });
+              hovertemplate: `${name}: %{y:.1f}°F<extra></extra>`,
+            };
+          };
+
+          if (dedupedLow.length > 0 && limitLineEnd) {
+            traces.push(buildLimitTrace(dedupedLow, 'Low Limit', '#0066CC'));
           }
-          
-          // Add high limit line (red horizontal line)
-          if (highLimit !== null && limitLineStart && limitLineEnd) {
-            traces.push({
-              type: 'scatter',
-              x: [limitLineStart, limitLineEnd],
-              y: [highLimit, highLimit],
-              mode: 'lines',
-              name: 'High Limit',
-              line: { color: 'red', width: 2.5, dash: 'dash' },
-              yaxis: 'y1',
-              showlegend: true,
-              hoverinfo: 'y',
-            });
+          if (dedupedHigh.length > 0 && limitLineEnd) {
+            traces.push(buildLimitTrace(dedupedHigh, 'High Limit', 'red'));
           }
           
           // Layout without gravity axis
