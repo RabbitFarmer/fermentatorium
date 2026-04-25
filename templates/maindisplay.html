@@ -857,12 +857,12 @@
       //   ≤479 px  → 1 col  (phone single-column)
       //   480–699  → 2 cols (small tablet / large phone portrait)
       //   700–959  → 2 cols (tablet portrait — all display modes)
-      //   960–1299 → 2 cols for display-mode-3/4, otherwise 3 cols
-      //   ≥1300    → 3 cols for display-mode-3, otherwise 4 cols
+      //   960–1299 → 3 cols for display-mode-3 (zoom scales to fit), 2 for display-mode-4, 3 otherwise
+      //   ≥1300    → 3 cols for display-mode-3, 4 otherwise
       var cols;
       if (w <= 479)       cols = 1;
       else if (w <= 959)  cols = 2;
-      else if (w <= 1299) cols = (is3 || is4) ? 2 : 3;
+      else if (w <= 1299) cols = is4 ? 2 : 3;
       else                cols = is3 ? 3 : 4;
 
       // Single-column: clear explicit positions and let the grid auto-flow
@@ -1466,13 +1466,16 @@
   <script>
   // ── Auto-zoom for wide card layouts ───────────────────────────────────────
   // display-mode-4: 4 × 400 px + 3 × 24 px gap + 2 × 14 px padding = 1700 px
-  //                 (max-width: 1724 px)
+  //   (page max-width: 1724 px)
+  //   4-col grid is active at ≥1300 px → zoom when 1300 ≤ physVW < 1724.
   // display-mode-3: 3 × 400 px + 2 × 24 px gap + 2 × 14 px padding = 1276 px
-  // On screens narrower than the respective design width we scale the whole
-  // page down uniformly so all cards remain visible without horizontal clipping.
+  //   3-col grid is active at ≥960 px (landscape tablets) → zoom when 960 ≤ physVW < 1276.
+  //   Below 960 px the CSS 2-column fluid layout handles portrait — no zoom needed.
   (function () {
     var DESIGN_WIDTH_4 = 1724;
     var DESIGN_WIDTH_3 = 1276;
+    var ZOOM_THRESHOLD_4 = 1300;   // below this, CSS shows 2 cols for mode-4
+    var ZOOM_THRESHOLD_3 = 960;    // below this, CSS shows 2-col fluid for mode-3
     var _lastPhysVW = null;
     function applyDisplayZoom() {
       var el = document.querySelector('.page-container');
@@ -1480,12 +1483,23 @@
       var is4 = el.classList.contains('display-mode-4');
       var is3 = el.classList.contains('display-mode-3');
       if (!is4 && !is3) { document.documentElement.style.zoom = ''; return; }
-      var designWidth = is4 ? DESIGN_WIDTH_4 : DESIGN_WIDTH_3;
+      var designWidth   = is4 ? DESIGN_WIDTH_4   : DESIGN_WIDTH_3;
+      var zoomThreshold = is4 ? ZOOM_THRESHOLD_4 : ZOOM_THRESHOLD_3;
       // window.innerWidth changes when CSS zoom is applied (Chrome/Android reports
       // the scaled layout viewport).  Compensate by multiplying back by the zoom
       // we previously set so we always work with the physical viewport width.
       var currentZoom = parseFloat(document.documentElement.style.zoom) || 1;
       var physVW = Math.round(window.innerWidth * currentZoom);
+      // Below the zoom threshold the CSS responsive layout has already reduced
+      // the column count — applying zoom here would make cards tiny.  Clear any
+      // previously applied zoom and return.
+      if (physVW < zoomThreshold) {
+        if (document.documentElement.style.zoom) {
+          document.documentElement.style.zoom = '';
+          _lastPhysVW = null;
+        }
+        return;
+      }
       // Guard: if the physical viewport did not change (e.g. this resize event
       // was triggered by our own zoom change) do nothing to break the loop.
       if (physVW === _lastPhysVW) return;
