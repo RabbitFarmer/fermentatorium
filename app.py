@@ -1957,7 +1957,7 @@ def forward_to_third_party_if_configured(payload):
             "service": "brewersfriend" if _mig_is_bf else "user_defined",
             "url": _mig_url,
             "method": "POST" if _mig_is_bf else tc.get("external_method", "POST"),
-            "content_type": "json" if _mig_is_bf else tc.get("external_content_type", "form"),
+            "content_type": "form" if _mig_is_bf else tc.get("external_content_type", "form"),
         }]
 
     urls_to_forward = (tc or {}).get("external_urls", [])
@@ -2023,21 +2023,21 @@ def forward_to_third_party_if_configured(payload):
         effective_service = "brewersfriend" if is_brewersfriend else service
 
         if is_brewersfriend:
+            # Brewers Friend stream endpoint requires URL-encoded form data, not JSON.
+            # Field names and format confirmed by the Tilt Hydrometer app author.
+            # Timepoint is an Excel date serial number (days since 1899-12-30).
+            _excel_epoch = datetime(1899, 12, 30)
+            timepoint = (now_dt - _excel_epoch).total_seconds() / 86400.0
             forwarding_payload = {
-                "name": tilt_color,
-                "temp": temp_f,
-                "temp_unit": "F",
-                "gravity": gravity,
-                "gravity_unit": "G",
-                "device_source": "Tilt",
+                "Timepoint": timepoint,
+                "Temp": temp_f,
+                "SG": gravity,
+                "Beer": beer_name or "",
+                "Color": tilt_color.upper(),
+                "Comment": "",
             }
-            if beer_name:
-                forwarding_payload["beer"] = beer_name
-            rssi = payload.get("rssi")
-            if rssi is not None:
-                forwarding_payload["RSSI"] = rssi
             method = "POST"
-            send_json = True
+            send_json = False
         elif service == "brewstat":
             forwarding_payload = {
                 "color": tilt_color.lower(),
@@ -5436,19 +5436,22 @@ def test_external_logging():
 
         # Build a service-appropriate test payload
         if is_brewersfriend:
-            # Brewers Friend stream endpoint accepts JSON (same as TiltBridge firmware)
+            # Brewers Friend stream endpoint requires URL-encoded form data, not JSON.
+            # Field names and format confirmed by the Tilt Hydrometer app author.
+            # Timepoint is an Excel date serial number (days since 1899-12-30).
             # URL format: https://log.brewersfriend.com/stream/YOUR_API_KEY
+            _excel_epoch = datetime(1899, 12, 30)
+            timepoint = (datetime.utcnow() - _excel_epoch).total_seconds() / 86400.0
             test_payload = {
-                "name": tilt_color,
-                "temp": 68.5,
-                "temp_unit": "F",
-                "gravity": 1.050,
-                "gravity_unit": "G",
-                "device_source": "Tilt",
-                "beer": "Test Beer",
-                "RSSI": -70
+                "Timepoint": timepoint,
+                "Temp": 68.5,
+                "SG": 1.050,
+                "Beer": "Test Beer",
+                "Color": tilt_color.upper(),
+                "Comment": "",
             }
             method = "POST"
+            send_json = False
         elif service == 'brewstat':
             test_payload = {
                 "color": tilt_color.lower(),
