@@ -84,7 +84,7 @@ except Exception:
 
 # Import log_error and log_kasa_command for kasa logging
 try:
-    from logger import log_error, log_kasa_command, log_kasa_diag, log_notification, log_event
+    from logger import log_error, log_kasa_command, log_kasa_diag, log_notification, log_event, _now_ts
 except Exception:
     def log_error(msg, **extra):
         print(f"[ERROR] {msg}")
@@ -1891,7 +1891,6 @@ def _write_external_log(tilt_color, url, service, success, status_code=None, err
     """Append one JSON line to logs/external_logging.jsonl for visibility."""
     try:
         os.makedirs("logs", exist_ok=True)
-        from logger import _now_ts
         entry = {
             "ts": _now_ts(),
             "tilt": tilt_color,

@@ -254,7 +254,7 @@
                 {# ── Manual service/URL row ── #}
                 {# Hide when a saved profile is selected and there are saved loggers #}
                 <div id="ext-manual-{{ i }}"
-                     style="{% if saved_loggers and saved_profile_name and not saved_profile_name == '' %}display:none;{% endif %}">
+                     style="{% if saved_loggers and saved_profile_name %}display:none;{% endif %}">
                   <div style="margin-bottom:8px;">
                     <label>Service</label>
                     <select name="ext_svc_{{ i }}" id="ext_svc_{{ i }}"
