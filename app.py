@@ -5449,21 +5449,36 @@ def test_external_logging():
 
         # Build a service-appropriate test payload
         if is_brewersfriend:
-            # Brewers Friend stream endpoint requires URL-encoded form data, not JSON.
-            # Field names and format confirmed by the Tilt Hydrometer app author.
-            # Timepoint is an Excel date serial number (days since 1899-12-30).
-            # URL format: https://log.brewersfriend.com/stream/YOUR_API_KEY
-            _excel_epoch = datetime(1899, 12, 30)
-            timepoint = (datetime.utcnow() - _excel_epoch).total_seconds() / 86400.0
-            test_payload = {
-                "name": "Test Beer",
-                "Timepoint": timepoint,
-                "Temp": 68.5,
-                "SG": 1.050,
-                "Beer": "Test Beer",
-                "Color": tilt_color.upper(),
-                "Comment": "",
-            }
+            # Brewers Friend requires URL-encoded form data, not JSON.
+            # Use the same path-based format selection as forward_to_third_party:
+            #   /tilt/ paths  → tilt_color, gravity, temp, comment, beer, device_source
+            #   /stream/ paths → legacy iSpindel format with Timepoint, Temp, SG, etc.
+            try:
+                _bf_parsed = urlparse(url)
+                _bf_path = _bf_parsed.path.lower()
+            except Exception:
+                _bf_path = ""
+            if _bf_path.startswith("/tilt/"):
+                test_payload = {
+                    "tilt_color": tilt_color,
+                    "gravity": 1.050,
+                    "temp": 68.5,
+                    "comment": "",
+                    "beer": "Test Beer",
+                    "device_source": "Fermentatorium",
+                }
+            else:
+                _excel_epoch = datetime(1899, 12, 30)
+                timepoint = (datetime.utcnow() - _excel_epoch).total_seconds() / 86400.0
+                test_payload = {
+                    "name": "Test Beer",
+                    "Timepoint": timepoint,
+                    "Temp": 68.5,
+                    "SG": 1.050,
+                    "Beer": "Test Beer",
+                    "Color": tilt_color.upper(),
+                    "Comment": "",
+                }
             method = "POST"
             send_json = False
         elif service == 'brewstat':

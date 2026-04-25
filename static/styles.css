@@ -370,3 +370,46 @@ body, body.page-bg {
   border-radius: 6px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
+
+/* ── Print styles ─────────────────────────────────────────────────────────────
+   Override the screen-only responsive breakpoints so the dashboard prints with
+   the same column count the user selected (display-mode-3 → 3 cols,
+   display-mode-4 → 4 cols).  Fluid columns let each card shrink to fill the
+   paper width without overflowing.  The JS auto-zoom (element inline zoom) is
+   cleared by the beforeprint handler in maindisplay.html.                     */
+@media print {
+  /* Clear any JS-applied element zoom so the grid can fill the page naturally */
+  .page-container {
+    zoom: 1 !important;
+    width: auto !important;
+  }
+
+  /* Hide interactive / screen-only chrome */
+  .top-nav-bar,
+  .notification-failure {
+    display: none !important;
+  }
+
+  /* Default (no display-mode class): 2 fluid columns */
+  .tiltcard-container {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    justify-items: stretch !important;
+    gap: 12px !important;
+  }
+
+  /* 3-across mode: 3 fluid columns */
+  .display-mode-3 .tiltcard-container {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+
+  /* 4-across mode: 4 fluid columns */
+  .display-mode-4 .tiltcard-container {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+
+  /* Cards must fill their fluid column */
+  .tilt-card,
+  .temp-ctrl-card {
+    width: 100% !important;
+  }
+}

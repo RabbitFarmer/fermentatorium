@@ -510,7 +510,7 @@
               range: tempRange || [50, 80],
             },
             showlegend: true,
-            legend: { orientation: 'v', x: 0.99, xanchor: 'right', y: 0.99, yanchor: 'top' },
+            legend: { orientation: 'v', x: 0.99, xanchor: 'right', y: 0.01, yanchor: 'bottom' },
             margin: { l: 50, r: 20, t: 70, b: 60 },
           };
         } else {
@@ -584,14 +584,14 @@
               range: gravityRange,
             },
             showlegend: true,
-            legend: { orientation: 'v', x: 0.99, xanchor: 'right', y: 0.99, yanchor: 'top' },
+            legend: { orientation: 'v', x: 0.99, xanchor: 'right', y: 0.01, yanchor: 'bottom' },
             margin: { l: 50, r: 20, t: 50, b: 50 },
           };
         }
 
         // Plotly configuration to show the modebar (chart tools)
         const config = {
-          displayModeBar: 'hover',
+          displayModeBar: true,
           modeBarButtonsToRemove: [],
           displaylogo: false,
           responsive: true

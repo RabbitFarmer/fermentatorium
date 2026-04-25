@@ -1519,6 +1519,14 @@
     }
     applyDisplayZoom();
     window.addEventListener('resize', applyDisplayZoom);
+
+    // Clear JS zoom before printing so the CSS @media print grid rules take effect.
+    // Restore it afterwards so the on-screen layout returns to normal.
+    window.addEventListener('beforeprint', function () {
+      var el = document.querySelector('.page-container');
+      if (el) { el.style.zoom = ''; el.style.width = ''; }
+    });
+    window.addEventListener('afterprint', applyDisplayZoom);
   }());
   </script>
 
