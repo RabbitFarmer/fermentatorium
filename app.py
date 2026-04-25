@@ -7870,7 +7870,7 @@ def view_log():
         elif log_type == 'external':
             # External logging activity log
             if log_file != 'external_logging.jsonl':
-                return "Invalid log file", 400
+                return "Invalid external log file name. Expected: external_logging.jsonl", 400
             filepath = _EXTERNAL_LOG_FILE
         else:
             # Application log - restrict to alphanumeric, dash, underscore, single dot before .log
