@@ -1887,7 +1887,8 @@ def write_normalized_tilt_reading(payload, event_name="tilt_reading"):
 
 _EXTERNAL_LOG_FILE = os.path.join("logs", "external_logging.jsonl")
 
-def _write_external_log(tilt_color, url, service, success, status_code=None, error=None):
+def _write_external_log(tilt_color, url, service, success, status_code=None, error=None,
+                        payload=None, response_body=None):
     """Append one JSON line to logs/external_logging.jsonl for visibility."""
     try:
         os.makedirs("logs", exist_ok=True)
@@ -1900,6 +1901,10 @@ def _write_external_log(tilt_color, url, service, success, status_code=None, err
         }
         if status_code is not None:
             entry["status_code"] = status_code
+        if payload is not None:
+            entry["payload"] = payload
+        if response_body is not None:
+            entry["response"] = response_body[:500]
         if error:
             entry["error"] = error
         with open(_EXTERNAL_LOG_FILE, "a", encoding="utf-8") as f:
@@ -2059,13 +2064,15 @@ def forward_to_third_party_if_configured(payload):
             result = {"url": url, "forwarded": fwd_success, "status_code": resp.status_code, "text": resp.text[:500]}
             results.append(result)
             print(f"[FORWARD] Tilt {color} ({mac}) → {url}, status: {resp.status_code}")
-            _write_external_log(color, url, service, fwd_success, resp.status_code)
+            _write_external_log(color, url, service, fwd_success, resp.status_code,
+                                payload=forwarding_payload, response_body=resp.text)
         except Exception as e:
             last_external_forward_ts[_rate_key] = now_dt
             result = {"url": url, "forwarded": False, "error": str(e)}
             results.append(result)
             print(f"[FORWARD] Error: tilt {color} ({mac}) → {url}: {e}")
-            _write_external_log(color, url, service, False, error=str(e))
+            _write_external_log(color, url, service, False, error=str(e),
+                                payload=forwarding_payload)
 
     success_count = sum(1 for r in results if r.get("forwarded"))
     return {
