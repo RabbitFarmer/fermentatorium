@@ -192,12 +192,25 @@
             <div class="heading">External Logging</div>
             <p class="small-note" style="margin-bottom:12px;">
               These settings are saved to this Tilt device and carry forward to future batches automatically.
+              {% if saved_loggers %}
+                To add a service, select a saved profile from the dropdown or choose a service type and enter a URL manually.
+              {% else %}
+                Save logger API keys in <a href="/system_config?tab=logging-integrations" style="color:#1a6;">System Settings → Logging Integrations</a> to quickly select them here.
+              {% endif %}
             </p>
 
             {% for i in range(2) %}
               {% set slot = _slots[i] %}
               {% set svc  = slot.get('service', '') %}
               {% set eurl = slot.get('url', '') %}
+              {# Determine if this slot is using a saved profile #}
+              {% set ns = namespace(saved_profile_name='') %}
+              {% for sl in saved_loggers %}
+                {% if sl.get('url') == eurl and eurl %}
+                  {% set ns.saved_profile_name = sl.get('name', '') %}
+                {% endif %}
+              {% endfor %}
+              {% set saved_profile_name = ns.saved_profile_name %}
               <div class="ext-slot" id="ext-slot-{{ i }}"
                    {% if i == 1 and not eurl %}style="display:none;"{% endif %}>
                 <div style="font-weight:700; color:#1a6; margin-bottom:10px;">
@@ -208,87 +221,122 @@
                   {% endif %}
                 </div>
 
-                <div style="margin-bottom:8px;">
-                  <label>Service</label>
-                  <select name="ext_svc_{{ i }}" id="ext_svc_{{ i }}"
-                          onchange="onServiceChange({{ i }})">
-                    <option value=""{% if not svc %} selected{% endif %}>(none — slot unused)</option>
-                    <option value="brewersfriend"{% if svc == 'brewersfriend' %} selected{% endif %}>Brewers Friend</option>
-                    <option value="brewstat"{% if svc == 'brewstat' %} selected{% endif %}>Brewstat.us</option>
-                    <option value="brewfather"{% if svc == 'brewfather' %} selected{% endif %}>Brewfather</option>
-                    <option value="user_defined"{% if svc == 'user_defined' %} selected{% endif %}>User-Defined</option>
+                {# ── Saved-profile picker (shown when saved loggers exist) ── #}
+                {% if saved_loggers %}
+                <div style="margin-bottom:10px; padding:8px 10px; background:#eaf4ea; border:1px solid #b0d8b0; border-radius:5px;">
+                  <label style="font-weight:700; display:block; margin-bottom:4px;">Load from Saved Profile</label>
+                  <select id="ext-saved-select-{{ i }}" onchange="onSavedProfileChange({{ i }})"
+                          style="padding:6px 8px; border:1px solid #ccc; border-radius:4px; width:100%; box-sizing:border-box;">
+                    <option value="">(select a saved profile…)</option>
+                    {% for sl in saved_loggers %}
+                      <option value="{{ sl.get('name', '') }}"
+                              data-svc="{{ sl.get('service', '') }}"
+                              data-url="{{ sl.get('url', '') }}"
+                              {% if sl.get('name') == saved_profile_name %} selected{% endif %}>
+                        {{ sl.get('name', '') }} ({{ sl.get('service', '') }})
+                      </option>
+                    {% endfor %}
+                    <option value="__manual__"{% if not saved_profile_name and (svc or eurl) %} selected{% endif %}>— Enter URL manually —</option>
                   </select>
+                  {# Hidden field carries the profile name to the server #}
+                  <input type="hidden" name="ext_saved_{{ i }}" id="ext-saved-{{ i }}"
+                         value="{{ saved_profile_name }}">
+                  {# Active profile badge #}
+                  {% if saved_profile_name %}
+                  <div style="margin-top:5px; font-size:0.85em; color:#1a6;">
+                    ✓ Using: <strong>{{ saved_profile_name }}</strong>
+                    — <a href="/system_config?tab=logging-integrations" style="color:#1a6;">edit profiles</a>
+                  </div>
+                  {% endif %}
                 </div>
+                {% endif %}
 
-                <div id="ext-url-row-{{ i }}"
-                     style="margin-bottom:8px;{% if not svc %} display:none;{% endif %}">
-                  <label>URL</label>
-                  <div style="display:flex;align-items:center;gap:6px;">
-                    <input type="{{ 'password' if svc and svc != 'user_defined' else 'text' }}"
-                           name="ext_url_{{ i }}" id="ext_url_{{ i }}"
-                           value="{{ eurl }}"
-                           style="flex:1;box-sizing:border-box;">
-                    <button type="button" id="ext-url-toggle-{{ i }}"
-                            onclick="toggleExtUrl({{ i }})"
-                            style="padding:4px 8px;font-size:0.85em;white-space:nowrap;{% if not svc or svc == 'user_defined' %}display:none;{% endif %}">Show</button>
-                  </div>
-                  <div id="ext-help-{{ i }}" class="ext-help"
-                       style="{% if not svc %} display:none;{% endif %}">
-                    {%- if svc == 'brewersfriend' -%}
-                      URL format: <code>https://log.brewersfriend.com/stream/{API_KEY}</code> — find your API Key: Profile → Security → API Key
-                    {%- elif svc == 'brewstat' -%}
-                      URL format: <code>https://www.brewstat.us/tilt/{DEVICE_TOKEN}</code> — find your token in the Brewstat.us dashboard
-                    {%- elif svc == 'brewfather' -%}
-                      URL format: <code>https://log.brewfather.net/stream?id={STREAM_ID}</code> — find your Stream ID: Settings → Power-ups → Custom Stream
-                    {%- elif svc == 'user_defined' -%}
-                      Enter any URL. Use the field mapper below to map internal field names to your endpoint's expected field names.
-                    {%- endif -%}
-                  </div>
-                </div>
-
-                <!-- User-defined extras -->
-                {% set fm = slot.get('field_map', {}) %}
-                <div id="ext-userdef-{{ i }}"
-                     style="{% if svc != 'user_defined' %} display:none;{% endif %}">
-                  <div class="form-row" style="margin-bottom:8px; gap:16px;">
-                    <div>
-                      <label>HTTP Method</label>
-                      <select name="ext_method_{{ i }}">
-                        <option value="POST"{% if slot.get('method','POST') == 'POST' %} selected{% endif %}>POST</option>
-                        <option value="GET"{% if slot.get('method','POST') == 'GET' %} selected{% endif %}>GET</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label>Content Type</label>
-                      <select name="ext_ctype_{{ i }}">
-                        <option value="json"{% if slot.get('content_type','json') == 'json' %} selected{% endif %}>JSON</option>
-                        <option value="form"{% if slot.get('content_type','json') == 'form' %} selected{% endif %}>Form-encoded</option>
-                      </select>
-                    </div>
-                  </div>
+                {# ── Manual service/URL row ── #}
+                {# Hide when a saved profile is selected and there are saved loggers #}
+                <div id="ext-manual-{{ i }}"
+                     style="{% if saved_loggers and saved_profile_name and not saved_profile_name == '' %}display:none;{% endif %}">
                   <div style="margin-bottom:8px;">
-                    <label>Field Mapper</label>
-                    <p class="small-note">Map internal field names to your endpoint's expected parameter names. Leave blank to omit that field.</p>
-                    <table class="ext-field-mapper">
-                      <tr><th>Internal Field</th><th></th><th>Destination Field Name</th></tr>
-                      {% for fname in ['temp_f', 'gravity', 'tilt_color', 'beer_name', 'batch_name', 'brewid', 'timestamp', 'rssi'] %}
-                      <tr>
-                        <td>{{ fname }}</td>
-                        <td>→</td>
-                        <td>
-                          <input type="text" name="ext_fm_{{ fname }}_{{ i }}"
-                                 value="{{ fm.get(fname, '') }}"
-                                 placeholder="{{ fname }}">
-                        </td>
-                      </tr>
-                      {% endfor %}
-                    </table>
+                    <label>Service</label>
+                    <select name="ext_svc_{{ i }}" id="ext_svc_{{ i }}"
+                            onchange="onServiceChange({{ i }})">
+                      <option value=""{% if not svc %} selected{% endif %}>(none — slot unused)</option>
+                      <option value="brewersfriend"{% if svc == 'brewersfriend' %} selected{% endif %}>Brewers Friend</option>
+                      <option value="brewstat"{% if svc == 'brewstat' %} selected{% endif %}>Brewstat.us</option>
+                      <option value="brewfather"{% if svc == 'brewfather' %} selected{% endif %}>Brewfather</option>
+                      <option value="user_defined"{% if svc == 'user_defined' %} selected{% endif %}>User-Defined</option>
+                    </select>
+                  </div>
+
+                  <div id="ext-url-row-{{ i }}"
+                       style="margin-bottom:8px;{% if not svc %} display:none;{% endif %}">
+                    <label>URL</label>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                      <input type="{{ 'password' if svc and svc != 'user_defined' else 'text' }}"
+                             name="ext_url_{{ i }}" id="ext_url_{{ i }}"
+                             value="{{ eurl }}"
+                             style="flex:1;box-sizing:border-box;">
+                      <button type="button" id="ext-url-toggle-{{ i }}"
+                              onclick="toggleExtUrl({{ i }})"
+                              style="padding:4px 8px;font-size:0.85em;white-space:nowrap;{% if not svc or svc == 'user_defined' %}display:none;{% endif %}">Show</button>
+                    </div>
+                    <div id="ext-help-{{ i }}" class="ext-help"
+                         style="{% if not svc %} display:none;{% endif %}">
+                      {%- if svc == 'brewersfriend' -%}
+                        URL format: <code>https://log.brewersfriend.com/stream/{API_KEY}</code> — find your API Key: Profile → Security → API Key
+                      {%- elif svc == 'brewstat' -%}
+                        URL format: <code>https://www.brewstat.us/tilt/{DEVICE_TOKEN}</code> — find your token in the Brewstat.us dashboard
+                      {%- elif svc == 'brewfather' -%}
+                        URL format: <code>https://log.brewfather.net/stream?id={STREAM_ID}</code> — find your Stream ID: Settings → Power-ups → Custom Stream
+                      {%- elif svc == 'user_defined' -%}
+                        Enter any URL. Use the field mapper below to map internal field names to your endpoint's expected field names.
+                      {%- endif -%}
+                    </div>
+                  </div>
+
+                  <!-- User-defined extras -->
+                  {% set fm = slot.get('field_map', {}) %}
+                  <div id="ext-userdef-{{ i }}"
+                       style="{% if svc != 'user_defined' %} display:none;{% endif %}">
+                    <div class="form-row" style="margin-bottom:8px; gap:16px;">
+                      <div>
+                        <label>HTTP Method</label>
+                        <select name="ext_method_{{ i }}">
+                          <option value="POST"{% if slot.get('method','POST') == 'POST' %} selected{% endif %}>POST</option>
+                          <option value="GET"{% if slot.get('method','POST') == 'GET' %} selected{% endif %}>GET</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label>Content Type</label>
+                        <select name="ext_ctype_{{ i }}">
+                          <option value="json"{% if slot.get('content_type','json') == 'json' %} selected{% endif %}>JSON</option>
+                          <option value="form"{% if slot.get('content_type','json') == 'form' %} selected{% endif %}>Form-encoded</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div style="margin-bottom:8px;">
+                      <label>Field Mapper</label>
+                      <p class="small-note">Map internal field names to your endpoint's expected parameter names. Leave blank to omit that field.</p>
+                      <table class="ext-field-mapper">
+                        <tr><th>Internal Field</th><th></th><th>Destination Field Name</th></tr>
+                        {% for fname in ['temp_f', 'gravity', 'tilt_color', 'beer_name', 'batch_name', 'brewid', 'timestamp', 'rssi'] %}
+                        <tr>
+                          <td>{{ fname }}</td>
+                          <td>→</td>
+                          <td>
+                            <input type="text" name="ext_fm_{{ fname }}_{{ i }}"
+                                   value="{{ fm.get(fname, '') }}"
+                                   placeholder="{{ fname }}">
+                          </td>
+                        </tr>
+                        {% endfor %}
+                      </table>
+                    </div>
                   </div>
                 </div>
 
                 <!-- Test Connection button -->
                 <div id="ext-test-row-{{ i }}"
-                     style="margin-top:10px;{% if not eurl %} display:none;{% endif %}">
+                     style="margin-top:10px;{% if not eurl and not saved_profile_name %} display:none;{% endif %}">
                   <button type="button" class="btn-action" onclick="testExtConn({{ i }})">
                     Test Connection
                   </button>
@@ -373,6 +421,8 @@
       'brewfather':    'https://log.brewfather.net/stream?id=YOUR_STREAM_ID',
       'user_defined':  'https://yourserver.local/api/tilt'
     };
+    // Services that already have a saved API key (populated server-side)
+    var SAVED_SVC_KEYS = {{ (saved_loggers | map(attribute='service') | list) | tojson }};
 
     function onServiceChange(i) {
       var svc = document.getElementById('ext_svc_' + i).value;
@@ -386,8 +436,24 @@
       if (svc) {
         urlRow.style.display  = '';
         helpDiv.style.display = '';
-        helpDiv.textContent   = SERVICE_HELP[svc] || '';
+
+        // If this is a known service with no saved API, add a nudge to set it up
+        var knownSvcs = ['brewersfriend', 'brewstat', 'brewfather'];
+        var noSavedApi = svc && knownSvcs.indexOf(svc) !== -1 && SAVED_SVC_KEYS.indexOf(svc) === -1;
+        var helpText = SERVICE_HELP[svc] || '';
+        if (noSavedApi) {
+          helpText += ' \u2014 \u26a0\ufe0f No saved API key found. '
+            + 'Save it once in <a href="/system_config?tab=logging-integrations" target="_blank" style="color:#1a6;">System Settings \u2192 Logging Integrations</a> '
+            + 'so you won\u2019t need to enter it again.';
+          helpDiv.innerHTML = helpText;
+        } else {
+          helpDiv.textContent = helpText;
+        }
         if (urlInput) urlInput.placeholder = SERVICE_PLACEHOLDER[svc] || '';
+        // Auto-focus the URL field when opened
+        if (urlInput && !urlInput.value) {
+          setTimeout(function() { urlInput.focus(); }, 50);
+        }
       } else {
         urlRow.style.display  = 'none';
         helpDiv.style.display = 'none';
@@ -433,6 +499,32 @@
       document.getElementById('ext-test-result-1').textContent = '';
     }
 
+    /* Saved-profile picker handler */
+    function onSavedProfileChange(i) {
+      var selectEl  = document.getElementById('ext-saved-select-' + i);
+      var hiddenEl  = document.getElementById('ext-saved-' + i);
+      var manualDiv = document.getElementById('ext-manual-' + i);
+      var testRow   = document.getElementById('ext-test-row-' + i);
+      var selected  = selectEl ? selectEl.options[selectEl.selectedIndex] : null;
+      var val       = selectEl ? selectEl.value : '';
+
+      if (!hiddenEl) return;
+
+      if (val && val !== '__manual__' && selected) {
+        // Load saved profile — populate hidden name field; hide manual entry
+        hiddenEl.value = val;
+        if (manualDiv) manualDiv.style.display = 'none';
+        if (testRow)   testRow.style.display   = '';
+      } else {
+        // Manual entry
+        hiddenEl.value = '';
+        if (manualDiv) manualDiv.style.display = '';
+        // Show test row only if a URL is present
+        var urlInput = document.getElementById('ext_url_' + i);
+        if (testRow) testRow.style.display = (urlInput && urlInput.value.trim()) ? '' : 'none';
+      }
+    }
+
     function escapeHtml(str) {
       return String(str)
         .replace(/&/g, '&amp;')
@@ -443,21 +535,33 @@
 
     function testExtConn(i) {
       var resultDiv = document.getElementById('ext-test-result-' + i);
-      var urlField  = document.getElementById('ext_url_' + i);
-      var svcField  = document.getElementById('ext_svc_' + i);
 
-      if (!urlField || !urlField.value.trim()) {
-        resultDiv.innerHTML = '<span style="color:orange;">⚠ Enter a URL first</span>';
+      // Resolve URL: saved profile takes precedence over manual input
+      var savedSelect = document.getElementById('ext-saved-select-' + i);
+      var urlField    = document.getElementById('ext_url_' + i);
+      var svcField    = document.getElementById('ext_svc_' + i);
+      var testUrl = '';
+      var testSvc = svcField ? svcField.value : '';
+
+      if (savedSelect && savedSelect.value && savedSelect.value !== '__manual__') {
+        var opt = savedSelect.options[savedSelect.selectedIndex];
+        testUrl = opt ? (opt.getAttribute('data-url') || '') : '';
+        testSvc = opt ? (opt.getAttribute('data-svc') || '') : testSvc;
+      } else if (urlField) {
+        testUrl = urlField.value.trim();
+      }
+
+      if (!testUrl) {
+        resultDiv.innerHTML = '<span style="color:orange;">⚠ No URL available to test</span>';
         return;
       }
 
       resultDiv.innerHTML = '<span style="color:#555;">Testing…</span>';
 
-      var svc = svcField ? svcField.value : '';
-      var payload = { url: urlField.value.trim(), service: svc };
+      var payload = { url: testUrl, service: testSvc };
 
       // For user_defined, collect method, content_type, and field_map
-      if (svc === 'user_defined') {
+      if (testSvc === 'user_defined') {
         var methodEl = document.querySelector('select[name="ext_method_' + i + '"]');
         var ctypeEl  = document.querySelector('select[name="ext_ctype_' + i + '"]');
         if (methodEl) payload.method = methodEl.value;

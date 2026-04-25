@@ -5241,7 +5241,17 @@ def update_system_config():
         'daily_report_time': data.get('daily_report_time', '09:00'),
     }
     system_cfg['batch_notifications'] = batch_notif
-    
+
+    # Parse saved logger profiles (up to 5 slots)
+    saved_loggers = []
+    for i in range(5):
+        sl_name = data.get(f"saved_logger_name_{i}", "").strip()
+        sl_svc  = data.get(f"saved_logger_svc_{i}", "").strip()
+        sl_url  = data.get(f"saved_logger_url_{i}", "").strip()
+        if sl_name and sl_svc and sl_url:
+            saved_loggers.append({"name": sl_name, "service": sl_svc, "url": sl_url})
+    system_cfg['saved_loggers'] = saved_loggers
+
     save_json(SYSTEM_CFG_FILE, system_cfg)
 
     # Restart the kasa worker if credentials changed so it picks up new values.
@@ -5625,14 +5635,31 @@ def batch_settings():
         }
 
         # Parse external logging URLs (device-level setting; up to 2 slots).
-        # Only update when the form submits ext_url_0/1 keys; otherwise preserve existing.
+        # A slot is "active" if either a saved-profile key or a direct URL is provided.
+        # The existing external_urls are preserved when no active slot data is submitted.
         _FIELD_NAMES = ("temp_f", "gravity", "tilt_color", "beer_name",
                         "batch_name", "brewid", "timestamp", "rssi")
-        if "ext_url_0" in data or "ext_url_1" in data:
+        _form_has_ext_data = any(
+            data.get(f"ext_svc_{i}", "").strip() or
+            data.get(f"ext_url_{i}", "").strip() or
+            data.get(f"ext_saved_{i}", "").strip()
+            for i in range(2)
+        )
+        if _form_has_ext_data:
             new_external_urls = []
             for i in range(2):
                 svc = data.get(f"ext_svc_{i}", "").strip()
+                # ext_url_{i} may be left blank when user picked a saved profile;
+                # in that case ext_saved_{i} contains the profile URL.
                 ext_url = data.get(f"ext_url_{i}", "").strip()
+                saved_key = data.get(f"ext_saved_{i}", "").strip()
+                if not ext_url and saved_key:
+                    # Resolve the saved profile URL from system_cfg
+                    for sl in system_cfg.get("saved_loggers", []):
+                        if sl.get("name") == saved_key:
+                            ext_url = sl.get("url", "")
+                            svc = sl.get("service", "")  # always use the profile's service type
+                            break
                 if not ext_url:
                     continue
                 url_entry = {"service": svc or "user_defined", "url": ext_url}
@@ -5748,6 +5775,7 @@ def batch_settings():
         batch_history=batch_history,
         color_map=COLOR_MAP,
         external_logging_urls=(config.get("external_urls") or []),
+        saved_loggers=system_cfg.get("saved_loggers", []),
     )
 
 def get_last_activity(activity_type):
