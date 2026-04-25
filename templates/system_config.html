@@ -520,10 +520,152 @@
       <div id="logging-integrations" class="tab-content {% if active_tab == 'logging-integrations' %}active{% endif %}">
         <h3 style="text-align:center; margin-top:20px;">Logging Integrations</h3>
         <p style="text-align:center; color:#555; font-style:italic; margin-bottom:24px;">
-          Per-tilt external logging (Brewers Friend, Brewstat.us, Brewfather, User-Defined) is now
-          configured per device on the
-          <a href="/batch_settings" style="color:#1a6;">Batch Settings</a> page.
+          Enter your API key for each service once. On any batch, simply select the service — no re-entry needed.
         </p>
+
+        <!-- Known service tiles + custom slots -->
+        {% set saved = system_settings.get('saved_loggers', []) %}
+        {# Known services: fixed slots 0-2 (name + service are pre-set via hidden fields) #}
+        {% set known_svcs = [
+          {'slot': 0, 'label': 'Brewers Friend',  'svc': 'brewersfriend', 'placeholder': 'https://log.brewersfriend.com/stream/YOUR_API_KEY',
+           'help': 'Find your API Key in Brewers Friend: Profile → Security → API Key. The full URL is https://log.brewersfriend.com/stream/{API_KEY}'},
+          {'slot': 1, 'label': 'Brewstat.us',     'svc': 'brewstat',      'placeholder': 'https://www.brewstat.us/tilt/YOUR_DEVICE_TOKEN',
+           'help': 'Find your Device Token in the Brewstat.us dashboard.'},
+          {'slot': 2, 'label': 'Brewfather',      'svc': 'brewfather',    'placeholder': 'https://log.brewfather.net/stream?id=YOUR_STREAM_ID',
+           'help': 'Find your Stream ID in Brewfather: Settings → Power-ups → Custom Stream.'},
+        ] %}
+        {# Known service type keys for filtering custom slots #}
+        {% set known_svc_keys = ['brewersfriend', 'brewstat', 'brewfather'] %}
+
+        <div style="max-width:700px; margin:0 auto 28px auto;">
+
+          {# Known service tiles #}
+          {% for ks in known_svcs %}
+            {% set i       = ks['slot'] %}
+            {% set matched = saved | selectattr('service', 'equalto', ks['svc']) | list %}
+            {% set kurl    = matched[0].get('url', '') if matched else '' %}
+            {% set is_set  = kurl != '' %}
+            {# Auto-open if no URL is saved yet #}
+            {% set open    = not is_set %}
+            <div style="border:1px solid {% if is_set %}#4CAF50{% else %}#ccc{% endif %}; border-radius:8px; margin-bottom:14px; background:#fff; overflow:hidden;">
+              {# Hidden fields for name + service (fixed for known services) #}
+              <input type="hidden" name="saved_logger_name_{{ i }}" value="{{ ks['label'] }}">
+              <input type="hidden" name="saved_logger_svc_{{ i }}"  value="{{ ks['svc'] }}">
+              {# Clickable header #}
+              <div onclick="toggleSlProfile({{ i }})"
+                   style="display:flex; justify-content:space-between; align-items:center; padding:14px 18px; cursor:pointer; user-select:none; background:{% if is_set %}#f0fff0{% else %}#fafafa{% endif %};">
+                <div>
+                  <span style="font-weight:800; font-size:1.05em; color:#222;">{{ ks['label'] }}</span>
+                  {% if is_set %}
+                    <span style="margin-left:10px; color:#1a6; font-size:0.9em; font-weight:700;">✓ API configured</span>
+                  {% else %}
+                    <span style="margin-left:10px; color:#888; font-size:0.9em;">Not configured — click to enter API key</span>
+                  {% endif %}
+                </div>
+                <span id="sl-chevron-{{ i }}" style="color:#1a6; font-size:1.2em; margin-left:12px;">{% if open %}▲{% else %}▼{% endif %}</span>
+              </div>
+              {# Expandable body #}
+              <div id="sl-body-{{ i }}" style="{% if not open %}display:none;{% endif %}padding:14px 18px 16px; border-top:1px solid #eee;">
+                <p style="font-size:0.88em; color:#555; margin:0 0 10px 0;">{{ ks['help'] }}</p>
+                <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
+                  <input type="password" name="saved_logger_url_{{ i }}" id="sl-url-{{ i }}"
+                         value="{{ kurl }}"
+                         placeholder="{{ ks['placeholder'] }}"
+                         style="flex:1; padding:8px; border:1px solid #ccc; border-radius:5px; font-size:0.95em;">
+                  <button type="button" onclick="toggleSlUrl({{ i }})"
+                          id="sl-toggle-{{ i }}"
+                          style="padding:6px 12px; font-size:0.9em; white-space:nowrap;">Show</button>
+                </div>
+                <div style="display:flex; gap:10px; align-items:center; margin-top:8px;">
+                  <button type="button" class="btn-action" onclick="testSavedLogger({{ i }})"
+                          style="font-size:0.9em; padding:6px 16px;">Test Connection</button>
+                  <span id="sl-test-result-{{ i }}" style="font-weight:700;"></span>
+                </div>
+                {% if is_set %}
+                <div style="margin-top:8px; font-size:0.82em; color:#888;">
+                  Clear the URL field and Save to remove this service from saved profiles.
+                </div>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+
+          {# Custom slots 3 & 4: saved loggers that are NOT one of the 3 known services #}
+          {% set ns_cust = namespace(custom_slots=[]) %}
+          {% for sl in saved %}
+            {% if sl.get('service') not in known_svc_keys %}
+              {% set ns_cust.custom_slots = ns_cust.custom_slots + [sl] %}
+            {% endif %}
+          {% endfor %}
+          {% set custom_slots = ns_cust.custom_slots %}
+          {% set custom_padded = custom_slots + [{}, {}] %}
+          {% for j in range(2) %}
+            {% set ci   = j + 3 %}
+            {% set csl  = custom_padded[j] %}
+            {% set cname = csl.get('name', '') %}
+            {% set csvc  = csl.get('service', '') %}
+            {% set curl  = csl.get('url', '') %}
+            {% set copen = not curl %}
+            <div style="border:1px solid {% if curl %}#4CAF50{% else %}#ccc{% endif %}; border-radius:8px; margin-bottom:14px; background:#fff; overflow:hidden;">
+              <div onclick="toggleSlProfile({{ ci }})"
+                   style="display:flex; justify-content:space-between; align-items:center; padding:14px 18px; cursor:pointer; user-select:none; background:{% if curl %}#f0fff0{% else %}#fafafa{% endif %};">
+                <div>
+                  <span style="font-weight:800; font-size:1.05em; color:#222;">
+                    {% if cname %}{{ cname }}{% else %}Custom Service {{ j + 1 }}{% endif %}
+                  </span>
+                  {% if curl %}
+                    <span style="margin-left:10px; color:#1a6; font-size:0.9em; font-weight:700;">✓ configured</span>
+                  {% else %}
+                    <span style="margin-left:10px; color:#888; font-size:0.9em;">Optional — click to add a custom endpoint</span>
+                  {% endif %}
+                </div>
+                <span id="sl-chevron-{{ ci }}" style="color:#1a6; font-size:1.2em; margin-left:12px;">{% if copen %}▲{% else %}▼{% endif %}</span>
+              </div>
+              <div id="sl-body-{{ ci }}" style="{% if copen %}display:none;{% endif %}padding:14px 18px 16px; border-top:1px solid #eee;">
+                <div style="margin-bottom:10px;">
+                  <label style="font-weight:700; display:block; margin-bottom:4px;">Profile Name</label>
+                  <input type="text" name="saved_logger_name_{{ ci }}" value="{{ cname }}"
+                         placeholder="e.g. My Homebrew Logger"
+                         style="width:100%; box-sizing:border-box; padding:7px; border:1px solid #ccc; border-radius:5px;">
+                </div>
+                <div style="margin-bottom:10px;">
+                  <label style="font-weight:700; display:block; margin-bottom:4px;">Service Type</label>
+                  <select name="saved_logger_svc_{{ ci }}" id="sl-svc-{{ ci }}"
+                          onchange="onSlSvcChange({{ ci }})"
+                          style="padding:7px 10px; border:1px solid #ccc; border-radius:5px; width:100%; box-sizing:border-box;">
+                    <option value=""{% if not csvc %} selected{% endif %}>(select)</option>
+                    <option value="brewersfriend"{% if csvc == 'brewersfriend' %} selected{% endif %}>Brewers Friend</option>
+                    <option value="brewstat"{% if csvc == 'brewstat' %} selected{% endif %}>Brewstat.us</option>
+                    <option value="brewfather"{% if csvc == 'brewfather' %} selected{% endif %}>Brewfather</option>
+                    <option value="user_defined"{% if csvc == 'user_defined' %} selected{% endif %}>User-Defined / Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="font-weight:700; display:block; margin-bottom:4px;">API URL</label>
+                  <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
+                    <input type="password" name="saved_logger_url_{{ ci }}" id="sl-url-{{ ci }}"
+                           value="{{ curl }}"
+                           placeholder="https://..."
+                           style="flex:1; padding:8px; border:1px solid #ccc; border-radius:5px; font-size:0.95em;">
+                    <button type="button" onclick="toggleSlUrl({{ ci }})"
+                            id="sl-toggle-{{ ci }}"
+                            style="padding:6px 12px; font-size:0.9em; white-space:nowrap;">Show</button>
+                  </div>
+                  <div id="sl-help-{{ ci }}" style="font-size:0.83em; color:#555; margin-top:4px;"></div>
+                </div>
+                <div style="display:flex; gap:10px; align-items:center; margin-top:10px;">
+                  <button type="button" class="btn-action" onclick="testSavedLogger({{ ci }})"
+                          style="font-size:0.9em; padding:6px 16px;">Test Connection</button>
+                  <span id="sl-test-result-{{ ci }}" style="font-weight:700;"></span>
+                </div>
+                <div style="margin-top:8px; font-size:0.82em; color:#888;">
+                  Leave all fields blank to remove this custom profile when you save.
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+
         <table class="config-table" style="width:70%; margin:auto;">
           <tr>
             <td><label for="external_refresh_rate"><b>External Post Interval (minutes)</b></label>
@@ -999,6 +1141,69 @@
         switchToTab(activeTab);
       }
     });
+
+    /* ── Saved Logger Profile helpers ── */
+    var SL_HELP = {
+      'brewersfriend': 'URL format: https://log.brewersfriend.com/stream/{API_KEY} — find your API Key: Profile → Security → API Key',
+      'brewstat':      'URL format: https://www.brewstat.us/tilt/{DEVICE_TOKEN} — find your token in the Brewstat.us dashboard',
+      'brewfather':    'URL format: https://log.brewfather.net/stream?id={STREAM_ID} — find your Stream ID: Settings → Power-ups → Custom Stream',
+      'user_defined':  'Enter any endpoint URL'
+    };
+    var SL_PLACEHOLDER = {
+      'brewersfriend': 'https://log.brewersfriend.com/stream/YOUR_API_KEY',
+      'brewstat':      'https://www.brewstat.us/tilt/YOUR_DEVICE_TOKEN',
+      'brewfather':    'https://log.brewfather.net/stream?id=YOUR_STREAM_ID',
+      'user_defined':  'https://yourserver.local/api/tilt'
+    };
+
+    function toggleSlProfile(i) {
+      var body     = document.getElementById('sl-body-' + i);
+      var chevron  = document.getElementById('sl-chevron-' + i);
+      var visible  = body.style.display !== 'none';
+      body.style.display    = visible ? 'none' : '';
+      chevron.textContent   = visible ? '▼' : '▲';
+    }
+
+    function onSlSvcChange(i) {
+      var svc  = document.getElementById('sl-svc-' + i).value;
+      var help = document.getElementById('sl-help-' + i);
+      var url  = document.getElementById('sl-url-' + i);
+      if (help) help.textContent = SL_HELP[svc] || 'Select a service above to see URL format guidance';
+      if (url && SL_PLACEHOLDER[svc]) url.placeholder = SL_PLACEHOLDER[svc];
+    }
+
+    function toggleSlUrl(i) {
+      var inp = document.getElementById('sl-url-' + i);
+      var btn = document.getElementById('sl-toggle-' + i);
+      if (!inp || !btn) return;
+      if (inp.type === 'password') { inp.type = 'text';     btn.textContent = 'Hide'; }
+      else                         { inp.type = 'password'; btn.textContent = 'Show'; }
+    }
+
+    function testSavedLogger(i) {
+      var resultEl = document.getElementById('sl-test-result-' + i);
+      var svcEl    = document.getElementById('sl-svc-' + i);
+      var urlEl    = document.getElementById('sl-url-' + i);
+      if (!urlEl || !urlEl.value.trim()) {
+        resultEl.innerHTML = '<span style="color:orange;">⚠ Enter a URL first</span>';
+        return;
+      }
+      resultEl.innerHTML = '<span style="color:#555;">Testing…</span>';
+      fetch('/test_external_logging', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: urlEl.value.trim(), service: svcEl ? svcEl.value : '' })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        resultEl.innerHTML = data.success
+          ? '<span style="color:green;">✓ ' + escapeHtml(data.message) + '</span>'
+          : '<span style="color:red;">✗ ' + escapeHtml(data.message) + '</span>';
+      })
+      .catch(function(err) {
+        resultEl.innerHTML = '<span style="color:red;">✗ ' + escapeHtml(err.message) + '</span>';
+      });
+    }
 
   </script>
 

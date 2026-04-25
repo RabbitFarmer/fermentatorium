@@ -84,7 +84,7 @@ except Exception:
 
 # Import log_error and log_kasa_command for kasa logging
 try:
-    from logger import log_error, log_kasa_command, log_kasa_diag, log_notification, log_event
+    from logger import log_error, log_kasa_command, log_kasa_diag, log_notification, log_event, _now_ts
 except Exception:
     def log_error(msg, **extra):
         print(f"[ERROR] {msg}")
@@ -1885,6 +1885,29 @@ def write_normalized_tilt_reading(payload, event_name="tilt_reading"):
         print(f"[LOG] write_normalized_tilt_reading failed: {e}")
         return False
 
+_EXTERNAL_LOG_FILE = os.path.join("logs", "external_logging.jsonl")
+
+def _write_external_log(tilt_color, url, service, success, status_code=None, error=None):
+    """Append one JSON line to logs/external_logging.jsonl for visibility."""
+    try:
+        os.makedirs("logs", exist_ok=True)
+        entry = {
+            "ts": _now_ts(),
+            "tilt": tilt_color,
+            "service": service or "user_defined",
+            "url": url,
+            "success": success,
+        }
+        if status_code is not None:
+            entry["status_code"] = status_code
+        if error:
+            entry["error"] = error
+        with open(_EXTERNAL_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as exc:
+        print(f"[LOG] Failed to write external_logging.jsonl: {exc}")
+
+
 def forward_to_third_party_if_configured(payload):
     """
     Forward tilt reading data to configured external services (per-tilt config).
@@ -2035,11 +2058,13 @@ def forward_to_third_party_if_configured(payload):
             result = {"url": url, "forwarded": True, "status_code": resp.status_code, "text": resp.text[:500]}
             results.append(result)
             print(f"[FORWARD] Tilt {color} ({mac}) → {url}, status: {resp.status_code}")
+            _write_external_log(color, url, service, True, resp.status_code)
         except Exception as e:
             last_external_forward_ts[_rate_key] = now_dt
             result = {"url": url, "forwarded": False, "error": str(e)}
             results.append(result)
             print(f"[FORWARD] Error: tilt {color} ({mac}) → {url}: {e}")
+            _write_external_log(color, url, service, False, error=str(e))
 
     success_count = sum(1 for r in results if r.get("forwarded"))
     return {
@@ -5215,7 +5240,17 @@ def update_system_config():
         'daily_report_time': data.get('daily_report_time', '09:00'),
     }
     system_cfg['batch_notifications'] = batch_notif
-    
+
+    # Parse saved logger profiles (up to 5 slots)
+    saved_loggers = []
+    for i in range(5):
+        sl_name = data.get(f"saved_logger_name_{i}", "").strip()
+        sl_svc  = data.get(f"saved_logger_svc_{i}", "").strip()
+        sl_url  = data.get(f"saved_logger_url_{i}", "").strip()
+        if sl_name and sl_svc and sl_url:
+            saved_loggers.append({"name": sl_name, "service": sl_svc, "url": sl_url})
+    system_cfg['saved_loggers'] = saved_loggers
+
     save_json(SYSTEM_CFG_FILE, system_cfg)
 
     # Restart the kasa worker if credentials changed so it picks up new values.
@@ -5599,14 +5634,31 @@ def batch_settings():
         }
 
         # Parse external logging URLs (device-level setting; up to 2 slots).
-        # Only update when the form submits ext_url_0/1 keys; otherwise preserve existing.
+        # A slot is "active" if either a saved-profile key or a direct URL is provided.
+        # The existing external_urls are preserved when no active slot data is submitted.
         _FIELD_NAMES = ("temp_f", "gravity", "tilt_color", "beer_name",
                         "batch_name", "brewid", "timestamp", "rssi")
-        if "ext_url_0" in data or "ext_url_1" in data:
+        _form_has_ext_data = any(
+            data.get(f"ext_svc_{i}", "").strip() or
+            data.get(f"ext_url_{i}", "").strip() or
+            data.get(f"ext_saved_{i}", "").strip()
+            for i in range(2)
+        )
+        if _form_has_ext_data:
             new_external_urls = []
             for i in range(2):
                 svc = data.get(f"ext_svc_{i}", "").strip()
+                # ext_url_{i} may be left blank when user picked a saved profile;
+                # in that case ext_saved_{i} contains the profile URL.
                 ext_url = data.get(f"ext_url_{i}", "").strip()
+                saved_key = data.get(f"ext_saved_{i}", "").strip()
+                if not ext_url and saved_key:
+                    # Resolve the saved profile URL from system_cfg
+                    for sl in system_cfg.get("saved_loggers", []):
+                        if sl.get("name") == saved_key:
+                            ext_url = sl.get("url", "")
+                            svc = sl.get("service", "")  # always use the profile's service type
+                            break
                 if not ext_url:
                     continue
                 url_entry = {"service": svc or "user_defined", "url": ext_url}
@@ -5722,6 +5774,7 @@ def batch_settings():
         batch_history=batch_history,
         color_map=COLOR_MAP,
         external_logging_urls=(config.get("external_urls") or []),
+        saved_loggers=system_cfg.get("saved_loggers", []),
     )
 
 def get_last_activity(activity_type):
@@ -7658,6 +7711,11 @@ def log_management():
         if os.path.exists(notifications_log_path):
             size_bytes = os.path.getsize(notifications_log_path)
             notifications_log_size = _format_file_size(size_bytes)
+
+        # Get external logging log info
+        external_logging_size = "0 bytes"
+        if os.path.exists(_EXTERNAL_LOG_FILE):
+            external_logging_size = _format_file_size(os.path.getsize(_EXTERNAL_LOG_FILE))
         
         # Get application logs
         app_logs = []
@@ -7760,6 +7818,7 @@ def log_management():
                              temp_logs=temp_logs,
                              kasa_log_size=kasa_log_size,
                              notifications_log_size=notifications_log_size,
+                             external_logging_size=external_logging_size,
                              app_logs=app_logs,
                              batches=batches,
                              success_message=request.args.get('success'),
@@ -7995,6 +8054,22 @@ def archive_notifications_log():
             return redirect(url_for('log_management', error='Notifications log not found'))
     except Exception as e:
         print(f"[LOG] Error archiving notifications log: {e}")
+        return redirect(url_for('log_management', error=f'Error archiving log: {str(e)}'))
+
+
+@app.route('/archive_external_log', methods=['POST'])
+def archive_external_log():
+    """Archive and reset the external logging activity log."""
+    try:
+        if os.path.exists(_EXTERNAL_LOG_FILE):
+            backup_name = f"{_EXTERNAL_LOG_FILE}.{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.bak"
+            shutil.copy2(_EXTERNAL_LOG_FILE, backup_name)
+            open(_EXTERNAL_LOG_FILE, 'w').close()
+            return redirect(url_for('log_management', success='External logging log archived and reset'))
+        else:
+            return redirect(url_for('log_management', error='External logging log not found'))
+    except Exception as e:
+        print(f"[LOG] Error archiving external logging log: {e}")
         return redirect(url_for('log_management', error=f'Error archiving log: {str(e)}'))
 
 
