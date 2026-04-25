@@ -2055,10 +2055,11 @@ def forward_to_third_party_if_configured(payload):
                 resp = requests.request(method, url, data=formdata, headers=headers, timeout=timeout)
 
             last_external_forward_ts[_rate_key] = now_dt
-            result = {"url": url, "forwarded": True, "status_code": resp.status_code, "text": resp.text[:500]}
+            fwd_success = (200 <= resp.status_code < 300)
+            result = {"url": url, "forwarded": fwd_success, "status_code": resp.status_code, "text": resp.text[:500]}
             results.append(result)
             print(f"[FORWARD] Tilt {color} ({mac}) → {url}, status: {resp.status_code}")
-            _write_external_log(color, url, service, True, resp.status_code)
+            _write_external_log(color, url, service, fwd_success, resp.status_code)
         except Exception as e:
             last_external_forward_ts[_rate_key] = now_dt
             result = {"url": url, "forwarded": False, "error": str(e)}
@@ -7866,6 +7867,11 @@ def view_log():
             if log_file != 'notifications_log.jsonl':
                 return "Invalid log file", 400
             filepath = 'logs/notifications_log.jsonl'
+        elif log_type == 'external':
+            # External logging activity log
+            if log_file != 'external_logging.jsonl':
+                return "Invalid log file", 400
+            filepath = _EXTERNAL_LOG_FILE
         else:
             # Application log - restrict to alphanumeric, dash, underscore, single dot before .log
             if not re.match(r'^[a-zA-Z0-9\-_]+\.log$', log_file):
