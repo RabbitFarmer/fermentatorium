@@ -1919,7 +1919,7 @@ def forward_to_third_party_if_configured(payload):
     Supported services: brewersfriend, brewstat, brewfather, user_defined.
     Domain-sniff for brewersfriend.com kept as backward-compat fallback.
     """
-    color = (payload.get("tilt_color") or "").upper()
+    color = (payload.get("tilt_color") or "").strip()
     if not color:
         return {"forwarded": False, "reason": "no color"}
 
