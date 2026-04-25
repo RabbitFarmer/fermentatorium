@@ -857,7 +857,7 @@
       //   ≤479 px  → 1 col  (phone single-column)
       //   480–699  → 2 cols (small tablet / large phone portrait)
       //   700–959  → 2 cols (tablet portrait — all display modes)
-      //   960–1299 → 3 cols for display-mode-3 (zoom scales to fit), 2 for display-mode-4, 3 otherwise
+      //   960–1299 → 3 cols for display-mode-3, 2 for display-mode-4, 3 otherwise
       //   ≥1300    → 3 cols for display-mode-3, 4 otherwise
       var cols;
       if (w <= 479)       cols = 1;
@@ -1465,47 +1465,57 @@
 
   <script>
   // ── Auto-zoom for wide card layouts ───────────────────────────────────────
+  // Zoom is applied to .page-container (NOT to <html>) so that window.innerWidth
+  // is never affected by our zoom.  This eliminates the feedback loop that existed
+  // when zooming <html>: Chrome/Android would change window.innerWidth to the
+  // scaled layout-viewport width, causing the resize handler to miscalculate
+  // physVW and immediately clear the zoom, leaving 3×400 px cards overflowing
+  // a ~1024 px viewport with justify-content:center clipping the leftmost card.
+  //
+  // With element-level zoom:
+  //   • window.innerWidth always equals the true physical CSS viewport width.
+  //   • Setting el.style.zoom never triggers a window resize event.
+  //   • No _lastPhysVW guard or currentZoom compensation is needed.
+  //
+  // When zoom is needed we also set el.style.width = designWidth so the grid
+  // (3×400+gaps = 1248 px for mode-3, 4×400+gaps = 1672 px for mode-4) fits
+  // inside the container's content box, and the zoom scales the whole container
+  // down to fit the physical viewport.
+  //
+  // display-mode-3: 3 × 400 px + 2 × 24 px gap + 2 × 14 px padding = 1276 px
+  //   zoom when 960 ≤ physVW < 1276.  Below 960 px CSS fluid layout handles it.
   // display-mode-4: 4 × 400 px + 3 × 24 px gap + 2 × 14 px padding = 1700 px
   //   (page max-width: 1724 px)
-  //   4-col grid is active at ≥1300 px → zoom when 1300 ≤ physVW < 1724.
-  // display-mode-3: 3 × 400 px + 2 × 24 px gap + 2 × 14 px padding = 1276 px
-  //   3-col grid is active at ≥960 px (landscape tablets) → zoom when 960 ≤ physVW < 1276.
-  //   Below 960 px the CSS 2-column fluid layout handles portrait — no zoom needed.
+  //   zoom when 1300 ≤ physVW < 1724.  Below 1300 px CSS 2-col layout handles it.
   (function () {
     var DESIGN_WIDTH_4 = 1724;
     var DESIGN_WIDTH_3 = 1276;
     var ZOOM_THRESHOLD_4 = 1300;   // below this, CSS shows 2 cols for mode-4
     var ZOOM_THRESHOLD_3 = 960;    // below this, CSS shows 2-col fluid for mode-3
-    var _lastPhysVW = null;
     function applyDisplayZoom() {
       var el = document.querySelector('.page-container');
-      if (!el) { document.documentElement.style.zoom = ''; return; }
+      if (!el) return;
       var is4 = el.classList.contains('display-mode-4');
       var is3 = el.classList.contains('display-mode-3');
-      if (!is4 && !is3) { document.documentElement.style.zoom = ''; return; }
-      var designWidth   = is4 ? DESIGN_WIDTH_4   : DESIGN_WIDTH_3;
+      if (!is4 && !is3) { el.style.width = ''; el.style.zoom = ''; return; }
+      var designWidth   = is4 ? DESIGN_WIDTH_4 : DESIGN_WIDTH_3;
       var zoomThreshold = is4 ? ZOOM_THRESHOLD_4 : ZOOM_THRESHOLD_3;
-      // window.innerWidth changes when CSS zoom is applied (Chrome/Android reports
-      // the scaled layout viewport).  Compensate by multiplying back by the zoom
-      // we previously set so we always work with the physical viewport width.
-      var currentZoom = parseFloat(document.documentElement.style.zoom) || 1;
-      var physVW = Math.round(window.innerWidth * currentZoom);
-      // Below the zoom threshold the CSS responsive layout has already reduced
-      // the column count — applying zoom here would make cards tiny.  Clear any
-      // previously applied zoom and return.
-      if (physVW < zoomThreshold) {
-        if (document.documentElement.style.zoom) {
-          document.documentElement.style.zoom = '';
-          _lastPhysVW = null;
+      // window.innerWidth is unaffected by element-level zoom, so this is always
+      // the true physical CSS viewport width — no compensation needed.
+      var physVW = window.innerWidth;
+      if (physVW >= zoomThreshold && physVW < designWidth) {
+        var wantZoom  = String((physVW / designWidth).toFixed(4));
+        var wantWidth = designWidth + 'px';
+        if (el.style.zoom !== wantZoom || el.style.width !== wantWidth) {
+          el.style.width = wantWidth;
+          el.style.zoom  = wantZoom;
         }
-        return;
+      } else {
+        if (el.style.zoom || el.style.width) {
+          el.style.zoom  = '';
+          el.style.width = '';
+        }
       }
-      // Guard: if the physical viewport did not change (e.g. this resize event
-      // was triggered by our own zoom change) do nothing to break the loop.
-      if (physVW === _lastPhysVW) return;
-      _lastPhysVW = physVW;
-      document.documentElement.style.zoom =
-        physVW < designWidth ? String((physVW / designWidth).toFixed(4)) : '';
     }
     applyDisplayZoom();
     window.addEventListener('resize', applyDisplayZoom);
