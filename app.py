@@ -6745,7 +6745,8 @@ def calculate_batch_statistics(batch_data, batch_info):
         except Exception:
             pass
     
-    # --- Fermentation rate: gravity drop per day using last 5 readings with timestamps ---
+    # --- Fermentation rate: gravity drop per day using up to last 5 readings ---
+    # Requires at least 2 timestamped readings; uses whichever are available (up to 5).
     recent_grav_ts = []
     for s in all_samples:
         g = s.get('gravity')
@@ -6762,7 +6763,8 @@ def calculate_batch_statistics(batch_data, batch_info):
         latest_ts, latest_g = last_five[-1]
         elapsed_days = (latest_ts - earliest_ts).total_seconds() / 86400.0
         if elapsed_days > 0:
-            rate = round((earliest_g - latest_g) / elapsed_days, 4)  # positive = dropping
+            # A positive rate means gravity is dropping (active fermentation)
+            rate = round((earliest_g - latest_g) / elapsed_days, 4)
             stats['fermentation_rate'] = rate
             if rate > 0.010:
                 stats['rate_status'] = 'Rapid'
