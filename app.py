@@ -2023,20 +2023,32 @@ def forward_to_third_party_if_configured(payload):
         effective_service = "brewersfriend" if is_brewersfriend else service
 
         if is_brewersfriend:
-            # Brewers Friend stream endpoint requires URL-encoded form data, not JSON.
-            # Field names and format confirmed by the Tilt Hydrometer app author.
-            # Timepoint is an Excel date serial number (days since 1899-12-30).
-            _excel_epoch = datetime(1899, 12, 30)
-            timepoint = (now_dt - _excel_epoch).total_seconds() / 86400.0
-            forwarding_payload = {
-                "name": beer_name or "",
-                "Timepoint": timepoint,
-                "Temp": temp_f,
-                "SG": gravity,
-                "Beer": beer_name or "",
-                "Color": tilt_color.upper(),
-                "Comment": "",
-            }
+            # Brewers Friend requires URL-encoded form data, not JSON.
+            # The /tilt/ endpoint uses flat field names (tilt_color, gravity, temp).
+            # Other BF endpoints (e.g. /stream/) use the legacy iSpindel format
+            # with Excel Timepoint, Temp, SG, Beer, Color, Comment fields.
+            _bf_path = _parsed_url.path.lower()
+            if _bf_path.startswith("/tilt/"):
+                forwarding_payload = {
+                    "tilt_color": tilt_color,
+                    "gravity": gravity,
+                    "temp": temp_f,
+                    "comment": "",
+                    "beer": beer_name or "",
+                    "device_source": "Fermentatorium",
+                }
+            else:
+                _excel_epoch = datetime(1899, 12, 30)
+                timepoint = (now_dt - _excel_epoch).total_seconds() / 86400.0
+                forwarding_payload = {
+                    "name": beer_name or "",
+                    "Timepoint": timepoint,
+                    "Temp": temp_f,
+                    "SG": gravity,
+                    "Beer": beer_name or "",
+                    "Color": tilt_color.upper(),
+                    "Comment": "",
+                }
             method = "POST"
             send_json = False
         elif service == "brewstat":
