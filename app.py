@@ -5383,6 +5383,10 @@ def test_external_logging():
         # Service type from the new per-tilt config (or fallback for legacy callers)
         service = (data.get('service') or '').strip().lower()
 
+        # Tilt color supplied by the caller (batch_settings page sends the real color;
+        # system_config saved-logger test has no tilt context so falls back to "Red").
+        tilt_color = (data.get('tilt_color') or 'Red').strip() or 'Red'
+
         # Domain-sniff for Brewers Friend (backward compat with legacy callers)
         try:
             parsed = urlparse(url)
@@ -5403,7 +5407,7 @@ def test_external_logging():
             # Brewers Friend stream endpoint accepts JSON (same as TiltBridge firmware)
             # URL format: https://log.brewersfriend.com/stream/YOUR_API_KEY
             test_payload = {
-                "name": "Red",
+                "name": tilt_color,
                 "temp": 68.5,
                 "temp_unit": "F",
                 "gravity": 1.050,
@@ -5413,7 +5417,7 @@ def test_external_logging():
             method = "POST"
         elif service == 'brewstat':
             test_payload = {
-                "color": "red",
+                "color": tilt_color.lower(),
                 "temp": 68.5,
                 "temp_unit": "F",
                 "gravity": 1.050
@@ -5421,7 +5425,7 @@ def test_external_logging():
             method = "POST"
         elif service == 'brewfather':
             test_payload = {
-                "name": "Red",
+                "name": tilt_color,
                 "temp": 68.5,
                 "temp_unit": "F",
                 "gravity": 1.050,
@@ -5432,7 +5436,7 @@ def test_external_logging():
         else:
             # user_defined — apply field_map if provided, otherwise send raw
             raw_payload = {
-                "tilt_color": "Red",
+                "tilt_color": tilt_color,
                 "temp_f": 68.5,
                 "gravity": 1.050,
                 "brewid": "test_batch",
