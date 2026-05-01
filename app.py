@@ -33,7 +33,7 @@ from glob import glob as glob_func
 from math import ceil
 from multiprocessing import Process, Queue
 import multiprocessing  # Needed for set_start_method and get_all_start_methods
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote as _url_quote
 import urllib.request
 import urllib.error
 import subprocess
@@ -2054,7 +2054,7 @@ def forward_to_third_party_if_configured(payload):
             _bf_path = _parsed_url.path.lower()
             if _bf_path.startswith("/tilt/"):
                 forwarding_payload = {
-                    "color": tilt_color,
+                    "tilt_color": tilt_color,
                     "gravity": gravity,
                     "temp": temp_f,
                     "comment": "",
@@ -2347,9 +2347,19 @@ def _send_push_ntfy(body, subject="Fermenter Notification"):
         # ntfy API endpoint
         url = f"{ntfy_server}/{ntfy_topic}"
         
-        # Prepare headers (ntfy uses headers for metadata)
+        # Prepare headers (ntfy uses headers for metadata).
+        # HTTP headers must be latin-1 encodable; percent-encode any non-ASCII
+        # characters so that subjects containing emoji (e.g. ⚠️) don't raise a
+        # codec error when the requests library serialises the header.
+        def _safe_header(value: str) -> str:
+            try:
+                value.encode("latin-1")
+                return value
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                return _url_quote(value, safe=" :!-_.,()/'")
+
         headers = {
-            "Title": subject,
+            "Title": _safe_header(subject),
             "Priority": "default",
             "Tags": "beer,fermentation"
         }
@@ -7643,7 +7653,7 @@ def test_kasa_plugs():
     if heating_url:
         try:
             if kasa_manager is not None and kasa_manager.is_alive():
-                _, error = kasa_manager.query_sync(
+                is_on, error = kasa_manager.query_sync(
                     url=heating_url,
                     controller_id=controller_id,
                     role='heating',
@@ -7651,19 +7661,22 @@ def test_kasa_plugs():
                     port=heating_port,
                 )
                 if error is None:
-                    results['heating'] = {'success': True, 'error': None}
+                    results['heating'] = {
+                        'success': True, 'error': None,
+                        'state': 'on' if is_on else 'off',
+                    }
                     _clear_kasa_error_for_plug('heating', heating_url)
                 else:
-                    results['heating'] = {'success': False, 'error': error}
+                    results['heating'] = {'success': False, 'error': error, 'state': 'out of service'}
             else:
-                results['heating'] = {'success': False, 'error': 'Kasa manager not running — restart the application'}
+                results['heating'] = {'success': False, 'error': 'Kasa manager not running — restart the application', 'state': 'out of service'}
         except Exception as e:
-            results['heating'] = {'success': False, 'error': str(e)}
+            results['heating'] = {'success': False, 'error': str(e), 'state': 'out of service'}
 
     if cooling_url:
         try:
             if kasa_manager is not None and kasa_manager.is_alive():
-                _, error = kasa_manager.query_sync(
+                is_on, error = kasa_manager.query_sync(
                     url=cooling_url,
                     controller_id=controller_id,
                     role='cooling',
@@ -7671,16 +7684,94 @@ def test_kasa_plugs():
                     port=cooling_port,
                 )
                 if error is None:
-                    results['cooling'] = {'success': True, 'error': None}
+                    results['cooling'] = {
+                        'success': True, 'error': None,
+                        'state': 'on' if is_on else 'off',
+                    }
                     _clear_kasa_error_for_plug('cooling', cooling_url)
                 else:
-                    results['cooling'] = {'success': False, 'error': error}
+                    results['cooling'] = {'success': False, 'error': error, 'state': 'out of service'}
             else:
-                results['cooling'] = {'success': False, 'error': 'Kasa manager not running — restart the application'}
+                results['cooling'] = {'success': False, 'error': 'Kasa manager not running — restart the application', 'state': 'out of service'}
         except Exception as e:
-            results['cooling'] = {'success': False, 'error': str(e)}
+            results['cooling'] = {'success': False, 'error': str(e), 'state': 'out of service'}
 
     return jsonify(results)
+
+
+@app.route('/kasa_plug_override', methods=['POST'])
+def kasa_plug_override():
+    """Manually send an on or off command to a configured Kasa plug.
+
+    Request JSON fields:
+        url        – IP address or hostname of the plug (required).
+        action     – 'on' or 'off' (required).
+        role       – 'heating' or 'cooling' (optional, for labelling).
+        port       – integer port override (optional).
+        controller_id – integer controller index (optional, defaults to 0).
+    """
+    data = request.get_json(silent=True) or {}
+    url = (data.get('url') or '').strip()
+    action = (data.get('action') or '').strip().lower()
+    role = (data.get('role') or 'heating').strip().lower()
+
+    if not url:
+        return jsonify({'success': False, 'error': 'No plug URL provided'})
+    if action not in ('on', 'off'):
+        return jsonify({'success': False, 'error': "action must be 'on' or 'off'"})
+
+    try:
+        controller_id = int(data.get('controller_id', 0))
+    except (TypeError, ValueError):
+        controller_id = 0
+
+    port = _parse_plug_port(data.get('port'))
+    if _FORCE_IOT_PORT:
+        port = None
+
+    OVERRIDE_TIMEOUT = 15  # seconds
+
+    try:
+        if kasa_manager is None or not kasa_manager.is_alive():
+            return jsonify({'success': False, 'error': 'Kasa manager not running — restart the application'})
+
+        kasa_manager.send(
+            controller_id=controller_id,
+            role=role,
+            url=url,
+            action=action,
+            port=port,
+        )
+
+        # After sending the command, pause briefly then query to confirm the
+        # new state so the UI can show the result.
+        time.sleep(2.5)
+
+        is_on, query_error = kasa_manager.query_sync(
+            url=url,
+            controller_id=controller_id,
+            role=role,
+            timeout=OVERRIDE_TIMEOUT,
+            port=port,
+        )
+
+        if query_error is not None:
+            return jsonify({
+                'success': False,
+                'error': f'Command sent but could not verify state: {query_error}',
+                'state': 'unknown',
+            })
+
+        confirmed_state = 'on' if is_on else 'off'
+        expected = (action == 'on')
+        match = (is_on == expected)
+        return jsonify({
+            'success': match,
+            'state': confirmed_state,
+            'error': None if match else f'State mismatch: sent {action}, plug reports {confirmed_state}',
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e), 'state': 'unknown'})
 
 
 @app.route('/live_snapshot')
@@ -8151,26 +8242,33 @@ def log_management():
                 'filename': fname,
                 'label': label,
                 'size': _format_file_size(size_bytes),
+                'last_post': _get_log_last_timestamp(log_path),
             })
         
         # Get Kasa activity log info
         kasa_log_size = "0 bytes"
+        kasa_log_last_post = None
         kasa_log_path = 'logs/kasa_activity_monitoring.jsonl'
         if os.path.exists(kasa_log_path):
             size_bytes = os.path.getsize(kasa_log_path)
             kasa_log_size = _format_file_size(size_bytes)
+            kasa_log_last_post = _get_log_last_timestamp(kasa_log_path)
         
         # Get notifications log info
         notifications_log_size = "0 bytes"
+        notifications_log_last_post = None
         notifications_log_path = 'logs/notifications_log.jsonl'
         if os.path.exists(notifications_log_path):
             size_bytes = os.path.getsize(notifications_log_path)
             notifications_log_size = _format_file_size(size_bytes)
+            notifications_log_last_post = _get_log_last_timestamp(notifications_log_path)
 
         # Get external logging log info
         external_logging_size = "0 bytes"
+        external_logging_last_post = None
         if os.path.exists(_EXTERNAL_LOG_FILE):
             external_logging_size = _format_file_size(os.path.getsize(_EXTERNAL_LOG_FILE))
+            external_logging_last_post = _get_log_last_timestamp(_EXTERNAL_LOG_FILE)
         
         # Get application logs
         app_logs = []
@@ -8272,8 +8370,11 @@ def log_management():
         return render_template('log_management.html',
                              temp_logs=temp_logs,
                              kasa_log_size=kasa_log_size,
+                             kasa_log_last_post=kasa_log_last_post,
                              notifications_log_size=notifications_log_size,
+                             notifications_log_last_post=notifications_log_last_post,
                              external_logging_size=external_logging_size,
+                             external_logging_last_post=external_logging_last_post,
                              app_logs=app_logs,
                              batches=batches,
                              success_message=request.args.get('success'),
@@ -8290,6 +8391,60 @@ def _format_file_size(size_bytes):
             return f"{size_bytes:.1f} {unit}"
         size_bytes /= 1024.0
     return f"{size_bytes:.1f} TB"
+
+
+def _get_log_last_timestamp(filepath):
+    """Return a human-readable timestamp string for the last entry in a JSONL log file.
+
+    Reads the last non-empty line, parses it as JSON, and returns the value of
+    whichever timestamp field is present ('timestamp', 'ts', 'time', or 't').
+    Returns None if the file is empty, unreadable, or contains no timestamp.
+    """
+    try:
+        # Read the tail of the file efficiently — most log lines are < 2 KB.
+        chunk_size = 8192
+        with open(filepath, 'rb') as fh:
+            fh.seek(0, 2)
+            file_size = fh.tell()
+            if file_size == 0:
+                return None
+            read_size = min(chunk_size, file_size)
+            fh.seek(-read_size, 2)
+            tail = fh.read(read_size).decode('utf-8', errors='replace')
+
+        # Find the last non-empty line.
+        last_line = None
+        for line in reversed(tail.splitlines()):
+            line = line.strip()
+            if line:
+                last_line = line
+                break
+
+        if not last_line:
+            return None
+
+        entry = json.loads(last_line)
+        raw_ts = (entry.get('timestamp') or entry.get('ts') or
+                  entry.get('time') or entry.get('t'))
+        if not raw_ts:
+            return None
+
+        # Normalise ISO-8601 with offset to a display string.
+        raw_str = str(raw_ts)
+        # Replace space separator with 'T' for fromisoformat compatibility.
+        raw_str = raw_str.replace(' ', 'T')
+        # Truncate sub-seconds beyond 6 digits — Python < 3.11 fromisoformat
+        # only supports up to 6 fractional-second digits.
+        raw_str = re.sub(r'(\.\d{6})\d+', r'\1', raw_str)
+        try:
+            dt = datetime.fromisoformat(raw_str)
+            # Return in a readable local-style format, keeping tz offset if present.
+            return dt.strftime('%Y-%m-%d %H:%M:%S')
+        except Exception:
+            # Fall back to returning the raw string, truncated.
+            return raw_str[:19]
+    except Exception:
+        return None
 
 
 @app.route('/view_log')

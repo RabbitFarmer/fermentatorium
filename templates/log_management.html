@@ -48,7 +48,7 @@
           <div class="file-row">
             <div class="file-info">
               <div class="file-name">{{ log_file.filename }}{% if log_file.label %} <span style="color:#666;font-weight:normal;">({{ log_file.label }})</span>{% endif %}</div>
-              <div class="file-size">{{ log_file.size }}</div>
+              <div class="file-size">{{ log_file.size }}{% if log_file.last_post %} &nbsp;·&nbsp; <span style="color:#555;">Last entry: {{ log_file.last_post }}</span>{% endif %}</div>
             </div>
             <div class="file-actions">
               <a href="/view_log?file={{ log_file.filename }}&type=temp" class="btn btn-view">[VIEW]</a>
@@ -73,7 +73,7 @@
         <div class="file-row">
           <div class="file-info">
             <div class="file-name">kasa_activity_monitoring.jsonl</div>
-            <div class="file-size">{{ kasa_log_size }}</div>
+            <div class="file-size">{{ kasa_log_size }}{% if kasa_log_last_post %} &nbsp;·&nbsp; <span style="color:#555;">Last entry: {{ kasa_log_last_post }}</span>{% endif %}</div>
           </div>
           <div class="file-actions">
             <a href="/view_log?file=kasa_activity_monitoring.jsonl&type=kasa" class="btn btn-view">[VIEW]</a>
@@ -89,7 +89,7 @@
         <div class="file-row">
           <div class="file-info">
             <div class="file-name">notifications_log.jsonl</div>
-            <div class="file-size">{{ notifications_log_size }}</div>
+            <div class="file-size">{{ notifications_log_size }}{% if notifications_log_last_post %} &nbsp;·&nbsp; <span style="color:#555;">Last entry: {{ notifications_log_last_post }}</span>{% endif %}</div>
           </div>
           <div class="file-actions">
             <a href="/view_log?file=notifications_log.jsonl&type=notifications" class="btn btn-view">[VIEW]</a>
@@ -106,7 +106,7 @@
         <div class="file-row">
           <div class="file-info">
             <div class="file-name">external_logging.jsonl</div>
-            <div class="file-size">{{ external_logging_size }}</div>
+            <div class="file-size">{{ external_logging_size }}{% if external_logging_last_post %} &nbsp;·&nbsp; <span style="color:#555;">Last entry: {{ external_logging_last_post }}</span>{% endif %}</div>
           </div>
           <div class="file-actions">
             <a href="/view_log?file=external_logging.jsonl&type=external" class="btn btn-view">[VIEW]</a>
