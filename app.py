@@ -1994,6 +1994,13 @@ def forward_to_third_party_if_configured(payload):
     gravity = payload.get("gravity") or 0
     beer_name = payload.get("beer_name", "") or payload.get("batch_name", "")
 
+    # Safety conversion: if gravity is in raw Tilt Mini-Pro / Tilt Pro format
+    # (value > 5000 means the 10000x-encoded reading was not converted upstream),
+    # convert it to standard SG and °F before forwarding to any external service.
+    if gravity > TILT_PRO_GRAVITY_THRESHOLD:
+        temp_f = round(temp_f / TILT_PRO_TEMP_DIVISOR, 1)
+        gravity = round(gravity / TILT_PRO_GRAVITY_DIVISOR, 4)
+
     results = []
     for url_config in urls_to_forward:
         if not isinstance(url_config, dict):
@@ -2047,7 +2054,7 @@ def forward_to_third_party_if_configured(payload):
             _bf_path = _parsed_url.path.lower()
             if _bf_path.startswith("/tilt/"):
                 forwarding_payload = {
-                    "tilt_color": tilt_color,
+                    "color": tilt_color,
                     "gravity": gravity,
                     "temp": temp_f,
                     "comment": "",
@@ -5673,7 +5680,7 @@ def test_external_logging():
                 _bf_path = ""
             if _bf_path.startswith("/tilt/"):
                 test_payload = {
-                    "tilt_color": tilt_color,
+                    "color": tilt_color,
                     "gravity": 1.050,
                     "temp": 68.5,
                     "comment": "",
