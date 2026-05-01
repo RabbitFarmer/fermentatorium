@@ -492,6 +492,13 @@
             </td>
             <td><input type="checkbox" name="enable_kasa_activity_log" id="enable_kasa_activity_log" {% if system_settings.get('enable_kasa_activity_log', False) %}checked{% endif %}></td>
           </tr>
+          <tr>
+            <td>
+              <label for="enable_external_transactions_log"><b>Enable External Transactions Log</b></label>
+              <div style="font-size:0.85em;color:#666;margin-top:4px;">When enabled, the exact payload sent to each external logger (Brewers Friend, Brewfather, Brewstat, or custom) is recorded in external_transactions.jsonl immediately before each transmission. Useful for diagnosing integration issues.</div>
+            </td>
+            <td><input type="checkbox" name="enable_external_transactions_log" id="enable_external_transactions_log" {% if system_settings.get('enable_external_transactions_log', False) %}checked{% endif %}></td>
+          </tr>
         </table>
 
         <h3 style="text-align: center; margin-top: 30px;">Manual Test Buttons</h3>
