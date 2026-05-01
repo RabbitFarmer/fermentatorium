@@ -9181,9 +9181,7 @@ def check_update():
         if not remote_sha_full:
             raise RuntimeError("Could not retrieve remote SHA")
 
-        update_available = (remote_sha_full != local_sha and
-                            not remote_sha_full.startswith(local_sha) and
-                            not local_sha.startswith(remote_sha_full))
+        update_available = (remote_sha_full != local_sha)
 
         _update_check_cache.update({
             "checked": True,
@@ -9198,11 +9196,14 @@ def check_update():
             "error": None,
         })
     except Exception as exc:
+        # Log the full error server-side; return a safe generic message to the client
+        # to avoid exposing internal paths or git configuration in the browser.
+        print(f"[LOG] check_update error: {exc}")
         return jsonify({
             "update_available": False,
             "local_sha": None,
             "remote_sha": None,
-            "error": str(exc),
+            "error": "Update check unavailable — git not configured or network unreachable.",
         })
 
 

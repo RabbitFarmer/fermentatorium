@@ -1562,7 +1562,10 @@
           if (banner) banner.style.display = '';
         }
       })
-      .catch(function() { /* silent — no network or git not available */ });
+      .catch(function(err) {
+        /* Silent: update check is best-effort and must not disrupt the main display. */
+        console.debug('Update check unavailable:', err);
+      });
   }());
   </script>
 
