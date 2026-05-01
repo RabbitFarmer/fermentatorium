@@ -7745,8 +7745,7 @@ def kasa_plug_override():
 
         # After sending the command, pause briefly then query to confirm the
         # new state so the UI can show the result.
-        import time as _time
-        _time.sleep(2.5)
+        time.sleep(2.5)
 
         is_on, query_error = kasa_manager.query_sync(
             url=url,
@@ -7775,7 +7774,7 @@ def kasa_plug_override():
         return jsonify({'success': False, 'error': str(e), 'state': 'unknown'})
 
 
-
+@app.route('/live_snapshot')
 def live_snapshot():
     # Build controller data for all active controllers
     controllers_data = []
@@ -8434,7 +8433,8 @@ def _get_log_last_timestamp(filepath):
         raw_str = str(raw_ts)
         # Replace space separator with 'T' for fromisoformat compatibility.
         raw_str = raw_str.replace(' ', 'T')
-        # Truncate sub-seconds beyond 6 digits (Python < 3.11 fromisoformat limit).
+        # Truncate sub-seconds beyond 6 digits — Python < 3.11 fromisoformat
+        # only supports up to 6 fractional-second digits.
         raw_str = re.sub(r'(\.\d{6})\d+', r'\1', raw_str)
         try:
             dt = datetime.fromisoformat(raw_str)
