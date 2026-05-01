@@ -1530,6 +1530,44 @@
   }());
   </script>
 
+  <!-- ── Startup update-check popup ──────────────────────────────────────────
+       Checks /check_update once per page load (results are cached server-side
+       for the lifetime of the process).  Shows a non-blocking banner at the top
+       of the page when a newer version is available, with a direct link to the
+       System Settings → Backup/Update page where the user can apply the update.
+  ──────────────────────────────────────────────────────────────────────────── -->
+  <div id="update-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:9999;
+       background:#1565C0; color:#fff; text-align:center; padding:10px 16px; font-size:0.95em;
+       box-shadow:0 2px 8px rgba(0,0,0,0.25);">
+    🆕 <strong>A program update is available!</strong>
+    Go to <a href="/system_config?tab=backup-restore" style="color:#fff; text-decoration:underline;">
+      System Settings → Backup / Restore / Update
+    </a> to apply it.
+    <button onclick="document.getElementById('update-banner').style.display='none';"
+            style="margin-left:16px; background:rgba(255,255,255,0.2); border:1px solid rgba(255,255,255,0.5);
+                   color:#fff; cursor:pointer; padding:3px 10px; border-radius:4px; font-size:0.9em;">
+      Dismiss
+    </button>
+  </div>
+  <script>
+  (function() {
+    // Only check once per browser session to avoid spamming the server.
+    if (sessionStorage.getItem('updateChecked')) return;
+    sessionStorage.setItem('updateChecked', '1');
+    fetch('/check_update')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d && d.update_available) {
+          var banner = document.getElementById('update-banner');
+          if (banner) banner.style.display = '';
+        }
+      })
+      .catch(function(err) {
+        /* Silent: update check is best-effort and must not disrupt the main display. */
+        console.debug('Update check unavailable:', err);
+      });
+  }());
+  </script>
 
 </body>
 </html>

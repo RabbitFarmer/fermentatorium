@@ -190,14 +190,28 @@
           {% set _slots = external_logging_urls + [{}, {}] %}
           <div class="ext-log-section">
             <div class="heading">External Logging</div>
-            <p class="small-note" style="margin-bottom:12px;">
-              These settings are saved to this Tilt device and carry forward to future batches automatically.
+            {# Sentinel field: always present so the server knows the form was submitted
+               and should apply the current external logging state (even if all "None"). #}
+            <input type="hidden" name="ext_logging_submitted" value="1">
+            <p class="small-note" style="margin-bottom:8px;">
+              Select external logging services for <strong>this batch only</strong>.
+              Default is <em>None</em> — data is only sent when a service is explicitly selected here.
               {% if saved_loggers %}
-                To add a service, select a saved profile from the dropdown or choose a service type and enter a URL manually.
+                Choose a saved profile from the dropdown below, or enter a URL manually.
               {% else %}
-                Save logger API keys in <a href="/system_config?tab=logging-integrations" style="color:#1a6;">System Settings → Logging Integrations</a> to quickly select them here.
+                Save API keys in <a href="/system_config?tab=logging-integrations" style="color:#1a6;">System Settings → Logging Integrations</a> first, then return here to select them.
               {% endif %}
             </p>
+            {% if external_logging_urls %}
+            <div style="margin-bottom:10px; padding:6px 10px; background:#fff8e1; border:1px solid #ffe082; border-radius:5px; font-size:0.88em; color:#795548;">
+              ⚠️ External logging is currently <strong>active</strong> for this batch.
+              Set all slots to <em>(None)</em> and save to disable it.
+            </div>
+            {% else %}
+            <div style="margin-bottom:10px; padding:6px 10px; background:#f0fff0; border:1px solid #b0d8b0; border-radius:5px; font-size:0.88em; color:#2e7d32;">
+              ✓ External logging is <strong>disabled</strong> for this batch (default). Select a service below to enable it.
+            </div>
+            {% endif %}
 
             {% for i in range(2) %}
               {% set slot = _slots[i] %}
@@ -227,7 +241,7 @@
                   <label style="font-weight:700; display:block; margin-bottom:4px;">Load from Saved Profile</label>
                   <select id="ext-saved-select-{{ i }}" onchange="onSavedProfileChange({{ i }})"
                           style="padding:6px 8px; border:1px solid #ccc; border-radius:4px; width:100%; box-sizing:border-box;">
-                    <option value="">(select a saved profile…)</option>
+                    <option value="__none__"{% if not saved_profile_name and not svc and not eurl %} selected{% endif %}>— None (disabled) —</option>
                     {% for sl in saved_loggers %}
                       <option value="{{ sl.get('name', '') }}"
                               data-svc="{{ sl.get('service', '') }}"
@@ -510,7 +524,12 @@
 
       if (!hiddenEl) return;
 
-      if (val && val !== '__manual__' && selected) {
+      if (val === '__none__') {
+        // Explicitly disabled — clear hidden field and hide manual entry
+        hiddenEl.value = '';
+        if (manualDiv) manualDiv.style.display = 'none';
+        if (testRow)   testRow.style.display   = 'none';
+      } else if (val && val !== '__manual__' && selected) {
         // Load saved profile — populate hidden name field; hide manual entry
         hiddenEl.value = val;
         if (manualDiv) manualDiv.style.display = 'none';

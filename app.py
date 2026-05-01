@@ -1009,6 +1009,16 @@ def ensure_temp_defaults_for_controller(controller):
     # Temperature schedule: ordered list of steps (max 10), each with a trigger and target limits.
     controller.setdefault("schedule_enabled", False)
     controller.setdefault("schedule", [])
+    # Heating/Cooling Fault detection:
+    # Track the last 2 temperature readings while the respective plug is actively ON.
+    # A fault is declared when the plug is ON but temperature fails to respond correctly
+    # over 2 consecutive readings (heater ON but temp not rising; cooler ON but temp not falling).
+    controller.setdefault("heater_fault_temps", [])   # last 2 temps while heater is on
+    controller.setdefault("cooler_fault_temps", [])   # last 2 temps while cooler is on
+    controller.setdefault("heating_fault_detected", False)
+    controller.setdefault("cooling_fault_detected", False)
+    controller.setdefault("heating_fault_notified", False)
+    controller.setdefault("cooling_fault_notified", False)
 
 def ensure_temp_defaults():
     """Ensure all 3 controllers have required default fields."""
@@ -1888,8 +1898,13 @@ def write_normalized_tilt_reading(payload, event_name="tilt_reading"):
 _EXTERNAL_LOG_FILE = os.path.join("logs", "external_logging.jsonl")
 
 def _write_external_log(tilt_color, url, service, success, status_code=None, error=None,
-                        payload=None, response_body=None):
-    """Append one JSON line to logs/external_logging.jsonl for visibility."""
+                        payload=None, response_body=None, pre_send=False):
+    """Append one JSON line to logs/external_logging.jsonl for visibility.
+
+    When pre_send=True the entry is written immediately before the HTTP
+    request so that the exact payload is always captured even if the
+    request itself throws an exception or receives a non-2xx response.
+    """
     try:
         os.makedirs("logs", exist_ok=True)
         entry = {
@@ -1899,6 +1914,8 @@ def _write_external_log(tilt_color, url, service, success, status_code=None, err
             "url": url,
             "success": success,
         }
+        if pre_send:
+            entry["pre_send"] = True
         if status_code is not None:
             entry["status_code"] = status_code
         if payload is not None:
@@ -2023,10 +2040,10 @@ def forward_to_third_party_if_configured(payload):
         effective_service = "brewersfriend" if is_brewersfriend else service
 
         if is_brewersfriend:
-            # Brewers Friend requires URL-encoded form data, not JSON.
-            # The /tilt/ endpoint uses flat field names (tilt_color, gravity, temp).
-            # Other BF endpoints (e.g. /stream/) use the legacy iSpindel format
-            # with Excel Timepoint, Temp, SG, Beer, Color, Comment fields.
+            # Brewers Friend supports two endpoint types distinguished by URL path:
+            # - /tilt/ : flat URL-encoded form data with tilt_color, gravity, temp fields.
+            # - /stream/ (and others): JSON payload using the iSpindel format with
+            #   name, Timepoint, Temp, SG, Beer, Color, Comment fields.
             _bf_path = _parsed_url.path.lower()
             if _bf_path.startswith("/tilt/"):
                 forwarding_payload = {
@@ -2037,11 +2054,14 @@ def forward_to_third_party_if_configured(payload):
                     "beer": beer_name or "",
                     "device_source": "Fermentatorium",
                 }
+                method = "POST"
+                send_json = False
             else:
+                # /stream/ and other BF endpoints expect a JSON body.
                 _excel_epoch = datetime(1899, 12, 30)
                 timepoint = (now_dt - _excel_epoch).total_seconds() / 86400.0
                 forwarding_payload = {
-                    "name": beer_name or "",
+                    "name": beer_name or tilt_color,
                     "Timepoint": timepoint,
                     "Temp": temp_f,
                     "SG": gravity,
@@ -2049,8 +2069,8 @@ def forward_to_third_party_if_configured(payload):
                     "Color": tilt_color.upper(),
                     "Comment": "",
                 }
-            method = "POST"
-            send_json = False
+                method = "POST"
+                send_json = True
         elif service == "brewstat":
             forwarding_payload = {
                 "color": tilt_color.lower(),
@@ -2087,6 +2107,11 @@ def forward_to_third_party_if_configured(payload):
         timeout = int(url_config.get("timeout_seconds", 8))
         headers = {}
         try:
+            # Pre-send: log the exact payload to external_logging.jsonl before
+            # transmitting so the data is always captured even if the request
+            # itself fails or returns a non-2xx response.
+            _write_external_log(color, url, effective_service, None,
+                                payload=forwarding_payload, pre_send=True)
             if send_json:
                 headers["Content-Type"] = "application/json"
                 resp = requests.request(method, url, json=forwarding_payload, headers=headers, timeout=timeout)
@@ -4433,7 +4458,180 @@ def send_swapped_plug_notification(plug_type, baseline_temp, current_temp, temp_
         body=body
     )
 
-# --- kasa result listener (log confirmed ON/OFF events) --------------------
+
+def check_heating_cooling_faults():
+    """Detect heating and cooling device faults by monitoring temperature response.
+
+    A "Heating Fault" is declared when the heating plug is confirmed ON but the
+    temperature remains the same or decreases over 2 consecutive control-loop
+    readings.  A "Cooling Fault" is declared when the cooling plug is confirmed
+    ON but the temperature remains the same or increases over 2 consecutive
+    readings.
+
+    When a fault is detected the system:
+    1. Logs a fault event to the temp-control log.
+    2. Sends a notification via the configured channel.
+    3. Re-sends the plug "on" command as a soft-reset in case a transient power
+       interruption silently turned the device off without Kasa reporting it.
+
+    The fault is cleared automatically the next time the plug turns OFF (handled
+    in kasa_result_listener) or when the temperature moves in the expected
+    direction (indicating the device recovered).
+    """
+    for controller in temp_cfg.get('controllers', []):
+        if not controller.get("temp_control_active", False):
+            # Clear any stale fault history when control is inactive
+            controller["heater_fault_temps"] = []
+            controller["cooler_fault_temps"] = []
+            controller["heating_fault_detected"] = False
+            controller["cooling_fault_detected"] = False
+            controller["heating_fault_notified"] = False
+            controller["cooling_fault_notified"] = False
+            continue
+
+        current_temp = controller.get("current_temp")
+        if current_temp is None:
+            continue
+
+        controller_id = controller.get("controller_id", 0)
+        tilt_color    = controller.get("tilt_color", "")
+
+        # ── Heating Fault ──────────────────────────────────────────────────
+        if controller.get("heater_on"):
+            hist = controller.setdefault("heater_fault_temps", [])
+            hist.append(current_temp)
+            # Keep only the last 2 readings
+            if len(hist) > 2:
+                hist[:] = hist[-2:]
+
+            if len(hist) == 2:
+                prev, curr = hist[0], hist[1]
+                # Fault: temperature did not rise (stayed same or fell)
+                if curr <= prev:
+                    if not controller.get("heating_fault_detected"):
+                        controller["heating_fault_detected"] = True
+                        controller["heating_fault_notified"] = False
+                        print(f"[FAULT] ⚠️  Controller {controller_id}: HEATING FAULT — "
+                              f"heater ON but temp {prev:.1f}→{curr:.1f}°F (no rise)")
+                        append_control_log("heating_fault", {
+                            "controller_id": controller_id,
+                            "tilt_color": tilt_color,
+                            "prev_temp": round(prev, 1),
+                            "current_temp": round(curr, 1),
+                            "low_limit": controller.get("low_limit"),
+                            "high_limit": controller.get("high_limit"),
+                        })
+
+                    if not controller.get("heating_fault_notified"):
+                        controller["heating_fault_notified"] = True
+                        _send_fault_notification("heating", controller_id, tilt_color,
+                                                 prev, curr, controller)
+
+                    # Soft-reset: re-issue the "on" command to recover from a
+                    # silent power interruption that left the plug physically off.
+                    heating_plug = controller.get("heating_plug", "")
+                    if heating_plug and kasa_manager and _is_valid_controller_id(controller_id):
+                        print(f"[FAULT] Controller {controller_id}: Re-sending heating ON to recover from fault")
+                        kasa_manager.send(controller_id, 'heating', heating_plug, 'on')
+                else:
+                    # Temperature rising — fault resolved
+                    if controller.get("heating_fault_detected"):
+                        print(f"[FAULT] Controller {controller_id}: Heating fault CLEARED — temp now rising")
+                    controller["heating_fault_detected"] = False
+                    controller["heating_fault_notified"] = False
+        else:
+            # Heater OFF — reset fault history
+            controller["heater_fault_temps"] = []
+            controller["heating_fault_detected"] = False
+            controller["heating_fault_notified"] = False
+
+        # ── Cooling Fault ──────────────────────────────────────────────────
+        if controller.get("cooler_on"):
+            hist = controller.setdefault("cooler_fault_temps", [])
+            hist.append(current_temp)
+            if len(hist) > 2:
+                hist[:] = hist[-2:]
+
+            if len(hist) == 2:
+                prev, curr = hist[0], hist[1]
+                # Fault: temperature did not drop (stayed same or rose)
+                if curr >= prev:
+                    if not controller.get("cooling_fault_detected"):
+                        controller["cooling_fault_detected"] = True
+                        controller["cooling_fault_notified"] = False
+                        print(f"[FAULT] ⚠️  Controller {controller_id}: COOLING FAULT — "
+                              f"cooler ON but temp {prev:.1f}→{curr:.1f}°F (no drop)")
+                        append_control_log("cooling_fault", {
+                            "controller_id": controller_id,
+                            "tilt_color": tilt_color,
+                            "prev_temp": round(prev, 1),
+                            "current_temp": round(curr, 1),
+                            "low_limit": controller.get("low_limit"),
+                            "high_limit": controller.get("high_limit"),
+                        })
+
+                    if not controller.get("cooling_fault_notified"):
+                        controller["cooling_fault_notified"] = True
+                        _send_fault_notification("cooling", controller_id, tilt_color,
+                                                 prev, curr, controller)
+
+                    # Soft-reset: re-issue the "on" command
+                    cooling_plug = controller.get("cooling_plug", "")
+                    if cooling_plug and kasa_manager and _is_valid_controller_id(controller_id):
+                        print(f"[FAULT] Controller {controller_id}: Re-sending cooling ON to recover from fault")
+                        kasa_manager.send(controller_id, 'cooling', cooling_plug, 'on')
+                else:
+                    # Temperature dropping — fault resolved
+                    if controller.get("cooling_fault_detected"):
+                        print(f"[FAULT] Controller {controller_id}: Cooling fault CLEARED — temp now dropping")
+                    controller["cooling_fault_detected"] = False
+                    controller["cooling_fault_notified"] = False
+        else:
+            # Cooler OFF — reset fault history
+            controller["cooler_fault_temps"] = []
+            controller["cooling_fault_detected"] = False
+            controller["cooling_fault_notified"] = False
+
+
+def _send_fault_notification(fault_type, controller_id, tilt_color, prev_temp, curr_temp, controller):
+    """Send a Heating Fault or Cooling Fault notification."""
+    if fault_type == "heating":
+        subject = f"⚠️ Heating Fault: Controller {controller_id + 1}"
+        body = (
+            f"HEATING FAULT detected on Controller {controller_id + 1}.\n\n"
+            f"The heating plug is ON but temperature is not rising.\n\n"
+            f"  • Previous reading: {prev_temp:.1f}°F\n"
+            f"  • Current reading:  {curr_temp:.1f}°F\n"
+            f"  • Tilt: {tilt_color or 'Not assigned'}\n"
+            f"  • Low limit: {controller.get('low_limit', '?')}°F / "
+            f"High limit: {controller.get('high_limit', '?')}°F\n\n"
+            f"Possible causes:\n"
+            f"  • Heating device lost power (check outlet / breaker)\n"
+            f"  • Kasa plug lost connection and turned off silently\n"
+            f"  • Heating device failed or is undersized\n\n"
+            f"A command has been sent to re-enable the heating plug.\n"
+            f"Check the heating device and restore power if needed."
+        )
+    else:
+        subject = f"⚠️ Cooling Fault: Controller {controller_id + 1}"
+        body = (
+            f"COOLING FAULT detected on Controller {controller_id + 1}.\n\n"
+            f"The cooling plug is ON but temperature is not dropping.\n\n"
+            f"  • Previous reading: {prev_temp:.1f}°F\n"
+            f"  • Current reading:  {curr_temp:.1f}°F\n"
+            f"  • Tilt: {tilt_color or 'Not assigned'}\n"
+            f"  • Low limit: {controller.get('low_limit', '?')}°F / "
+            f"High limit: {controller.get('high_limit', '?')}°F\n\n"
+            f"Possible causes:\n"
+            f"  • Cooling device lost power (check outlet / breaker)\n"
+            f"  • Kasa plug lost connection and turned off silently\n"
+            f"  • Cooling device failed or is undersized\n\n"
+            f"A command has been sent to re-enable the cooling plug.\n"
+            f"Check the cooling device and restore power if needed."
+        )
+    attempt_send_notifications(subject=subject, body=body)
+
+
 def kasa_result_listener():
     """Listen on the KasaManager result queue for on/off results from the worker.
 
@@ -4515,13 +4713,17 @@ def kasa_result_listener():
                         controller["heater_baseline_time"] = time.time()
                         print(f"[SWAPPED_PLUG] Controller {controller.get('controller_id', 0)}: Heating activated - baseline temp: {controller.get('current_temp')}°F")
                     elif not new_state:
-                        # Heating turned OFF - clear baseline and detection
+                        # Heating turned OFF - clear baseline, swapped-plug detection, and fault state
                         controller["heater_baseline_temp"] = None
                         controller["heater_baseline_time"] = None
                         if controller.get("swapped_plug_type") == "heating":
                             controller["swapped_plugs_detected"] = False
                             controller["swapped_plugs_notified"] = False
                             controller["swapped_plug_type"] = ""
+                        # Clear fault detection so it starts fresh next time heater turns ON
+                        controller["heater_fault_temps"] = []
+                        controller["heating_fault_detected"] = False
+                        controller["heating_fault_notified"] = False
                     
                     # Only log and notify if state actually changed
                     if new_state != previous_state:
@@ -4583,13 +4785,17 @@ def kasa_result_listener():
                         controller["cooler_baseline_time"] = time.time()
                         print(f"[SWAPPED_PLUG] Controller {controller.get('controller_id', 0)}: Cooling activated - baseline temp: {controller.get('current_temp')}°F")
                     elif not new_state:
-                        # Cooling turned OFF - clear baseline and detection
+                        # Cooling turned OFF - clear baseline, swapped-plug detection, and fault state
                         controller["cooler_baseline_temp"] = None
                         controller["cooler_baseline_time"] = None
                         if controller.get("swapped_plug_type") == "cooling":
                             controller["swapped_plugs_detected"] = False
                             controller["swapped_plugs_notified"] = False
                             controller["swapped_plug_type"] = ""
+                        # Clear fault detection so it starts fresh next time cooler turns ON
+                        controller["cooler_fault_temps"] = []
+                        controller["cooling_fault_detected"] = False
+                        controller["cooling_fault_notified"] = False
                     
                     # Only log and notify if state actually changed
                     if new_state != previous_state:
@@ -4963,6 +5169,10 @@ def periodic_temp_control():
                     'low_limit', 'high_limit',
                     # Schedule runtime tracking — which step is currently active
                     'schedule_active_step',
+                    # Heating/Cooling Fault detection runtime state
+                    'heater_fault_temps', 'cooler_fault_temps',
+                    'heating_fault_detected', 'cooling_fault_detected',
+                    'heating_fault_notified', 'cooling_fault_notified',
                 ]
                 
                 # Update each controller, preserving runtime state
@@ -5012,6 +5222,9 @@ def periodic_temp_control():
             
             # Check for swapped plugs after temperature control logic runs
             check_for_swapped_plugs()
+            
+            # Check for heating/cooling device faults (plug ON but temp not responding)
+            check_heating_cooling_faults()
             
             # Log periodic temperature reading at update_interval frequency
             # This is separate from Tilt readings (logged at tilt_logging_interval_minutes)
@@ -5704,12 +5917,17 @@ def batch_settings():
             "gravity_variance": gravity_variance,
         }
 
-        # Parse external logging URLs (device-level setting; up to 2 slots).
-        # A slot is "active" if either a saved-profile key or a direct URL is provided.
-        # The existing external_urls are preserved when no active slot data is submitted.
+        # Parse external logging URLs (batch-level setting; up to 2 slots).
+        # When the form includes the ext_logging_submitted sentinel field, the
+        # submitted state is applied unconditionally — even if all slots are
+        # "None" — so the user can explicitly disable external logging for a
+        # batch by selecting "None" in every slot.
+        # Without the sentinel (e.g. the quick-edit form), existing external_urls
+        # are preserved unchanged.
         _FIELD_NAMES = ("temp_f", "gravity", "tilt_color", "beer_name",
                         "batch_name", "brewid", "timestamp", "rssi")
-        _form_has_ext_data = any(
+        _ext_form_submitted = data.get("ext_logging_submitted", "").strip() == "1"
+        _form_has_ext_data = _ext_form_submitted or any(
             data.get(f"ext_svc_{i}", "").strip() or
             data.get(f"ext_url_{i}", "").strip() or
             data.get(f"ext_saved_{i}", "").strip()
@@ -5756,8 +5974,11 @@ def batch_settings():
                         url_entry["field_map"] = field_map
                 new_external_urls.append(url_entry)
             batch_entry["external_urls"] = new_external_urls
+        elif _ext_form_submitted:
+            # Sentinel present but all slots were "None" — explicitly clear logging.
+            batch_entry["external_urls"] = []
         elif "external_urls" in existing:
-            # Preserve device-level external logging across batch changes
+            # No sentinel and no new ext data: preserve existing setting.
             batch_entry["external_urls"] = existing["external_urls"]
         
         # Preserve existing notification_state when editing a batch
@@ -6347,7 +6568,10 @@ def toggle_temp_control():
                     },
                     "temp_variance": old_cfg.get("temp_variance", 0),
                     "gravity_variance": old_cfg.get("gravity_variance", 0),
-                    "external_urls": old_cfg.get("external_urls", []),
+                    # External logging is NOT carried forward to the new batch.
+                    # The user must explicitly select external logging in batch settings.
+                    # Default is no external logging ("None") for each new session.
+                    "external_urls": [],
                 }
                 save_json(TILT_CONFIG_FILE, tilt_cfg)
                 print(f"[LOG] New session: reset batch data for {base_color}")
@@ -8910,6 +9134,77 @@ def list_backups():
 
 _REMOTE_URL = 'https://github.com/RabbitFarmer/fermentatorium.git'
 _SubprocessResult = namedtuple('_SubprocessResult', ['returncode'])
+
+# Cache for update check result so we only query git once per session.
+_update_check_cache = {"checked": False, "update_available": False, "remote_sha": None, "local_sha": None}
+
+
+@app.route('/check_update')
+def check_update():
+    """Check whether a newer version is available on the remote git repository.
+
+    Returns JSON:
+        { "update_available": bool, "local_sha": str, "remote_sha": str,
+          "error": str|null }
+
+    Results are cached in memory for the lifetime of the process so repeated
+    page refreshes don't keep shelling out to git.  The cache can be busted
+    by passing ?force=1 in the query string.
+    """
+    force = request.args.get('force', '').strip() == '1'
+    if not force and _update_check_cache["checked"]:
+        return jsonify({
+            "update_available": _update_check_cache["update_available"],
+            "local_sha": _update_check_cache["local_sha"],
+            "remote_sha": _update_check_cache["remote_sha"],
+            "error": None,
+        })
+
+    try:
+        # Get local HEAD SHA
+        local_result = subprocess.run(
+            ['git', 'rev-parse', 'HEAD'],
+            capture_output=True, text=True, timeout=10, cwd=_HERE
+        )
+        if local_result.returncode != 0:
+            raise RuntimeError(f"git rev-parse failed: {local_result.stderr.strip()}")
+        local_sha = local_result.stdout.strip()
+
+        # Fetch latest remote SHA without a full pull (ls-remote is lightweight)
+        remote_result = subprocess.run(
+            ['git', 'ls-remote', 'origin', 'HEAD'],
+            capture_output=True, text=True, timeout=30, cwd=_HERE
+        )
+        if remote_result.returncode != 0:
+            raise RuntimeError(f"git ls-remote failed: {remote_result.stderr.strip()}")
+        remote_sha_full = remote_result.stdout.strip().split('\t')[0] if remote_result.stdout.strip() else ''
+        if not remote_sha_full:
+            raise RuntimeError("Could not retrieve remote SHA")
+
+        update_available = (remote_sha_full != local_sha)
+
+        _update_check_cache.update({
+            "checked": True,
+            "update_available": update_available,
+            "local_sha": local_sha[:8],
+            "remote_sha": remote_sha_full[:8],
+        })
+        return jsonify({
+            "update_available": update_available,
+            "local_sha": local_sha[:8],
+            "remote_sha": remote_sha_full[:8],
+            "error": None,
+        })
+    except Exception as exc:
+        # Log the full error server-side; return a safe generic message to the client
+        # to avoid exposing internal paths or git configuration in the browser.
+        print(f"[LOG] check_update error: {exc}")
+        return jsonify({
+            "update_available": False,
+            "local_sha": None,
+            "remote_sha": None,
+            "error": "Update check unavailable — git not configured or network unreachable.",
+        })
 
 
 def _init_git_repo(repo_dir):
