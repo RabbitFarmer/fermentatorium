@@ -1896,14 +1896,12 @@ def write_normalized_tilt_reading(payload, event_name="tilt_reading"):
         return False
 
 _EXTERNAL_LOG_FILE = os.path.join("logs", "external_logging.jsonl")
+_EXTERNAL_TRANSACTIONS_LOG_FILE = os.path.join("logs", "external_transactions.jsonl")
 
 def _write_external_log(tilt_color, url, service, success, status_code=None, error=None,
-                        payload=None, response_body=None, pre_send=False):
-    """Append one JSON line to logs/external_logging.jsonl for visibility.
-
-    When pre_send=True the entry is written immediately before the HTTP
-    request so that the exact payload is always captured even if the
-    request itself throws an exception or receives a non-2xx response.
+                        payload=None, response_body=None):
+    """Append one JSON line to logs/external_logging.jsonl recording the result
+    of each external-service transmission (success/failure, status code, response body).
     """
     try:
         os.makedirs("logs", exist_ok=True)
@@ -1914,8 +1912,6 @@ def _write_external_log(tilt_color, url, service, success, status_code=None, err
             "url": url,
             "success": success,
         }
-        if pre_send:
-            entry["pre_send"] = True
         if status_code is not None:
             entry["status_code"] = status_code
         if payload is not None:
@@ -1928,6 +1924,31 @@ def _write_external_log(tilt_color, url, service, success, status_code=None, err
             f.write(json.dumps(entry) + "\n")
     except Exception as exc:
         print(f"[LOG] Failed to write external_logging.jsonl: {exc}")
+
+
+def _write_external_transactions_log(tilt_color, url, service, payload):
+    """Append one JSON line to logs/external_transactions.jsonl with the exact
+    payload that is about to be sent to the external service.
+
+    Only writes when 'enable_external_transactions_log' is True in system_cfg.
+    This log is written immediately before each HTTP transmission so the exact
+    data-as-received by the remote service is always captured.
+    """
+    try:
+        if not system_cfg.get("enable_external_transactions_log", False):
+            return
+        os.makedirs("logs", exist_ok=True)
+        entry = {
+            "ts": _now_ts(),
+            "tilt": tilt_color,
+            "service": service or "user_defined",
+            "url": url,
+            "payload": payload,
+        }
+        with open(_EXTERNAL_TRANSACTIONS_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as exc:
+        print(f"[LOG] Failed to write external_transactions.jsonl: {exc}")
 
 
 def forward_to_third_party_if_configured(payload):
@@ -2054,7 +2075,7 @@ def forward_to_third_party_if_configured(payload):
             _bf_path = _parsed_url.path.lower()
             if _bf_path.startswith("/tilt/"):
                 forwarding_payload = {
-                    "tilt_color": tilt_color,
+                    "color": tilt_color,
                     "gravity": gravity,
                     "temp": temp_f,
                     "comment": "",
@@ -2114,11 +2135,9 @@ def forward_to_third_party_if_configured(payload):
         timeout = int(url_config.get("timeout_seconds", 8))
         headers = {}
         try:
-            # Pre-send: log the exact payload to external_logging.jsonl before
-            # transmitting so the data is always captured even if the request
-            # itself fails or returns a non-2xx response.
-            _write_external_log(color, url, effective_service, None,
-                                payload=forwarding_payload, pre_send=True)
+            # Pre-send: log the exact payload to external_transactions.jsonl before
+            # transmitting (only when the External Transactions log is enabled).
+            _write_external_transactions_log(color, url, effective_service, forwarding_payload)
             if send_json:
                 headers["Content-Type"] = "application/json"
                 resp = requests.request(method, url, json=forwarding_payload, headers=headers, timeout=timeout)
@@ -5492,6 +5511,7 @@ def update_system_config():
         "ntfy_server": data.get("ntfy_server", system_cfg.get("ntfy_server", "https://ntfy.sh")),
         "ntfy_topic": data.get("ntfy_topic", system_cfg.get("ntfy_topic", "")),
         "enable_kasa_activity_log": 'enable_kasa_activity_log' in data,
+        "enable_external_transactions_log": 'enable_external_transactions_log' in data,
     })
     
     # Update temperature control notifications settings
@@ -8269,6 +8289,13 @@ def log_management():
         if os.path.exists(_EXTERNAL_LOG_FILE):
             external_logging_size = _format_file_size(os.path.getsize(_EXTERNAL_LOG_FILE))
             external_logging_last_post = _get_log_last_timestamp(_EXTERNAL_LOG_FILE)
+
+        # Get external transactions log info
+        external_transactions_size = "0 bytes"
+        external_transactions_last_post = None
+        if os.path.exists(_EXTERNAL_TRANSACTIONS_LOG_FILE):
+            external_transactions_size = _format_file_size(os.path.getsize(_EXTERNAL_TRANSACTIONS_LOG_FILE))
+            external_transactions_last_post = _get_log_last_timestamp(_EXTERNAL_TRANSACTIONS_LOG_FILE)
         
         # Get application logs
         app_logs = []
@@ -8375,6 +8402,8 @@ def log_management():
                              notifications_log_last_post=notifications_log_last_post,
                              external_logging_size=external_logging_size,
                              external_logging_last_post=external_logging_last_post,
+                             external_transactions_size=external_transactions_size,
+                             external_transactions_last_post=external_transactions_last_post,
                              app_logs=app_logs,
                              batches=batches,
                              success_message=request.args.get('success'),
@@ -8478,9 +8507,9 @@ def view_log():
             filepath = 'logs/notifications_log.jsonl'
         elif log_type == 'external':
             # External logging activity log
-            if log_file != 'external_logging.jsonl':
-                return "Invalid external log file name. Expected: external_logging.jsonl", 400
-            filepath = _EXTERNAL_LOG_FILE
+            if log_file not in ('external_logging.jsonl', 'external_transactions.jsonl'):
+                return "Invalid external log file name", 400
+            filepath = os.path.join('logs', log_file)
         else:
             # Application log - restrict to alphanumeric, dash, underscore, single dot before .log
             if not re.match(r'^[a-zA-Z0-9\-_]+\.log$', log_file):
@@ -8685,6 +8714,22 @@ def archive_external_log():
             return redirect(url_for('log_management', error='External logging log not found'))
     except Exception as e:
         print(f"[LOG] Error archiving external logging log: {e}")
+        return redirect(url_for('log_management', error=f'Error archiving log: {str(e)}'))
+
+
+@app.route('/archive_external_transactions_log', methods=['POST'])
+def archive_external_transactions_log():
+    """Archive and reset the External Transactions log."""
+    try:
+        if os.path.exists(_EXTERNAL_TRANSACTIONS_LOG_FILE):
+            backup_name = f"{_EXTERNAL_TRANSACTIONS_LOG_FILE}.{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.bak"
+            shutil.copy2(_EXTERNAL_TRANSACTIONS_LOG_FILE, backup_name)
+            open(_EXTERNAL_TRANSACTIONS_LOG_FILE, 'w').close()
+            return redirect(url_for('log_management', success='External Transactions log archived and reset'))
+        else:
+            return redirect(url_for('log_management', error='External Transactions log not found'))
+    except Exception as e:
+        print(f"[LOG] Error archiving external transactions log: {e}")
         return redirect(url_for('log_management', error=f'Error archiving log: {str(e)}'))
 
 
