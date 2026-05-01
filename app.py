@@ -971,9 +971,9 @@ def ensure_temp_defaults_for_controller(controller):
     controller.setdefault("cooling_kasa_error_notified_at", 0) # epoch of last cooling error notification
     controller.setdefault("notifications_trigger", False)
     controller.setdefault("notification_last_sent", None)
-    controller.setdefault("notification_comm_failure", False)
-    controller.setdefault("push_error", False)
-    controller.setdefault("email_error", False)
+    controller["notification_comm_failure"] = False   # always reset on startup — never persisted
+    controller["push_error"] = False                  # always reset on startup — never persisted
+    controller["email_error"] = False                 # always reset on startup — never persisted
     controller.setdefault("control_initialized", False)
     controller.setdefault("last_logged_low_limit", controller.get("low_limit"))
     controller.setdefault("last_logged_high_limit", controller.get("high_limit"))
@@ -5209,6 +5209,8 @@ def periodic_temp_control():
                     'heater_fault_temps', 'cooler_fault_temps',
                     'heating_fault_detected', 'cooling_fault_detected',
                     'heating_fault_notified', 'cooling_fault_notified',
+                    # Notification error flags — transient, always reset on startup
+                    'push_error', 'email_error', 'notification_comm_failure',
                 ]
                 
                 # Update each controller, preserving runtime state
