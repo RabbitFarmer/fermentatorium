@@ -64,49 +64,11 @@
         }
         
         if (data.heating) {
-          const p = document.createElement('p');
-          const strong = document.createElement('strong');
-          strong.textContent = 'Heating Plug (' + (heatingUrl || 'not set') + '): ';
-          p.appendChild(strong);
-          
-          const status = document.createElement('span');
-          status.textContent = data.heating.success ? '✓ Success' : '✗ Failed';
-          status.style.color = data.heating.success ? 'green' : 'red';
-          p.appendChild(status);
-          
-          if (data.heating.error) {
-            const errorSpan = document.createElement('span');
-            errorSpan.textContent = data.heating.error;
-            errorSpan.style.color = 'red';
-            errorSpan.style.fontSize = '0.9em';
-            p.appendChild(document.createElement('br'));
-            p.appendChild(errorSpan);
-          }
-          
-          resultsContent.appendChild(p);
+          _appendPlugResult(resultsContent, 'Heating', heatingUrl, data.heating, 'heating');
         }
         
         if (data.cooling) {
-          const p = document.createElement('p');
-          const strong = document.createElement('strong');
-          strong.textContent = 'Cooling Plug (' + (coolingUrl || 'not set') + '): ';
-          p.appendChild(strong);
-          
-          const status = document.createElement('span');
-          status.textContent = data.cooling.success ? '✓ Success' : '✗ Failed';
-          status.style.color = data.cooling.success ? 'green' : 'red';
-          p.appendChild(status);
-          
-          if (data.cooling.error) {
-            const errorSpan = document.createElement('span');
-            errorSpan.textContent = data.cooling.error;
-            errorSpan.style.color = 'red';
-            errorSpan.style.fontSize = '0.9em';
-            p.appendChild(document.createElement('br'));
-            p.appendChild(errorSpan);
-          }
-          
-          resultsContent.appendChild(p);
+          _appendPlugResult(resultsContent, 'Cooling', coolingUrl, data.cooling, 'cooling');
         }
 
       } catch (error) {
@@ -115,6 +77,135 @@
         p.textContent = 'Error: ' + error.message;
         p.style.color = 'red';
         resultsContent.appendChild(p);
+      }
+    }
+
+    function _stateLabel(state) {
+      if (state === 'on') return '🟢 ON';
+      if (state === 'off') return '⚫ OFF';
+      return '⚠ Out of Service';
+    }
+
+    function _stateColor(state) {
+      if (state === 'on') return '#1a8a1a';
+      if (state === 'off') return '#555';
+      return '#b8860b';
+    }
+
+    function _appendPlugResult(container, label, url, plugData, role) {
+      const wrap = document.createElement('div');
+      wrap.style.marginBottom = '10px';
+      wrap.style.padding = '8px 10px';
+      wrap.style.background = '#fff';
+      wrap.style.border = '1px solid #ddd';
+      wrap.style.borderRadius = '5px';
+
+      // Title line: label + connectivity result
+      const titleLine = document.createElement('div');
+      titleLine.style.marginBottom = '4px';
+      const strong = document.createElement('strong');
+      strong.textContent = label + ' Plug (' + (url || 'not set') + '): ';
+      titleLine.appendChild(strong);
+      const connSpan = document.createElement('span');
+      connSpan.textContent = plugData.success ? '✓ Connected' : '✗ Failed';
+      connSpan.style.color = plugData.success ? 'green' : 'red';
+      titleLine.appendChild(connSpan);
+      wrap.appendChild(titleLine);
+
+      // Current status line
+      if (plugData.state) {
+        const statusLine = document.createElement('div');
+        statusLine.style.fontSize = '0.95em';
+        statusLine.style.marginBottom = '4px';
+        const statusSpan = document.createElement('span');
+        statusSpan.textContent = 'Current status: ' + _stateLabel(plugData.state);
+        statusSpan.style.color = _stateColor(plugData.state);
+        statusSpan.style.fontWeight = '600';
+        statusLine.appendChild(statusSpan);
+        wrap.appendChild(statusLine);
+      }
+
+      // Error detail
+      if (plugData.error) {
+        const errLine = document.createElement('div');
+        errLine.textContent = plugData.error;
+        errLine.style.color = 'red';
+        errLine.style.fontSize = '0.88em';
+        errLine.style.marginBottom = '4px';
+        wrap.appendChild(errLine);
+      }
+
+      // Override buttons (always shown when a URL is present)
+      if (url) {
+        const btnRow = document.createElement('div');
+        btnRow.style.marginTop = '6px';
+        btnRow.style.display = 'flex';
+        btnRow.style.gap = '8px';
+        btnRow.style.alignItems = 'center';
+
+        const overrideLbl = document.createElement('span');
+        overrideLbl.textContent = 'Override:';
+        overrideLbl.style.fontSize = '0.9em';
+        overrideLbl.style.color = '#555';
+        btnRow.appendChild(overrideLbl);
+
+        const onBtn = document.createElement('button');
+        onBtn.type = 'button';
+        onBtn.textContent = 'Turn ON';
+        onBtn.style.cssText = 'padding:4px 12px;background:#2a7;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:0.88em;font-weight:600;';
+        onBtn.onclick = () => _sendPlugOverride(url, 'on', role, wrap);
+        btnRow.appendChild(onBtn);
+
+        const offBtn = document.createElement('button');
+        offBtn.type = 'button';
+        offBtn.textContent = 'Turn OFF';
+        offBtn.style.cssText = 'padding:4px 12px;background:#c44;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:0.88em;font-weight:600;';
+        offBtn.onclick = () => _sendPlugOverride(url, 'off', role, wrap);
+        btnRow.appendChild(offBtn);
+
+        const overrideStatus = document.createElement('span');
+        overrideStatus.id = 'override_status_' + role;
+        overrideStatus.style.fontSize = '0.88em';
+        btnRow.appendChild(overrideStatus);
+
+        wrap.appendChild(btnRow);
+      }
+
+      container.appendChild(wrap);
+    }
+
+    async function _sendPlugOverride(url, action, role, wrapElem) {
+      const statusSpan = document.getElementById('override_status_' + role);
+      if (statusSpan) { statusSpan.textContent = ' Sending ' + action + ' command…'; statusSpan.style.color = '#888'; }
+
+      const port = role === 'heating'
+        ? (document.getElementById('heating_plug_port').value || null)
+        : (document.getElementById('cooling_plug_port').value || null);
+
+      try {
+        const resp = await fetch('/kasa_plug_override', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: url,
+            action: action,
+            role: role,
+            port: port ? parseInt(port) : null,
+            controller_id: {{ controller_id }}
+          })
+        });
+        const data = await resp.json();
+        if (statusSpan) {
+          if (data.success) {
+            statusSpan.textContent = ' ✓ Plug is now ' + _stateLabel(data.state);
+            statusSpan.style.color = _stateColor(data.state);
+          } else {
+            statusSpan.textContent = ' ✗ ' + (data.error || 'Command failed');
+            statusSpan.style.color = 'red';
+          }
+        }
+      } catch (err) {
+        if (statusSpan) { statusSpan.textContent = ' ✗ ' + err.message; statusSpan.style.color = 'red'; }
       }
     }
   </script>
