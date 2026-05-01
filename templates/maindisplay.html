@@ -857,12 +857,12 @@
       //   ≤479 px  → 1 col  (phone single-column)
       //   480–699  → 2 cols (small tablet / large phone portrait)
       //   700–959  → 2 cols (tablet portrait — all display modes)
-      //   960–1299 → 3 cols for display-mode-3, 2 for display-mode-4, 3 otherwise
+      //   960–1299 → 3 cols for display-mode-3, 4 for display-mode-4, 3 otherwise
       //   ≥1300    → 3 cols for display-mode-3, 4 otherwise
       var cols;
       if (w <= 479)       cols = 1;
       else if (w <= 959)  cols = 2;
-      else if (w <= 1299) cols = is4 ? 2 : 3;
+      else if (w <= 1299) cols = is4 ? 4 : 3;
       else                cols = is3 ? 3 : 4;
 
       // Single-column: clear explicit positions and let the grid auto-flow
@@ -1486,11 +1486,11 @@
   //   zoom when 960 ≤ physVW < 1276.  Below 960 px CSS fluid layout handles it.
   // display-mode-4: 4 × 400 px + 3 × 24 px gap + 2 × 14 px padding = 1700 px
   //   (page max-width: 1724 px)
-  //   zoom when 1300 ≤ physVW < 1724.  Below 1300 px CSS 2-col layout handles it.
+  //   zoom when 960 ≤ physVW < 1724.  Below 960 px CSS fluid layout handles it.
   (function () {
     var DESIGN_WIDTH_4 = 1724;
     var DESIGN_WIDTH_3 = 1276;
-    var ZOOM_THRESHOLD_4 = 1300;   // below this, CSS shows 2 cols for mode-4
+    var ZOOM_THRESHOLD_4 = 960;    // below this, CSS shows fluid col for mode-4
     var ZOOM_THRESHOLD_3 = 960;    // below this, CSS shows 2-col fluid for mode-3
     function applyDisplayZoom() {
       var el = document.querySelector('.page-container');

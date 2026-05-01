@@ -324,9 +324,10 @@ body, body.page-bg {
   }
   /* display-mode-3: show 3 columns here too — applyDisplayZoom scales the page
      down so 3 × 400 px fits even at ~960 px (landscape tablet).              */
-  /* display-mode-4 wide cards still need 2 columns at this width. */
+  /* display-mode-4: show 4 columns — applyDisplayZoom scales the page down so
+     4 × 400 px fits on a landscape tablet (ZOOM_THRESHOLD_4 = 960).          */
   .display-mode-4 .tiltcard-container {
-    grid-template-columns: repeat(2, var(--card-width));
+    grid-template-columns: repeat(4, var(--card-width));
   }
 }
 
