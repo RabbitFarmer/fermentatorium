@@ -2089,7 +2089,7 @@ def forward_to_third_party_if_configured(payload):
                 _excel_epoch = datetime(1899, 12, 30)
                 timepoint = (now_dt - _excel_epoch).total_seconds() / 86400.0
                 forwarding_payload = {
-                    "name": beer_name or tilt_color,
+                    "name": f"Ferm_{tilt_color.lower()}",
                     "Timepoint": timepoint,
                     "Temp": temp_f,
                     "SG": gravity,
