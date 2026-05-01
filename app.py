@@ -5917,68 +5917,32 @@ def batch_settings():
             "gravity_variance": gravity_variance,
         }
 
-        # Parse external logging URLs (batch-level setting; up to 2 slots).
-        # When the form includes the ext_logging_submitted sentinel field, the
-        # submitted state is applied unconditionally — even if all slots are
-        # "None" — so the user can explicitly disable external logging for a
-        # batch by selecting "None" in every slot.
+        # Parse external logging (batch-level setting; up to 2 slots).
+        # The simplified UI presents only the configured saved_loggers as choices.
+        # When the sentinel field is present the submitted state is applied
+        # unconditionally (even if all slots are "no service"), so the user can
+        # explicitly disable logging by leaving both dropdowns at "no service".
         # Without the sentinel (e.g. the quick-edit form), existing external_urls
         # are preserved unchanged.
-        _FIELD_NAMES = ("temp_f", "gravity", "tilt_color", "beer_name",
-                        "batch_name", "brewid", "timestamp", "rssi")
         _ext_form_submitted = data.get("ext_logging_submitted", "").strip() == "1"
-        _form_has_ext_data = _ext_form_submitted or any(
-            data.get(f"ext_svc_{i}", "").strip() or
-            data.get(f"ext_url_{i}", "").strip() or
-            data.get(f"ext_saved_{i}", "").strip()
-            for i in range(2)
-        )
-        if _form_has_ext_data:
+        if _ext_form_submitted:
             new_external_urls = []
             for i in range(2):
-                svc = data.get(f"ext_svc_{i}", "").strip()
-                # ext_url_{i} may be left blank when user picked a saved profile;
-                # in that case ext_saved_{i} contains the profile URL.
-                ext_url = data.get(f"ext_url_{i}", "").strip()
-                saved_key = data.get(f"ext_saved_{i}", "").strip()
-                if not ext_url and saved_key:
-                    # Resolve the saved profile URL from system_cfg
-                    for sl in system_cfg.get("saved_loggers", []):
-                        if sl.get("name") == saved_key:
-                            ext_url = sl.get("url", "")
-                            svc = sl.get("service", "")  # always use the profile's service type
-                            break
-                if not ext_url:
+                svc_name = data.get(f"ext_service_{i}", "").strip()
+                if not svc_name:
                     continue
-                # Auto-correct service type: if the URL targets brewersfriend.com, always
-                # use the "brewersfriend" service regardless of what was submitted.
-                try:
-                    _svc_parsed = urlparse(ext_url)
-                    _svc_netloc = _svc_parsed.netloc.lower()
-                    _svc_is_bf = (_svc_netloc == "brewersfriend.com" or
-                                  _svc_netloc.endswith(".brewersfriend.com"))
-                except Exception:
-                    _svc_is_bf = False
-                if _svc_is_bf:
-                    svc = "brewersfriend"
-                url_entry = {"service": svc or "user_defined", "url": ext_url}
-                if svc == "user_defined":
-                    url_entry["method"] = data.get(f"ext_method_{i}", "POST")
-                    url_entry["content_type"] = data.get(f"ext_ctype_{i}", "json")
-                    field_map = {}
-                    for fname in _FIELD_NAMES:
-                        dest = data.get(f"ext_fm_{fname}_{i}", "").strip()
-                        if dest:
-                            field_map[fname] = dest
-                    if field_map:
-                        url_entry["field_map"] = field_map
-                new_external_urls.append(url_entry)
+                # Resolve URL and service type from the saved logger profile
+                for sl in system_cfg.get("saved_loggers", []):
+                    if sl.get("name") == svc_name and sl.get("url", ""):
+                        new_external_urls.append({
+                            "service": sl.get("service", ""),
+                            "url": sl.get("url", ""),
+                            "saved_logger_name": svc_name,
+                        })
+                        break
             batch_entry["external_urls"] = new_external_urls
-        elif _ext_form_submitted:
-            # Sentinel present but all slots were "None" — explicitly clear logging.
-            batch_entry["external_urls"] = []
         elif "external_urls" in existing:
-            # No sentinel and no new ext data: preserve existing setting.
+            # No sentinel: preserve existing setting (e.g. quick-edit form).
             batch_entry["external_urls"] = existing["external_urls"]
         
         # Preserve existing notification_state when editing a batch
@@ -6064,6 +6028,32 @@ def batch_settings():
         config["temp_variance"]    = mac_tv
         config["gravity_variance"] = mac_gv
 
+    # Compute which saved logger names are currently selected for this batch so
+    # the simplified service-picker dropdowns can pre-select the right options.
+    _saved_loggers = system_cfg.get("saved_loggers", [])
+    _ext_urls = config.get("external_urls") or []
+
+    def _find_logger_name(entry):
+        """Return the saved_logger name that best matches this external_url entry."""
+        # Primary: match by the stored saved_logger_name (most reliable)
+        stored_name = entry.get("saved_logger_name", "")
+        if stored_name:
+            for sl in _saved_loggers:
+                if sl.get("name") == stored_name:
+                    return stored_name
+        # Fallback: match by URL (handles entries saved before saved_logger_name was added)
+        entry_url = entry.get("url", "")
+        if entry_url:
+            for sl in _saved_loggers:
+                if sl.get("url") == entry_url:
+                    return sl.get("name", "")
+        return ""
+
+    _selected_service_names = [_find_logger_name(e) for e in _ext_urls]
+    # Pad to 2 slots so the template can always index [0] and [1]
+    while len(_selected_service_names) < 2:
+        _selected_service_names.append("")
+
     return render_template('batch_settings.html',
         tilt_cfg=tilt_cfg,
         tilt_colors=all_colors,
@@ -6076,8 +6066,9 @@ def batch_settings():
         action=action,
         batch_history=batch_history,
         color_map=COLOR_MAP,
-        external_logging_urls=(config.get("external_urls") or []),
-        saved_loggers=system_cfg.get("saved_loggers", []),
+        external_logging_urls=_ext_urls,
+        saved_loggers=_saved_loggers,
+        selected_service_names=_selected_service_names,
     )
 
 def get_last_activity(activity_type):
