@@ -9594,6 +9594,7 @@ def run_utility():
         return jsonify({'success': False, 'error': 'An unexpected error occurred running the utility.'})
 
 
+@app.route('/exit_system', methods=['GET', 'POST'])
 def exit_system():
     """
     Handle system exit:
