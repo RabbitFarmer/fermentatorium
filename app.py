@@ -2086,11 +2086,12 @@ def forward_to_third_party_if_configured(payload):
             _bf_path = _parsed_url.path.lower()
             if _bf_path.startswith("/tilt/"):
                 forwarding_payload = {
-                    "name": f"Ferm_{tilt_color}",
                     "color": tilt_color,
                     "gravity": gravity,
                     "temp": temp_f,
                     "comment": "",
+                    "beer": beer_name or "",
+                    "device_source": "Fermentatorium",
                 }
                 method = "POST"
                 send_json = False
@@ -5711,38 +5712,22 @@ def test_external_logging():
 
         # Build a service-appropriate test payload
         if is_brewersfriend:
-            # Use the same path-based format selection as forward_to_third_party:
-            #   /tilt/ paths   → form-encoded with name, color, gravity, temp, comment
-            #   /stream/ paths → JSON (iSpindel format) with name, Timepoint, Temp, SG, etc.
-            try:
-                _bf_parsed = urlparse(url)
-                _bf_path = _bf_parsed.path.lower()
-            except Exception:
-                _bf_path = ""
-            if _bf_path.startswith("/tilt/"):
-                test_payload = {
-                    "name": "Ferm_Test",
-                    "color": tilt_color,
-                    "gravity": 1.050,
-                    "temp": 68.5,
-                    "comment": "",
-                }
-                method = "POST"
-                send_json = False
-            else:
-                _excel_epoch = datetime(1899, 12, 30)
-                timepoint = (datetime.utcnow() - _excel_epoch).total_seconds() / 86400.0
-                test_payload = {
-                    "name": "Ferm_Test",
-                    "Timepoint": timepoint,
-                    "Temp": 68.5,
-                    "SG": 1.050,
-                    "Beer": "Ferm_Test",
-                    "Color": tilt_color.upper(),
-                    "Comment": "",
-                }
-                method = "POST"
-                send_json = True
+            # Always test using /stream/ JSON format (iSpindel format) regardless of
+            # the configured URL path — this verifies the API key and connection using
+            # the same format that live readings use for /stream/ endpoints.
+            _excel_epoch = datetime(1899, 12, 30)
+            timepoint = (datetime.utcnow() - _excel_epoch).total_seconds() / 86400.0
+            test_payload = {
+                "name": "Ferm_Test",
+                "Timepoint": timepoint,
+                "Temp": 68.5,
+                "SG": 1.050,
+                "Beer": "Ferm_Test",
+                "Color": tilt_color.upper(),
+                "Comment": "",
+            }
+            method = "POST"
+            send_json = True
         elif service == 'brewstat':
             test_payload = {
                 "color": tilt_color.lower(),
