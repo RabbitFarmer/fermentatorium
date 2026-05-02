@@ -5712,22 +5712,34 @@ def test_external_logging():
 
         # Build a service-appropriate test payload
         if is_brewersfriend:
-            # Always test using /stream/ JSON format (iSpindel format) regardless of
-            # the configured URL path — this verifies the API key and connection using
-            # the same format that live readings use for /stream/ endpoints.
-            _excel_epoch = datetime(1899, 12, 30)
-            timepoint = (datetime.utcnow() - _excel_epoch).total_seconds() / 86400.0
-            test_payload = {
-                "name": "Ferm_Test",
-                "Timepoint": timepoint,
-                "Temp": 68.5,
-                "SG": 1.050,
-                "Beer": "Ferm_Test",
-                "Color": tilt_color.upper(),
-                "Comment": "",
-            }
-            method = "POST"
-            send_json = True
+            # Mirror the live forwarder: use /tilt/ variables for /tilt/ URLs and
+            # /stream/ variables (JSON) for /stream/ (and any other) URLs.
+            _bf_test_path = parsed.path.lower()
+            if _bf_test_path.startswith("/tilt/"):
+                test_payload = {
+                    "color": tilt_color,
+                    "gravity": 1.050,
+                    "temp": 68.5,
+                    "comment": "",
+                    "beer": "Test Beer",
+                    "device_source": "Fermentatorium",
+                }
+                method = "POST"
+                send_json = False
+            else:
+                _excel_epoch = datetime(1899, 12, 30)
+                timepoint = (datetime.utcnow() - _excel_epoch).total_seconds() / 86400.0
+                test_payload = {
+                    "name": f"Ferm_{tilt_color.lower()}",
+                    "Timepoint": timepoint,
+                    "Temp": 68.5,
+                    "SG": 1.050,
+                    "Beer": "Test Beer",
+                    "Color": tilt_color.upper(),
+                    "Comment": "",
+                }
+                method = "POST"
+                send_json = True
         elif service == 'brewstat':
             test_payload = {
                 "color": tilt_color.lower(),
