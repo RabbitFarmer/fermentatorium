@@ -5737,7 +5737,7 @@ def test_external_logging():
                     "Timepoint": timepoint,
                     "Temp": 68.5,
                     "SG": 1.050,
-                    "Beer": "",
+                    "Beer": "Ferm_Test",
                     "Color": tilt_color.upper(),
                     "Comment": "",
                 }
