@@ -2027,10 +2027,21 @@ def forward_to_third_party_if_configured(payload):
         if not isinstance(url_config, dict):
             continue
         url = url_config.get("url", "").strip()
+        service = url_config.get("service", "").lower()
+
+        # Always resolve URL (and service) from the current saved_logger profile so
+        # that changes made in System Settings take effect immediately without
+        # requiring the user to re-save each batch's external logging settings.
+        _sl_name = url_config.get("saved_logger_name", "")
+        if _sl_name:
+            for _sl in system_cfg.get("saved_loggers", []):
+                if _sl.get("name") == _sl_name and _sl.get("url", ""):
+                    url = _sl["url"].strip()
+                    service = _sl.get("service", service).lower()
+                    break
+
         if not url:
             continue
-
-        service = url_config.get("service", "").lower()
 
         # Rate limit key: per URL per MAC address
         _rate_key = f"{url}|{mac}" if mac else url
@@ -2075,12 +2086,11 @@ def forward_to_third_party_if_configured(payload):
             _bf_path = _parsed_url.path.lower()
             if _bf_path.startswith("/tilt/"):
                 forwarding_payload = {
+                    "name": f"Ferm_{tilt_color}",
                     "color": tilt_color,
                     "gravity": gravity,
                     "temp": temp_f,
                     "comment": "",
-                    "beer": beer_name or "",
-                    "device_source": "Fermentatorium",
                 }
                 method = "POST"
                 send_json = False
@@ -5701,10 +5711,9 @@ def test_external_logging():
 
         # Build a service-appropriate test payload
         if is_brewersfriend:
-            # Brewers Friend requires URL-encoded form data, not JSON.
             # Use the same path-based format selection as forward_to_third_party:
-            #   /tilt/ paths  → tilt_color, gravity, temp, comment, beer, device_source
-            #   /stream/ paths → legacy iSpindel format with Timepoint, Temp, SG, etc.
+            #   /tilt/ paths   → form-encoded with name, color, gravity, temp, comment
+            #   /stream/ paths → JSON (iSpindel format) with name, Timepoint, Temp, SG, etc.
             try:
                 _bf_parsed = urlparse(url)
                 _bf_path = _bf_parsed.path.lower()
@@ -5712,27 +5721,28 @@ def test_external_logging():
                 _bf_path = ""
             if _bf_path.startswith("/tilt/"):
                 test_payload = {
+                    "name": "Ferm_Test",
                     "color": tilt_color,
                     "gravity": 1.050,
                     "temp": 68.5,
                     "comment": "",
-                    "beer": "Test Beer",
-                    "device_source": "Fermentatorium",
                 }
+                method = "POST"
+                send_json = False
             else:
                 _excel_epoch = datetime(1899, 12, 30)
                 timepoint = (datetime.utcnow() - _excel_epoch).total_seconds() / 86400.0
                 test_payload = {
-                    "name": "Test Beer",
+                    "name": "Ferm_Test",
                     "Timepoint": timepoint,
                     "Temp": 68.5,
                     "SG": 1.050,
-                    "Beer": "Test Beer",
+                    "Beer": "",
                     "Color": tilt_color.upper(),
                     "Comment": "",
                 }
-            method = "POST"
-            send_json = False
+                method = "POST"
+                send_json = True
         elif service == 'brewstat':
             test_payload = {
                 "color": tilt_color.lower(),

@@ -235,10 +235,9 @@
                 type: 'scatter',  // Explicitly set type to scatter for line chart
                 x: displayData.map(p => p.timestamp),
                 y: displayData.map(p => p.temp_f),
-                mode: 'lines+markers',
+                mode: 'lines',
                 name: displayLabel,
                 line: { color: displayColor, shape: 'linear', width: 1.5 },
-                marker: { size: 4, color: displayColor },
                 yaxis: 'y1',
                 connectgaps: false,
               });
@@ -253,10 +252,9 @@
             type: 'scatter',  // Explicitly set type to scatter for line chart
             x: dataPoints.map((p) => p.timestamp),
             y: dataPoints.map((p) => p.temp_f),
-            mode: 'lines+markers',
+            mode: 'lines',
             name: 'Temperature (°F)',
             line: { color: 'blue', shape: 'linear', width: 1.5 },
-            marker: { size: 4, color: 'blue' },
             yaxis: 'y1',
             connectgaps: false,
           };
@@ -519,10 +517,9 @@
             type: 'scatter',
             x: dataPoints.map((p) => p.timestamp),
             y: dataPoints.map((p) => parseFloat(p.gravity)),
-            mode: 'lines+markers',
+            mode: 'lines',
             name: 'Gravity',
             line: { color: '#E69D00', shape: 'linear', width: 1.5 },
-            marker: { size: 4, color: '#E69D00' },
             yaxis: 'y2',
             connectgaps: false,
           };
