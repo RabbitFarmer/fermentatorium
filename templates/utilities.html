@@ -57,7 +57,7 @@
         <div class="util-desc">
           Populates the system with sample fermentation data so you can explore charts, batch history,
           and temperature control displays without live hardware.
-          After running, open <a href="/chart_plotly/Black">/chart_plotly/Black</a> to view the demo chart.
+          After running, open <a href="{{ url_for('chart_plotly_for', tilt_color='Black') }}">/chart_plotly/Black</a> to view the demo chart.
           Running this on a live system will not erase active batches — it writes to designated demo batch IDs.
         </div>
         <button class="btn-run" onclick="runUtil('setup_demo', this)">Run: Load Demo Data</button>

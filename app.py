@@ -5505,7 +5505,7 @@ def update_system_config():
         "state": data.get("state", ""),
         "email": data.get("email", ""),
         "mobile": data.get("mobile", ""),
-        "units": data.get("units", system_cfg.get("units", "Fahrenheit")),
+        "units": data.get("units", "Fahrenheit"),
         "timezone": data.get("timezone", ""),
         "timestamp_format": data.get("timestamp_format", ""),
         "display_mode": data.get("display_mode", "4"),
@@ -9591,7 +9591,7 @@ def run_utility():
     except subprocess.TimeoutExpired:
         return jsonify({'success': False, 'error': 'Utility timed out after 120 seconds.'})
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        return jsonify({'success': False, 'error': 'An unexpected error occurred running the utility.'})
 
 
 def exit_system():
