@@ -5884,7 +5884,8 @@ def tilt_config():
         selected_tilt=selected,
         selected_config=config,
         system_settings=system_cfg,
-        batch_history=batch_history
+        batch_history=batch_history,
+        color_map=COLOR_MAP,
     )
 
 @app.route('/batch_settings', methods=['GET', 'POST'])
