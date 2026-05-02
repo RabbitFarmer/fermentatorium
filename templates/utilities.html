@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Utilities</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    .util-container { max-width:900px; margin:18px auto; padding:18px; }
+    .util-card {
+      background:#fff; border:1px solid #ddd; border-radius:8px;
+      padding:20px; margin-bottom:20px; box-shadow:0 1px 4px rgba(0,0,0,0.05);
+    }
+    .util-title { font-weight:700; font-size:1.15em; color:#8B4513; margin-bottom:6px; }
+    .util-desc { font-size:0.95em; color:#444; margin-bottom:12px; line-height:1.5; }
+    .util-note { font-size:0.85em; color:#666; font-style:italic; margin-top:8px; }
+    .btn-run {
+      padding:8px 20px; background:#8B4513; color:#fff;
+      border:none; border-radius:5px; cursor:pointer; font-weight:600;
+      font-size:14px; transition:background 0.2s;
+    }
+    .btn-run:hover { background:#A0522D; }
+    .btn-run:disabled { background:#ccc; cursor:not-allowed; }
+    .output-box {
+      margin-top:12px; padding:10px 14px; background:#f4f4f4;
+      border:1px solid #ccc; border-radius:5px;
+      font-family:monospace; font-size:0.88em;
+      white-space:pre-wrap; word-break:break-word;
+      max-height:300px; overflow-y:auto; display:none;
+    }
+    .badge-safe { display:inline-block; padding:2px 8px; border-radius:4px;
+      background:#d4edda; color:#155724; font-size:0.8em; font-weight:600; margin-left:8px; }
+    .badge-info { display:inline-block; padding:2px 8px; border-radius:4px;
+      background:#d1ecf1; color:#0c5460; font-size:0.8em; font-weight:600; margin-left:8px; }
+    .section-heading { font-size:1.25em; font-weight:700; color:#333;
+      margin:24px 0 12px 0; padding-bottom:6px; border-bottom:2px solid #8B4513; }
+  </style>
+</head>
+<body class="page-bg">
+  <div class="page-container">
+    <header class="site-header">
+      <h1 class="dashboard-title">UTILITIES</h1>
+    </header>
+    <div class="util-container">
+
+      <p style="color:#555; margin-bottom:20px;">
+        These utilities help you manage data, load demo content, and maintain system health.
+        Read each description before running — most operations modify data files.
+        All scripts run from the Fermentatorium install directory.
+      </p>
+
+      <!-- ── Demo & Testing ─────────────────────────────────────── -->
+      <div class="section-heading">Demo &amp; Testing</div>
+
+      <div class="util-card">
+        <div class="util-title">Load Demo Data <span class="badge-info">demo</span></div>
+        <div class="util-desc">
+          Populates the system with sample fermentation data so you can explore charts, batch history,
+          and temperature control displays without live hardware.
+          After running, open <a href="{{ url_for('chart_plotly_for', tilt_color='Black') }}">/chart_plotly/Black</a> to view the demo chart.
+          Running this on a live system will not erase active batches — it writes to designated demo batch IDs.
+        </div>
+        <button class="btn-run" onclick="runUtil('setup_demo', this)">Run: Load Demo Data</button>
+        <div class="output-box" id="out_setup_demo"></div>
+        <div class="util-note">Script: <code>utils/setup_demo.sh</code></div>
+      </div>
+
+      <div class="util-card">
+        <div class="util-title">Verify Demo Data <span class="badge-info">demo</span></div>
+        <div class="util-desc">
+          Checks that demo data files were loaded correctly and reports any issues.
+          Safe to run at any time — read-only, no data is modified.
+        </div>
+        <button class="btn-run" onclick="runUtil('verify_demo_data', this)">Run: Verify Demo Data</button>
+        <div class="output-box" id="out_verify_demo_data"></div>
+        <div class="util-note">Script: <code>utils/verify_demo_data.py</code></div>
+      </div>
+
+      <!-- ── Data Maintenance ───────────────────────────────────── -->
+      <div class="section-heading">Data Maintenance</div>
+
+      <div class="util-card">
+        <div class="util-title">Compact &amp; Archive Logs <span class="badge-safe">safe</span></div>
+        <div class="util-desc">
+          Splits tilt reading entries from the temperature control log into separate per-batch archive files
+          and rebuilds the main log keeping only the most recent readings per batch.
+          Reduces disk usage over long fermentation runs without losing any data —
+          archived readings are saved in <code>batches/</code>.
+          A backup of the original log is created automatically before any changes are made.
+        </div>
+        <button class="btn-run" onclick="runUtil('archive_compact_logs', this)">Run: Compact Logs</button>
+        <div class="output-box" id="out_archive_compact_logs"></div>
+        <div class="util-note">Script: <code>utils/archive_compact_logs.py</code></div>
+      </div>
+
+      <div class="util-card">
+        <div class="util-title">Purge Excess Tilt Readings <span class="badge-safe">safe</span></div>
+        <div class="util-desc">
+          Removes duplicate or over-frequent Tilt readings from batch data files.
+          Useful if an older version of the software logged readings more often than intended
+          (e.g., every 2 minutes instead of every 15 minutes), causing cluttered charts.
+          A backup is created before any records are removed.
+        </div>
+        <button class="btn-run" onclick="runUtil('purge_excess_tilt_readings', this)">Run: Purge Excess Readings</button>
+        <div class="output-box" id="out_purge_excess_tilt_readings"></div>
+        <div class="util-note">Script: <code>utils/purge_excess_tilt_readings.py</code></div>
+      </div>
+
+      <!-- ── Import ─────────────────────────────────────────────── -->
+      <div class="section-heading">Import</div>
+
+      <div class="util-card">
+        <div class="util-title">Import from Brewer's Friend</div>
+        <div class="util-desc">
+          Converts a Brewer's Friend JSON export into Fermentatorium's batch format so you can
+          view historical fermentation data in charts and batch history.
+          This utility must be run from the command line — it requires specifying the export file,
+          Tilt color, beer name, and batch name as arguments.
+        </div>
+        <div style="background:#fff8e1; border:1px solid #ffe082; border-radius:5px; padding:10px 14px; font-size:0.9em; color:#555;">
+          <b>Command-line only.</b> Run from the install directory:<br>
+          <code>python3 utils/import_brewers_friend.py export.json --color Red --beer-name "My IPA" --batch-name "Batch 7"</code>
+        </div>
+        <div class="util-note">Script: <code>utils/import_brewers_friend.py</code></div>
+      </div>
+
+      <!-- ── Back ───────────────────────────────────────────────── -->
+      <div style="margin-top:24px;">
+        <button type="button" onclick="window.location='/'" class="btn-run">← Return to Dashboard</button>
+      </div>
+
+    </div><!-- /.util-container -->
+  </div><!-- /.page-container -->
+
+  <script>
+    async function runUtil(utilKey, btn) {
+      const outDiv = document.getElementById('out_' + utilKey);
+      btn.disabled = true;
+      btn.textContent = 'Running…';
+      outDiv.style.display = 'block';
+      outDiv.textContent = 'Running, please wait…';
+
+      try {
+        const resp = await fetch('/run_utility', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'utility=' + encodeURIComponent(utilKey)
+        });
+        const data = await resp.json();
+        if (data.success) {
+          outDiv.style.background = '#d4edda';
+          outDiv.style.borderColor = '#c3e6cb';
+          outDiv.textContent = data.output || '(completed — no output)';
+        } else {
+          outDiv.style.background = '#f8d7da';
+          outDiv.style.borderColor = '#f5c6cb';
+          outDiv.textContent = 'Error: ' + (data.error || data.output || 'Unknown error');
+        }
+      } catch (e) {
+        outDiv.style.background = '#f8d7da';
+        outDiv.style.borderColor = '#f5c6cb';
+        outDiv.textContent = 'Request failed: ' + e.message;
+      }
+
+      btn.disabled = false;
+      btn.textContent = btn.textContent.replace('Running…', 'Run again');
+    }
+  </script>
+</body>
+</html>

@@ -5505,6 +5505,7 @@ def update_system_config():
         "state": data.get("state", ""),
         "email": data.get("email", ""),
         "mobile": data.get("mobile", ""),
+        "units": data.get("units", "Fahrenheit"),
         "timezone": data.get("timezone", ""),
         "timestamp_format": data.get("timestamp_format", ""),
         "display_mode": data.get("display_mode", "4"),
@@ -9560,7 +9561,39 @@ def restart_system():
         return jsonify({'success': False, 'error': 'Restart command could not be executed.'}), 500
 
 
-@app.route('/exit_system', methods=['GET', 'POST'])
+@app.route('/utilities')
+def utilities():
+    """Display the utilities page with available helper scripts."""
+    return render_template('utilities.html', system_settings=system_cfg)
+
+
+@app.route('/run_utility', methods=['POST'])
+def run_utility():
+    """Run one of the approved utility scripts and return output."""
+    import subprocess
+    util = request.form.get('utility', '')
+    ALLOWED = {
+        'archive_compact_logs': ['python3', 'utils/archive_compact_logs.py'],
+        'purge_excess_tilt_readings': ['python3', 'utils/purge_excess_tilt_readings.py'],
+        'verify_demo_data': ['python3', 'utils/verify_demo_data.py'],
+        'setup_demo': ['bash', 'utils/setup_demo.sh'],
+    }
+    if util not in ALLOWED:
+        return jsonify({'success': False, 'error': 'Unknown utility.'}), 400
+    try:
+        result = subprocess.run(
+            ALLOWED[util],
+            capture_output=True, text=True, timeout=120,
+            cwd=os.path.dirname(os.path.abspath(__file__))
+        )
+        output = (result.stdout or '') + (result.stderr or '')
+        return jsonify({'success': result.returncode == 0, 'output': output.strip()})
+    except subprocess.TimeoutExpired:
+        return jsonify({'success': False, 'error': 'Utility timed out after 120 seconds.'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': 'An unexpected error occurred running the utility.'})
+
+
 def exit_system():
     """
     Handle system exit:

@@ -98,6 +98,18 @@
             <td><input type="text" name="state" id="state" value="{{ system_settings.get('state','') }}"></td>
           </tr>
           <tr>
+            <td>
+              <label for="units"><b>Temperature Units</b></label>
+              <div style="font-size:0.85em;color:#666;margin-top:4px;">All temperature readings and limits displayed in the selected units.</div>
+            </td>
+            <td>
+              <select name="units" id="units">
+                <option value="Fahrenheit" {% if system_settings.get('units','Fahrenheit') == 'Fahrenheit' %}selected{% endif %}>Fahrenheit (°F)</option>
+                <option value="Celsius" {% if system_settings.get('units','Fahrenheit') == 'Celsius' %}selected{% endif %}>Celsius (°C)</option>
+              </select>
+            </td>
+          </tr>
+          <tr>
             <td><label for="timezone"><b>Time Zone</b></label></td>
             <td>
               <select name="timezone" id="timezone">
