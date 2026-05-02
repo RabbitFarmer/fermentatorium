@@ -161,6 +161,10 @@
       gap: 4px;
     }
     .tc-notification-item { white-space: nowrap; }
+    @media (max-width: 699px) {
+      /* Allow long notification strings to wrap on narrow phones */
+      .tc-notification-item { white-space: normal; }
+    }
     .tc-notification-item.heating     { color: var(--status-red); }
     .tc-notification-item.cooling     { color: var(--now-cool-blue); }
     .tc-notification-item.swapped-plug {
@@ -305,6 +309,12 @@
 
     @media (max-width: 720px) {
       .tc-grid { grid-template-columns: 1fr 110px; }
+    }
+    @media (max-width: 479px) {
+      /* Collapse value column further so TC card content fits in a 92%-wide card */
+      .tc-grid { grid-template-columns: 1fr 90px; gap: 8px 8px; }
+      .tc-value-box { font-size: 16px; min-width: 70px; padding: 4px 5px; }
+      .tc-value-current { font-size: 22px; }
     }
 
     /* ── Gear-menu (settings dropdown) ── */

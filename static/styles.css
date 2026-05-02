@@ -265,21 +265,38 @@ body, body.page-bg {
 /* Mobile: single-column grid (phones, ≤479 px) */
 @media (max-width: 479px) {
   :root { --temp-number-size: 32px; --metric-number-size: 18px; }
+
+  /* Prevent any overflowing element from widening the page and clipping cards */
+  html, body { overflow-x: hidden; }
+  .page-container { max-width: 100vw; overflow-x: hidden; }
+
+  /* Scale down the brewery title so a long name doesn't push the viewport wider */
+  .dashboard-title { font-size: 20px; word-break: break-word; }
+
   .tiltcard-container {
     grid-template-columns: 1fr;
     justify-items: center;
   }
-  .tilt-card { width: 92%; }
+  /* Cards must never exceed the column / viewport width */
+  .tilt-card { width: 92%; max-width: 100%; box-sizing: border-box; }
 }
 
 /* Small tablet / large phone portrait: 2-column grid (480 – 699 px) */
 @media (min-width: 480px) and (max-width: 699px) {
   :root { --temp-number-size: 28px; --metric-number-size: 16px; }
+
+  /* Same overflow guard as the ≤479 breakpoint */
+  html, body { overflow-x: hidden; }
+  .page-container { max-width: 100vw; overflow-x: hidden; }
+
+  /* Keep the title readable without blowing out the viewport */
+  .dashboard-title { font-size: 26px; word-break: break-word; }
+
   .tiltcard-container {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     justify-items: center;
   }
-  .tilt-card { width: 100%; }
+  .tilt-card { width: 100%; max-width: 100%; box-sizing: border-box; }
   /* display-mode-4 sets --metric-number-size: 32px at element level, overriding
      the :root reduction above.  Re-apply the small-screen sizes explicitly so
      numbers fit inside the narrow (~200 px) fluid columns without being clipped. */
