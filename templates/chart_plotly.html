@@ -96,7 +96,7 @@
     const recipeFg = null;
     const actualOg = null;
     const fermentationComplete = false;
-    {% else %}
+    {% elif tilt_color %}
     const beerName = "{{ tilt_cfg[tilt_color].beer_name or 'Unknown' }}";
     const batchName = "{{ tilt_cfg[tilt_color].batch_name or 'Unknown' }}";
     const brewId = "{{ tilt_cfg[tilt_color].brewid or 'Unknown' }}";
@@ -104,6 +104,14 @@
     const recipeFg = {{ tilt_cfg[tilt_color].get('recipe_fg') or 'null' }};
     const actualOg = {{ tilt_cfg[tilt_color].get('actual_og') or 'null' }};
     const fermentationComplete = {{ 'true' if tilt_cfg[tilt_color].get('notification_state', {}).get('fermentation_completion_datetime') else 'false' }};
+    {% else %}
+    const beerName = "Unknown";
+    const batchName = "Unknown";
+    const brewId = "Unknown";
+    const recipeOg = null;
+    const recipeFg = null;
+    const actualOg = null;
+    const fermentationComplete = false;
     {% endif %}
     
     async function loadData() {
