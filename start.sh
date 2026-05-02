@@ -69,15 +69,21 @@ get_local_ip() {
 open_browser_kiosk() {
     local url="$1"
     # Support both X11 ($DISPLAY) and Wayland ($WAYLAND_DISPLAY).
-    # If neither is set, try DISPLAY=:0 as a last-resort fallback before
-    # giving up — this covers cases where the desktop session started but
-    # the variable was not exported into this shell (e.g. some autostart paths).
+    # If neither is set, probe :0 with xdpyinfo or xset q.  On minimal
+    # installs (e.g. Raspberry Pi Lite with a desktop added) these tools may
+    # not be present even though Xorg is running, so if both probes are
+    # unavailable just export DISPLAY=:0 and let the browser decide — it
+    # exits cleanly when there is truly no display server.
     if [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]; then
         if DISPLAY=:0 xdpyinfo > /dev/null 2>&1; then
             export DISPLAY=:0
+        elif DISPLAY=:0 xset q > /dev/null 2>&1; then
+            export DISPLAY=:0
         else
-            echo "[open_browser_kiosk] No display available — skipping browser open"
-            return 0
+            # Neither probe tool is available or :0 is not reachable via them.
+            # Fall through with DISPLAY=:0; the browser will exit immediately
+            # and silently if no X server is actually running.
+            export DISPLAY=:0
         fi
     fi
     local browser=""
