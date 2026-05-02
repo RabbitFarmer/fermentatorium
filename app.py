@@ -7879,7 +7879,8 @@ def chart_plotly_index():
     colors = list(tilt_cfg.keys())
     if colors:
         return redirect(f'/chart_plotly/{colors[0]}')
-    return render_template('chart_plotly.html', tilt_color=None, system_settings=system_cfg)
+    return render_template('chart_plotly.html', tilt_color=None, tilt_cfg=tilt_cfg,
+                           tc_color='', system_settings=system_cfg)
 
 
 @app.route('/chart_plotly/<tilt_color>')

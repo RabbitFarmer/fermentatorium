@@ -69,15 +69,21 @@ get_local_ip() {
 open_browser_kiosk() {
     local url="$1"
     # Support both X11 ($DISPLAY) and Wayland ($WAYLAND_DISPLAY).
-    # If neither is set, try DISPLAY=:0 as a last-resort fallback before
-    # giving up — this covers cases where the desktop session started but
-    # the variable was not exported into this shell (e.g. some autostart paths).
+    # If neither is set, probe :0 with xdpyinfo or xset q.  On minimal
+    # installs (e.g. Raspberry Pi Lite with a desktop added) these tools may
+    # not be present even though Xorg is running, so if both probes are
+    # unavailable just export DISPLAY=:0 and let the browser decide — it
+    # exits cleanly when there is truly no display server.
     if [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]; then
         if DISPLAY=:0 xdpyinfo > /dev/null 2>&1; then
             export DISPLAY=:0
+        elif DISPLAY=:0 xset q > /dev/null 2>&1; then
+            export DISPLAY=:0
         else
-            echo "[open_browser_kiosk] No display available — skipping browser open"
-            return 0
+            # Neither probe tool is available or :0 is not reachable via them.
+            # Fall through with DISPLAY=:0; the browser will exit immediately
+            # and silently if no X server is actually running.
+            export DISPLAY=:0
         fi
     fi
     local browser=""
@@ -88,7 +94,36 @@ open_browser_kiosk() {
         fi
     done
     if [ -n "$browser" ]; then
-        "$browser" --new-window --kiosk "$url" >> app.log 2>&1 &
+        # ── Pre-launch Chromium cleanup ─────────────────────────────────────
+        # When Chromium exits abnormally (e.g. after a 500 error page was open
+        # and the window was closed or the system was rebooted without a clean
+        # shutdown), it can leave two artefacts that silently prevent the next
+        # kiosk launch on Raspberry Pi:
+        #
+        #  1. SingletonLock — a stale lock file causes Chromium to try to
+        #     contact the dead previous process, fail, and on some Pi builds
+        #     exit immediately without ever showing a window.
+        #
+        #  2. exit_type = "Crashed" in Preferences — triggers the session-
+        #     restore dialog which, in --kiosk mode, can appear as a blank
+        #     or frozen screen before the real URL is loaded.
+        #
+        # Removing the lock and resetting the exit type to "Normal" before
+        # launch is the standard workaround for Pi kiosk setups.
+        local _chromium_cfg="$HOME/.config/chromium"
+        rm -f "$_chromium_cfg/SingletonLock" 2>/dev/null || true
+        local _pref="$_chromium_cfg/Default/Preferences"
+        if [ -f "$_pref" ]; then
+            sed -i 's/"exit_type"[[:space:]]*:[[:space:]]*"Crashed"/"exit_type": "Normal"/g' "$_pref" 2>/dev/null || true
+        fi
+
+        "$browser" \
+            --new-window \
+            --kiosk \
+            --noerrdialogs \
+            --disable-infobars \
+            --disable-session-crashed-bubble \
+            "$url" >> app.log 2>&1 &
         disown $! 2>/dev/null || true
     elif command -v xdg-open > /dev/null 2>&1; then
         xdg-open "$url" &
