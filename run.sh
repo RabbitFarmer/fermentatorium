@@ -26,6 +26,21 @@ export FLASK_PORT="${FLASK_PORT:-5001}"
 # The systemd service has no display — suppress the browser-open code in app.py.
 export SKIP_BROWSER_OPEN=1
 
+# Auto-update: pull the latest code from git before starting.
+# This ensures a service restart picks up any fixes pushed to the remote
+# without requiring a separate manual "Update System" step.
+# Trust assumption: the remote is the owner's own GitHub repository.
+# --ff-only limits pulls to fast-forwards only, so force-pushed or diverged
+# remotes are rejected rather than blindly applied.
+# Failures (missing .git, no network, local modifications, timeout) are logged
+# but do not prevent the service from starting with the existing code.
+if command -v git > /dev/null 2>&1 && \
+   git -C "${APP_DIR}" rev-parse --git-dir > /dev/null 2>&1; then
+    if ! timeout 60 git -C "${APP_DIR}" pull --quiet --ff-only 2>&1; then
+        echo "WARNING: auto git pull failed — starting with existing code" >&2
+    fi
+fi
+
 if [[ -x "${APP_DIR}/venv/bin/python3" ]]; then
   PY="${APP_DIR}/venv/bin/python3"
 elif [[ -x "${APP_DIR}/.venv/bin/python3" ]]; then
