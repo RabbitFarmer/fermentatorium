@@ -262,7 +262,19 @@ body, body.page-bg {
 .status-above   { color: #c00; }
 .status-below   { color: #007bff; }
 
-/* Mobile: single-column grid (phones, ≤479 px) */
+/* ════════════════════════════════════════════════════════════════════════
+   Responsive layout — 3 device classes × 2 orientations
+
+   Smartphone portrait   ≤ 479 px wide
+   Smartphone landscape  orientation:landscape + height ≤ 480 px
+   Small tablet portrait 480 – 767 px, height > 480 px
+   Tablet portrait       768 – 1023 px, portrait orientation
+   Tablet landscape      768 – 1023 px, landscape, height > 480 px
+   Desktop / 10-inch     ≥ 1024 px  (fixed-width cards, applyDisplayZoom
+                                      handles fit below the design width)
+   ════════════════════════════════════════════════════════════════════════ */
+
+/* ── Smartphone portrait  (≤ 479 px wide) ────────────────────────────── */
 @media (max-width: 479px) {
   :root { --temp-number-size: 32px; --metric-number-size: 18px; }
 
@@ -281,72 +293,150 @@ body, body.page-bg {
   .tilt-card { width: 92%; max-width: 100%; box-sizing: border-box; }
 }
 
-/* Small tablet / large phone portrait: 2-column grid (480 – 699 px) */
-@media (min-width: 480px) and (max-width: 699px) {
-  :root { --temp-number-size: 28px; --metric-number-size: 16px; }
+/* ── Smartphone landscape  (orientation: landscape + height ≤ 480 px) ── */
+/* Phones flipped sideways — narrow height (≈ 320–430 px) but often       */
+/* 568–932 px wide.  Default: 1 card per row.  Mode-3/4: 2 cards per row. */
+@media (orientation: landscape) and (max-height: 480px) {
+  :root { --temp-number-size: 24px; --metric-number-size: 14px; }
 
-  /* Same overflow guard as the ≤479 breakpoint */
   html, body { overflow-x: hidden; }
-  .page-container { max-width: 100vw; overflow-x: hidden; }
+  .page-container { max-width: 100vw; overflow-x: hidden;
+                    padding-top: 4px; padding-bottom: 8px; }
 
-  /* Keep the title readable without blowing out the viewport */
-  .dashboard-title { font-size: 26px; word-break: break-word; }
+  .dashboard-title { font-size: 16px; margin: 2px 0 4px; word-break: break-word; }
+
+  /* Compact card internals to fit portrait-width content in landscape height */
+  .tilt-banner,
+  .display-mode-3 .tilt-banner,
+  .display-mode-4 .tilt-banner { padding: 8px 10px; font-size: 16px; }
+  .tilt-batch-name,
+  .display-mode-3 .tilt-batch-name { font-size: 12px; margin-top: 2px; }
+  .tilt-body,
+  .display-mode-3 .tilt-body { padding: 4px 8px; }
+  .tilt-metrics.restore .label,
+  .display-mode-3 .tilt-metrics.restore .label { font-size: 13px; padding: 2px 4px; }
+  .tilt-metrics.restore .value { padding: 2px 4px; }
+  .tilt-footer-colored { padding: 6px 8px; font-size: 12px; }
 
   .tiltcard-container {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
+    grid-auto-rows: auto;
+    gap: 10px;
     justify-items: center;
   }
-  .tilt-card { width: 100%; max-width: 100%; box-sizing: border-box; }
-  /* display-mode-4 sets --metric-number-size: 32px at element level, overriding
-     the :root reduction above.  Re-apply the small-screen sizes explicitly so
-     numbers fit inside the narrow (~200 px) fluid columns without being clipped. */
-  .display-mode-4 {
-    --metric-number-size: 16px;
-    --temp-number-size: 28px;
-  }
-}
+  .tilt-card { width: 92%; max-width: 100%; box-sizing: border-box; }
 
-/* Portrait / narrow screens: 2-column grid (700 – 959 px) */
-@media (min-width: 700px) and (max-width: 959px) {
-  .tiltcard-container {
-    grid-template-columns: repeat(2, var(--card-width));
-  }
-  /* display-mode-3/4 have 400 px cards which overflow on typical portrait tablets
-     (2 × 400 + 24 gap + 28 padding = 852 px > 768 px).  Use fluid columns so
-     cards fill the available width without clipping.                           */
+  /* display-mode-3/4: 2 cards across in landscape */
   .display-mode-3 .tiltcard-container,
   .display-mode-4 .tiltcard-container {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     justify-items: stretch;
   }
-  .display-mode-3 .tilt-card,
-  .display-mode-4 .tilt-card,
-  .display-mode-3 .temp-ctrl-card,
-  .display-mode-4 .temp-ctrl-card {
-    width: 100%;
-  }
-  /* display-mode-4 element-level font sizes (32 px / 48 px) override :root.
-     Reduce them for this fluid-column range so values don't clip in narrow
-     cards (≈ 324 px at the 700 px end of the range).                         */
-  .display-mode-4 {
-    --metric-number-size: 24px;
-    --temp-number-size: 36px;
-  }
+  .display-mode-3 .tilt-card, .display-mode-4 .tilt-card,
+  .display-mode-3 .temp-ctrl-card, .display-mode-4 .temp-ctrl-card { width: 100%; }
+  .display-mode-3 { --metric-number-size: 14px; --temp-number-size: 22px; }
+  .display-mode-4 { --metric-number-size: 14px; --temp-number-size: 22px; }
 }
 
-/* Medium screens: 3-column grid (960 – 1299 px) */
-@media (min-width: 960px) and (max-width: 1299px) {
+/* ── Small tablet / large phone portrait  (480 – 767 px, height > 480 px) ── */
+/* Covers large phones in portrait (480 – 570 px) and small portrait tablets. */
+@media (min-width: 480px) and (max-width: 767px) and (min-height: 481px) {
+  :root { --temp-number-size: 28px; --metric-number-size: 16px; }
+
+  html, body { overflow-x: hidden; }
+  .page-container { max-width: 100vw; overflow-x: hidden; }
+  .dashboard-title { font-size: 24px; word-break: break-word; }
+
+  .tiltcard-container {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: auto;
+    justify-items: stretch;
+  }
+  .tilt-card, .temp-ctrl-card { width: 100%; max-width: 100%; box-sizing: border-box; }
+
+  /* Rein in font sizes that display-mode-3/4 set at element level */
+  .display-mode-3 { --metric-number-size: 16px; --temp-number-size: 28px; }
+  .display-mode-4 { --metric-number-size: 16px; --temp-number-size: 28px; }
+}
+
+/* ── Tablet portrait  (768 – 1023 px, portrait orientation) ─────────── */
+/* Default: 2 fluid columns.  Mode-3/4: 3 fluid columns (if 3 fits).     */
+@media (min-width: 768px) and (max-width: 1023px) and (orientation: portrait) {
+  :root { --temp-number-size: 30px; --metric-number-size: 18px; }
+
+  .dashboard-title { font-size: 28px; }
+  .tiltcard-container {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: auto;
+    justify-items: stretch;
+  }
+  .tilt-card, .temp-ctrl-card { width: 100%; }
+
+  /* 3-across and 4-across modes: 3 fluid columns */
+  .display-mode-3 .tiltcard-container,
+  .display-mode-4 .tiltcard-container {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .display-mode-3 .tilt-card, .display-mode-4 .tilt-card,
+  .display-mode-3 .temp-ctrl-card, .display-mode-4 .temp-ctrl-card { width: 100%; }
+  .display-mode-3 { --metric-number-size: 18px; --temp-number-size: 28px; }
+  .display-mode-4 { --metric-number-size: 18px; --temp-number-size: 28px; }
+}
+
+/* ── Tablet landscape  (768 – 1023 px, landscape, height > 480 px) ───── */
+/* Default: 3 fluid columns.  Mode-4: 4 fluid columns.                   */
+/* Card internals are compacted so two rows of cards fit the viewport.   */
+@media (min-width: 768px) and (max-width: 1023px) and (orientation: landscape) and (min-height: 481px) {
+  :root { --temp-number-size: 28px; --metric-number-size: 16px; }
+
+  /* Compact card internals — targets ~270–300 px card height so that two   */
+  /* rows of cards (tilt + TC) fit within a typical 768 px landscape viewport */
+  .tilt-banner,
+  .display-mode-3 .tilt-banner,
+  .display-mode-4 .tilt-banner { padding: 10px 12px; font-size: 18px; }
+  .tilt-batch-name,
+  .display-mode-3 .tilt-batch-name { font-size: 14px; margin-top: 2px; }
+  .tilt-body,
+  .display-mode-3 .tilt-body { padding: 5px 10px; }
+  .tilt-metrics.restore .label,
+  .display-mode-3 .tilt-metrics.restore .label { font-size: 14px; padding: 3px 5px; font-weight: 700; }
+  .tilt-metrics.restore th.right-header,
+  .display-mode-3 .tilt-metrics.restore th.right-header { font-size: 12px; padding: 3px 5px; }
+  .tilt-metrics.restore .value { padding: 3px 5px; }
+  .display-mode-3 .tilt-metrics.restore td:nth-child(2) .metric-number { font-size: 14px; }
+  .tilt-footer-colored { padding: 7px 10px; font-size: 13px; }
+
+  .tiltcard-container {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-rows: auto;
+    justify-items: stretch;
+  }
+  .tilt-card, .temp-ctrl-card { width: 100%; }
+
+  /* 4-across mode: 4 fluid columns */
+  .display-mode-4 .tiltcard-container {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .display-mode-3 .tilt-card, .display-mode-4 .tilt-card,
+  .display-mode-3 .temp-ctrl-card, .display-mode-4 .temp-ctrl-card { width: 100%; }
+  .display-mode-3 { --metric-number-size: 16px; --temp-number-size: 26px; }
+  .display-mode-4 { --metric-number-size: 16px; --temp-number-size: 26px; }
+}
+
+/* ── Desktop / 10-inch monitor  (≥ 1024 px) ─────────────────────────── */
+/* Fixed-width columns.  applyDisplayZoom scales the container down so   */
+/* mode-3 (design width 1276 px) and mode-4 (design width 1724 px) fit  */
+/* any viewport ≥ 1024 px without overflowing.                           */
+@media (min-width: 1024px) and (max-width: 1299px) {
   .tiltcard-container {
     grid-template-columns: repeat(3, var(--card-width));
   }
-  /* display-mode-3: show 3 columns here too — applyDisplayZoom scales the page
-     down so 3 × 400 px fits even at ~960 px (landscape tablet).              */
-  /* display-mode-4: show 4 columns — applyDisplayZoom scales the page down so
-     4 × 400 px fits on a landscape tablet (ZOOM_THRESHOLD_4 = 960).          */
+  /* mode-4: 4 fixed columns — applyDisplayZoom handles the width */
   .display-mode-4 .tiltcard-container {
     grid-template-columns: repeat(4, var(--card-width));
   }
 }
+/* ≥ 1300 px: base styles take over (4-col default, 3-col mode-3, 4-col mode-4) */
 
 /* ── Top navigation bar (main display) ── */
 .top-nav-bar {
@@ -372,7 +462,7 @@ body, body.page-bg {
 .nav-btn.nav-btn-exit     { background: #c91f1f; }
 .nav-btn.nav-btn-exit:hover { background: #a01818; }
 
-@media (max-width: 699px) {
+@media (max-width: 767px) {
   .nav-btn { font-size: 13px; padding: 7px 12px; }
 }
 
