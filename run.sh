@@ -34,10 +34,34 @@ export SKIP_BROWSER_OPEN=1
 # remotes are rejected rather than blindly applied.
 # Failures (missing .git, no network, local modifications, timeout) are logged
 # but do not prevent the service from starting with the existing code.
-if command -v git > /dev/null 2>&1 && \
-   git -C "${APP_DIR}" rev-parse --git-dir > /dev/null 2>&1; then
-    if ! timeout 60 git -C "${APP_DIR}" pull --quiet --ff-only 2>&1; then
-        echo "WARNING: auto git pull failed — starting with existing code" >&2
+_REMOTE_URL="https://github.com/RabbitFarmer/fermentatorium.git"
+
+if command -v git > /dev/null 2>&1; then
+    if ! git -C "${APP_DIR}" rev-parse --git-dir > /dev/null 2>&1; then
+        # No .git directory — this installation was deployed without git
+        # (e.g. via deploy_to_opt.sh which excludes .git/).  Initialise git
+        # in-place so this and all future restarts can auto-update normally.
+        # Config files and runtime data are gitignored and will not be touched.
+        echo "No git repository found at ${APP_DIR} — initialising git in-place to enable auto-updates …" >&2
+        _git_ok=true
+        git -C "${APP_DIR}" init > /dev/null 2>&1 || _git_ok=false
+        # set-url is safe whether or not 'origin' already exists (idempotent);
+        # if origin is absent, add it instead.
+        if ! git -C "${APP_DIR}" remote set-url origin "${_REMOTE_URL}" > /dev/null 2>&1; then
+            git -C "${APP_DIR}" remote add origin "${_REMOTE_URL}" > /dev/null 2>&1 || _git_ok=false
+        fi
+        timeout 120 git -C "${APP_DIR}" fetch --quiet origin main > /dev/null 2>&1 || _git_ok=false
+        git -C "${APP_DIR}" reset --hard origin/main > /dev/null 2>&1 || _git_ok=false
+        if [ "${_git_ok}" = "true" ]; then
+            echo "Git bootstrap complete — running with latest code." >&2
+        else
+            echo "WARNING: git bootstrap failed — starting with existing code." >&2
+        fi
+    else
+        # .git exists — do a normal fast-forward pull.
+        if ! timeout 60 git -C "${APP_DIR}" pull --quiet --ff-only 2>&1; then
+            echo "WARNING: auto git pull failed — starting with existing code" >&2
+        fi
     fi
 fi
 
