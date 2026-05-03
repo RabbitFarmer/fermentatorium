@@ -51,7 +51,11 @@ clone_or_update_repo() {
         # Initialise git in-place so the existing files and user data are kept.
         echo "→ ${OPT_DIR} exists without a git repo — initialising git in-place …"
         git -C "${OPT_DIR}" init
-        git -C "${OPT_DIR}" remote add origin "${REMOTE_URL}"
+        # set-url is idempotent if 'origin' already exists from a previous
+        # partial run; fall back to add only when origin is truly absent.
+        if ! git -C "${OPT_DIR}" remote set-url origin "${REMOTE_URL}" 2>/dev/null; then
+            git -C "${OPT_DIR}" remote add origin "${REMOTE_URL}"
+        fi
         git -C "${OPT_DIR}" fetch origin
         git -C "${OPT_DIR}" reset --hard origin/main
         echo "  ✓ git initialised and reset to latest code"
