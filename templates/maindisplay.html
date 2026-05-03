@@ -317,6 +317,35 @@
       .tc-value-current { font-size: 22px; }
     }
 
+    /* ── Tablet landscape — compact TC card so two rows fit the viewport ── */
+    @media (min-width: 768px) and (max-width: 1023px) and (orientation: landscape) and (min-height: 481px) {
+      .tc-header,
+      .display-mode-3 .tc-header,
+      .display-mode-4 .tc-header { font-size: 16px; padding: 8px 10px 6px; }
+      .tc-body,
+      .display-mode-3 .tc-body { padding: 4px 10px; }
+      .tc-label,
+      .display-mode-3 .tc-label { font-size: 13px; }
+      .tc-mode-label,
+      .tc-mode-value,
+      .display-mode-3 .tc-mode-label,
+      .display-mode-3 .tc-mode-value { font-size: 13px; }
+      .tc-value-box { font-size: 15px; min-width: 72px; padding: 4px 5px; }
+      .display-mode-3 .tc-value-box { font-size: 15px; min-width: 72px; }
+      .tc-value-current,
+      .display-mode-3 .tc-value-current { font-size: 20px; padding: 4px 5px; }
+      .tc-status,
+      .display-mode-3 .tc-status { font-size: 13px; margin: 3px 0 4px; }
+      .tc-notifications,
+      .display-mode-3 .tc-notifications { font-size: 13px; margin-top: 4px; }
+      .tc-mode-row,
+      .display-mode-3 .tc-mode-row { padding: 2px 0 4px; margin-bottom: 4px; }
+      .tc-grid,
+      .display-mode-3 .tc-grid { gap: 6px 8px; grid-template-columns: 1fr 90px; }
+      .tc-footer,
+      .display-mode-3 .tc-footer { padding: 6px 10px; }
+    }
+
     /* ── Gear-menu (settings dropdown) ── */
     .gear-menu-wrapper {
       position: absolute;
@@ -853,28 +882,49 @@
        TC cards (.temp-ctrl-card) carry data-for-tilt="<Color>" so we can match
        them to their tilt card and place them in the same column as the tilt and
        in the immediately following grid row (tilt's row + 1).
-       Column count mirrors the CSS breakpoints so TC cards stay anchored even
-       on 2-column tablet layouts (480–959 px). */
+       Column count mirrors the CSS breakpoints so TC cards stay anchored across
+       all device sizes and orientations. */
     function positionTempCards() {
       var pageContainer = document.querySelector('.page-container');
       var container     = document.querySelector('.tiltcard-container');
       if (!pageContainer || !container) return;
 
-      var w   = window.innerWidth;
-      var is3 = pageContainer.classList.contains('display-mode-3');
-      var is4 = pageContainer.classList.contains('display-mode-4');
+      var w      = window.innerWidth;
+      var h      = window.innerHeight;
+      var isPort = window.matchMedia('(orientation: portrait)').matches;
+      var is3    = pageContainer.classList.contains('display-mode-3');
+      var is4    = pageContainer.classList.contains('display-mode-4');
 
       // Derive column count to match the active CSS grid breakpoint:
-      //   ≤479 px  → 1 col  (phone single-column)
-      //   480–699  → 2 cols (small tablet / large phone portrait)
-      //   700–959  → 2 cols (tablet portrait — all display modes)
-      //   960–1299 → 3 cols for display-mode-3, 4 for display-mode-4, 3 otherwise
-      //   ≥1300    → 3 cols for display-mode-3, 4 otherwise
+      //   ≤479 px              → 1 col  (phone portrait)
+      //   landscape + h≤480   → 1 col default; 2 for mode-3/4  (phone landscape)
+      //   480–767 + h>480     → 2 cols (small tablet / large phone portrait)
+      //   768–1023 + portrait → 2 cols default; 3 for mode-3/4  (tablet portrait)
+      //   768–1023 + landscape + h>480 → 3 default; 4 for mode-4  (tablet landscape)
+      //   1024–1299           → 3 default/mode-3; 4 for mode-4  (desktop)
+      //   ≥1300               → 3 for mode-3; 4 otherwise  (large desktop)
       var cols;
-      if (w <= 479)       cols = 1;
-      else if (w <= 959)  cols = 2;
-      else if (w <= 1299) cols = is4 ? 4 : 3;
-      else                cols = is3 ? 3 : 4;
+      if (w <= 479) {
+        cols = 1;
+      } else if (!isPort && h <= 480) {
+        // Smartphone landscape
+        cols = (is3 || is4) ? 2 : 1;
+      } else if (w <= 767) {
+        // Small tablet / large phone portrait
+        cols = 2;
+      } else if (w <= 1023 && isPort) {
+        // Tablet portrait
+        cols = (is3 || is4) ? 3 : 2;
+      } else if (w <= 1023 && !isPort) {
+        // Tablet landscape
+        cols = is4 ? 4 : 3;
+      } else if (w <= 1299) {
+        // Desktop medium
+        cols = is4 ? 4 : 3;
+      } else {
+        // Large desktop
+        cols = is3 ? 3 : 4;
+      }
 
       // Single-column: clear explicit positions and let the grid auto-flow
       if (cols === 1) {
@@ -1494,15 +1544,15 @@
   // down to fit the physical viewport.
   //
   // display-mode-3: 3 × 400 px + 2 × 24 px gap + 2 × 14 px padding = 1276 px
-  //   zoom when 960 ≤ physVW < 1276.  Below 960 px CSS fluid layout handles it.
+  //   zoom when 1024 ≤ physVW < 1276.  Below 1024 px CSS fluid layout handles it.
   // display-mode-4: 4 × 400 px + 3 × 24 px gap + 2 × 14 px padding = 1700 px
   //   (page max-width: 1724 px)
-  //   zoom when 960 ≤ physVW < 1724.  Below 960 px CSS fluid layout handles it.
+  //   zoom when 1024 ≤ physVW < 1724.  Below 1024 px CSS fluid layout handles it.
   (function () {
     var DESIGN_WIDTH_4 = 1724;
     var DESIGN_WIDTH_3 = 1276;
-    var ZOOM_THRESHOLD_4 = 960;    // below this, CSS shows fluid col for mode-4
-    var ZOOM_THRESHOLD_3 = 960;    // below this, CSS shows 2-col fluid for mode-3
+    var ZOOM_THRESHOLD_4 = 1024;   // below this, CSS shows fluid cols for mode-4
+    var ZOOM_THRESHOLD_3 = 1024;   // below this, CSS shows fluid cols for mode-3
     function applyDisplayZoom() {
       var el = document.querySelector('.page-container');
       if (!el) return;
