@@ -2096,17 +2096,17 @@ def forward_to_third_party_if_configured(payload):
                 method = "POST"
                 send_json = False
             else:
-                # /stream/ and other BF endpoints expect a JSON body.
-                _excel_epoch = datetime(1899, 12, 30)
-                timepoint = (now_dt - _excel_epoch).total_seconds() / 86400.0
+                # /stream/ and other BF endpoints expect a JSON body using the
+                # Device Stream API field names documented at
+                # https://log.brewersfriend.com/stream/:api_key
                 forwarding_payload = {
                     "name": f"Ferm_{tilt_color.lower()}",
-                    "Timepoint": timepoint,
-                    "Temp": temp_f,
-                    "SG": gravity,
-                    "Beer": beer_name or "",
-                    "Color": tilt_color.upper(),
-                    "Comment": "",
+                    "temp": temp_f,
+                    "temp_unit": "F",
+                    "gravity": gravity,
+                    "gravity_unit": "G",
+                    "beer": beer_name or "",
+                    "comment": "",
                 }
                 method = "POST"
                 send_json = True
