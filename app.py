@@ -1896,7 +1896,6 @@ def write_normalized_tilt_reading(payload, event_name="tilt_reading"):
         return False
 
 _EXTERNAL_LOG_FILE = os.path.join("logs", "external_logging.jsonl")
-_EXTERNAL_TRANSACTIONS_LOG_FILE = os.path.join("logs", "external_transactions.jsonl")
 
 def _write_external_log(tilt_color, url, service, success, status_code=None, error=None,
                         payload=None, response_body=None):
@@ -1924,31 +1923,6 @@ def _write_external_log(tilt_color, url, service, success, status_code=None, err
             f.write(json.dumps(entry) + "\n")
     except Exception as exc:
         print(f"[LOG] Failed to write external_logging.jsonl: {exc}")
-
-
-def _write_external_transactions_log(tilt_color, url, service, payload):
-    """Append one JSON line to logs/external_transactions.jsonl with the exact
-    payload that is about to be sent to the external service.
-
-    Only writes when 'enable_external_transactions_log' is True in system_cfg.
-    This log is written immediately before each HTTP transmission so the exact
-    data-as-received by the remote service is always captured.
-    """
-    try:
-        if not system_cfg.get("enable_external_transactions_log", False):
-            return
-        os.makedirs("logs", exist_ok=True)
-        entry = {
-            "ts": _now_ts(),
-            "tilt": tilt_color,
-            "service": service or "user_defined",
-            "url": url,
-            "payload": payload,
-        }
-        with open(_EXTERNAL_TRANSACTIONS_LOG_FILE, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry) + "\n")
-    except Exception as exc:
-        print(f"[LOG] Failed to write external_transactions.jsonl: {exc}")
 
 
 def forward_to_third_party_if_configured(payload):
@@ -2146,9 +2120,6 @@ def forward_to_third_party_if_configured(payload):
         timeout = int(url_config.get("timeout_seconds", 8))
         headers = {}
         try:
-            # Pre-send: log the exact payload to external_transactions.jsonl before
-            # transmitting (only when the External Transactions log is enabled).
-            _write_external_transactions_log(color, url, effective_service, forwarding_payload)
             if send_json:
                 headers["Content-Type"] = "application/json"
                 resp = requests.request(method, url, json=forwarding_payload, headers=headers, timeout=timeout)
@@ -2566,8 +2537,8 @@ def send_warning(subject, body):
 def send_temp_control_notification(event_type, temp, low_limit, high_limit, tilt_color):
     """
     Send notifications for temperature control events if enabled in settings.
-    Uses the pending queue system with deduplication to prevent duplicate alerts.
-    
+    Sends immediately; uses the retry queue on failure.
+
     Handles all temperature control events: temp limits, heating/cooling on/off.
     Users can individually enable/disable each notification type.
     """
@@ -2601,15 +2572,18 @@ Tilt Color: {tilt_color}
 
 {caption}"""
     
-    # Queue notification with 10-second delay for deduplication
-    # Use tilt_color as brewid since temp control is per-tilt
-    queue_pending_notification(
-        notification_type=event_type,
-        subject=subject,
-        body=body,
-        brewid=tilt_color,  # Use tilt_color as identifier for temp control
-        color=tilt_color
-    )
+    # Send immediately; deduplication is already guaranteed by the new_state != previous_state
+    # check in kasa_result_listener before this function is ever called.
+    success = attempt_send_notifications(subject, body)
+    if not success:
+        # Queue for retry with exponential backoff if the initial send fails.
+        queue_notification_retry(
+            notification_type=event_type,
+            subject=subject,
+            body=body,
+            brewid=tilt_color,
+            color=tilt_color,
+        )
 
 def send_safety_shutdown_notification(tilt_color, low_limit, high_limit):
     """
@@ -3061,17 +3035,8 @@ Gravity now: {current_gravity:.3f}"""
         # Users can check logs/UI to see if notifications failed
         save_notification_state_to_config(color, brewid)
         
-        # Log the event to batch JSONL and send notification
+        # Log the event to batch JSONL and send notification immediately
         log_event('fermentation_starting', body, tilt_color=color)
-        
-        # Queue notification with 10-second delay for deduplication
-        queue_pending_notification(
-            notification_type='fermentation_start',
-            subject=subject,
-            body=body,
-            brewid=brewid,
-            color=color
-        )
 
 def check_fermentation_completion(color, brewid, cfg, state):
     """
@@ -3160,17 +3125,8 @@ Gravity has been stable for 24 hours: {current_gravity:.3f}"""
     # Users can check logs/UI to see if notifications failed
     save_notification_state_to_config(color, brewid)
     
-    # Log the event to batch JSONL and send notification
+    # Log the event to batch JSONL and send notification immediately
     log_event('fermentation_completion', body, tilt_color=color)
-    
-    # Queue notification with 10-second delay for deduplication
-    queue_pending_notification(
-        notification_type='fermentation_completion',
-        subject=subject,
-        body=body,
-        brewid=brewid,
-        color=color
-    )
 
 def check_signal_loss():
     """
@@ -5525,7 +5481,6 @@ def update_system_config():
         "ntfy_server": data.get("ntfy_server", system_cfg.get("ntfy_server", "https://ntfy.sh")),
         "ntfy_topic": data.get("ntfy_topic", system_cfg.get("ntfy_topic", "")),
         "enable_kasa_activity_log": 'enable_kasa_activity_log' in data,
-        "enable_external_transactions_log": 'enable_external_transactions_log' in data,
     })
     
     # Update temperature control notifications settings
@@ -8227,13 +8182,6 @@ def log_management():
         if os.path.exists(_EXTERNAL_LOG_FILE):
             external_logging_size = _format_file_size(os.path.getsize(_EXTERNAL_LOG_FILE))
             external_logging_last_post = _get_log_last_timestamp(_EXTERNAL_LOG_FILE)
-
-        # Get external transactions log info
-        external_transactions_size = "0 bytes"
-        external_transactions_last_post = None
-        if os.path.exists(_EXTERNAL_TRANSACTIONS_LOG_FILE):
-            external_transactions_size = _format_file_size(os.path.getsize(_EXTERNAL_TRANSACTIONS_LOG_FILE))
-            external_transactions_last_post = _get_log_last_timestamp(_EXTERNAL_TRANSACTIONS_LOG_FILE)
         
         # Get application logs
         app_logs = []
@@ -8340,8 +8288,6 @@ def log_management():
                              notifications_log_last_post=notifications_log_last_post,
                              external_logging_size=external_logging_size,
                              external_logging_last_post=external_logging_last_post,
-                             external_transactions_size=external_transactions_size,
-                             external_transactions_last_post=external_transactions_last_post,
                              app_logs=app_logs,
                              batches=batches,
                              success_message=request.args.get('success'),
@@ -8445,7 +8391,7 @@ def view_log():
             filepath = 'logs/notifications_log.jsonl'
         elif log_type == 'external':
             # External logging activity log
-            if log_file not in ('external_logging.jsonl', 'external_transactions.jsonl'):
+            if log_file != 'external_logging.jsonl':
                 return "Invalid external log file name", 400
             filepath = os.path.join('logs', log_file)
         else:
@@ -8654,21 +8600,6 @@ def archive_external_log():
         print(f"[LOG] Error archiving external logging log: {e}")
         return redirect(url_for('log_management', error=f'Error archiving log: {str(e)}'))
 
-
-@app.route('/archive_external_transactions_log', methods=['POST'])
-def archive_external_transactions_log():
-    """Archive and reset the External Transactions log."""
-    try:
-        if os.path.exists(_EXTERNAL_TRANSACTIONS_LOG_FILE):
-            backup_name = f"{_EXTERNAL_TRANSACTIONS_LOG_FILE}.{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.bak"
-            shutil.copy2(_EXTERNAL_TRANSACTIONS_LOG_FILE, backup_name)
-            open(_EXTERNAL_TRANSACTIONS_LOG_FILE, 'w').close()
-            return redirect(url_for('log_management', success='External Transactions log archived and reset'))
-        else:
-            return redirect(url_for('log_management', error='External Transactions log not found'))
-    except Exception as e:
-        print(f"[LOG] Error archiving external transactions log: {e}")
-        return redirect(url_for('log_management', error=f'Error archiving log: {str(e)}'))
 
 
 @app.route('/export_batch_csv', methods=['POST'])
