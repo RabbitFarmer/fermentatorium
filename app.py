@@ -5275,36 +5275,31 @@ def periodic_batch_monitoring():
             # Process notification retry queue with exponential backoff
             process_notification_retries()
             
-            # Check if it's time for daily reports
+            # Check if it's time for daily reports.
+            # Use a date-based approach: fire on the first check that is
+            # at-or-after the configured report time and hasn't yet run today.
+            # This is robust regardless of when the app started or exactly when
+            # the monitoring loop wakes up (no narrow time-window to miss).
+            #
+            # If the app (re)starts after the report time on a given day, the
+            # report fires on the first monitoring iteration.  That is intentional:
+            # the user hasn't received today's report yet.  send_daily_report()
+            # has its own per-brewid 23-hour cooldown guard (last_daily_report,
+            # persisted in tilt_config.json) that prevents duplicate sends even
+            # across app restarts.
             notif_cfg = system_cfg.get('batch_notifications', {})
             daily_report_time = notif_cfg.get('daily_report_time', '09:00')  # Default 9 AM
-            
+
             now = datetime.now()  # Use local time to match user's configured time
-            current_time_str = now.strftime('%H:%M')
-            
-            # Check if we should send daily report (within 5 minute window)
+
             if daily_report_time:
                 try:
                     report_hour, report_min = map(int, daily_report_time.split(':'))
-                    current_hour = now.hour
-                    current_min = now.minute
-                    
-                    # Check if current time is within DAILY_REPORT_WINDOW_MINUTES of report time
-                    # Convert both times to minutes since midnight for accurate comparison
-                    current_minutes = current_hour * 60 + current_min
-                    report_minutes = report_hour * 60 + report_min
-                    
-                    # Handle midnight boundary (e.g., report at 23:58, current 00:01)
-                    minute_diff = abs(current_minutes - report_minutes)
-                    # If difference is greater than 12 hours, we crossed midnight
-                    if minute_diff > 720:  # 720 = 12 hours in minutes
-                        minute_diff = 1440 - minute_diff  # 1440 = 24 hours in minutes
-                    
-                    time_match = minute_diff < DAILY_REPORT_WINDOW_MINUTES
-                    
-                    # Only send once per day
-                    if time_match:
-                        if not last_daily_check or (now - last_daily_check).total_seconds() > 3600:
+                    report_time_reached = (now.hour, now.minute) >= (report_hour, report_min)
+
+                    if report_time_reached:
+                        today = now.date()
+                        if last_daily_check is None or last_daily_check.date() < today:
                             send_daily_report()
                             last_daily_check = now
                 except Exception as e:
