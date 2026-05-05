@@ -2537,7 +2537,9 @@ def send_warning(subject, body):
 def send_temp_control_notification(event_type, temp, low_limit, high_limit, tilt_color):
     """
     Send notifications for temperature control events if enabled in settings.
-    Sends immediately; uses the retry queue on failure.
+    Sends immediately via attempt_send_notifications(); on failure queues for
+    retry with exponential backoff. Deduplication is handled upstream by the
+    new_state != previous_state check in kasa_result_listener.
 
     Handles all temperature control events: temp limits, heating/cooling on/off.
     Users can individually enable/disable each notification type.
@@ -3035,7 +3037,7 @@ Gravity now: {current_gravity:.3f}"""
         # Users can check logs/UI to see if notifications failed
         save_notification_state_to_config(color, brewid)
         
-        # Log the event to batch JSONL and send notification immediately
+        # Log the event to batch JSONL; send_notification() is called by log_event()
         log_event('fermentation_starting', body, tilt_color=color)
 
 def check_fermentation_completion(color, brewid, cfg, state):
@@ -3125,7 +3127,7 @@ Gravity has been stable for 24 hours: {current_gravity:.3f}"""
     # Users can check logs/UI to see if notifications failed
     save_notification_state_to_config(color, brewid)
     
-    # Log the event to batch JSONL and send notification immediately
+    # Log the event to batch JSONL; send_notification() is called by log_event()
     log_event('fermentation_completion', body, tilt_color=color)
 
 def check_signal_loss():
