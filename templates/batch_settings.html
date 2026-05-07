@@ -241,13 +241,35 @@
             <button type="button" onclick="window.location='/batch_settings'" class="btn-secondary">Cancel</button>
           </div>
         </form>
+
+        {# ── Archive / Resume recording ── #}
+        {% set is_paused = tilt_cfg.get(selected_tilt, {}).get('tracking_paused', false) %}
+        <div style="margin-top:20px; padding:14px; background:#fff8e1; border:1px solid #ffe082; border-radius:8px;">
+          <div class="heading" style="font-size:1em; color:#795548; margin-bottom:6px;">Recording Control</div>
+          {% if is_paused %}
+            <p style="margin:0 0 10px; font-size:0.93em; color:#795548;">
+              ⏸️ <strong>Tracking is paused</strong> for this Tilt. Gravity and temperature readings are no longer being
+              recorded and fermentation notifications are suppressed.
+              Temperature control continues to operate normally while paused.
+            </p>
+            <button type="button" class="btn-primary" onclick="resumeTracking('{{ selected_tilt }}')">▶ Resume Recording</button>
+          {% else %}
+            <p style="margin:0 0 10px; font-size:0.93em; color:#795548;">
+              Use <strong>Archive</strong> to stop recording gravity/temperature readings and suppress fermentation
+              notifications for this Tilt without closing the batch. Temperature control will continue to run as long
+              as its switch is on. Recording resumes automatically when you save a new batch here.
+            </p>
+            <button type="button" style="background-color:#6D4C41; color:#fff; border:none; padding:8px 18px; border-radius:6px; cursor:pointer; font-weight:700;"
+                    onclick="pauseTracking('{{ selected_tilt }}')">⏸ Archive (Stop Recording)</button>
+          {% endif %}
+        </div>
         {% if batch_history %}
           <div style="margin-top:12px;">
             <div class="heading">Batch History for {{ selected_tilt }}</div>
             <ul>
               {% for b in batch_history %}
                 <li>
-                  <a href="{{ url_for('batch_review', brewid=b.brewid) }}" style="text-decoration:none; color:#1a6;">
+                  <a href="{{ url_for('batch_review', brewid=b.brewid) }}?from=history" style="text-decoration:none; color:#1a6;">
                     {{ b.ferm_start_date }} — {{ b.beer_name }} / {{ b.batch_name }}
                   </a>
                 </li>
@@ -288,6 +310,28 @@
           ? (LIVE_GRAVITY + gv).toFixed(3)
           : '--';
       }
+    }
+    function pauseTracking(color) {
+      if (!confirm('Stop recording for ' + color + '? Temperature control will keep running. You can resume at any time.')) return;
+      fetch('/pause_tilt_tracking', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'color=' + encodeURIComponent(color)
+      }).then(r => r.json()).then(d => {
+        if (d.success) { window.location.reload(); }
+        else { alert('Error: ' + (d.error || 'Unknown error')); }
+      });
+    }
+
+    function resumeTracking(color) {
+      fetch('/resume_tilt_tracking', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'color=' + encodeURIComponent(color)
+      }).then(r => r.json()).then(d => {
+        if (d.success) { window.location.reload(); }
+        else { alert('Error: ' + (d.error || 'Unknown error')); }
+      });
     }
   </script>
 </body>
