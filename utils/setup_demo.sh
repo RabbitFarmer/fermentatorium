@@ -56,10 +56,26 @@ if [ ! -f "config/system_config.json" ]; then
     cp config/system_config.json.template config/system_config.json
 fi
 
+# Always ensure the brewery name is set correctly for the demo
+python3 -c "
+import json
+path = 'config/system_config.json'
+with open(path, 'r') as f:
+    cfg = json.load(f)
+cfg['brewery_name'] = 'The Tilt Fermentatorium'
+with open(path, 'w') as f:
+    json.dump(cfg, f, indent=2)
+print('  Brewery name set to: The Tilt Fermentatorium')
+"
+
 if [ ! -f "config/temp_control_config.json" ]; then
     echo "  Creating config/temp_control_config.json from template..."
     cp config/temp_control_config.json.template config/temp_control_config.json
 fi
+
+echo ""
+echo "Generating demo batch data..."
+python3 utils/generate_demo_data.py
 
 echo ""
 echo "Verifying demo data..."

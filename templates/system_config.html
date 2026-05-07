@@ -485,14 +485,7 @@
             </td>
             <td><input type="checkbox" name="enable_fermentation_completion" id="enable_fermentation_completion" {% if system_settings.get('batch_notifications', {}).get('enable_fermentation_completion', True) %}checked{% endif %}></td>
           </tr>
-          <tr>
-            <td><label for="enable_daily_report"><b>Daily Progress Report</b></label></td>
-            <td><input type="checkbox" name="enable_daily_report" id="enable_daily_report" {% if system_settings.get('batch_notifications', {}).get('enable_daily_report', True) %}checked{% endif %}></td>
-          </tr>
-          <tr>
-            <td><label for="daily_report_time"><b>Daily Report Time (HH:MM, 24-hour format)</b></label></td>
-            <td><input type="time" name="daily_report_time" id="daily_report_time" value="{{ system_settings.get('batch_notifications', {}).get('daily_report_time', '09:00') }}"></td>
-          </tr>
+
         </table>
 
         <h3 style="text-align: center; margin-top: 30px;">Activity Logging Options</h3>

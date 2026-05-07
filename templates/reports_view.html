@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ report_title }} — Fermentatorium Report</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    .rpt-container { max-width:1100px; margin:18px auto; padding:24px; background:#fff; border-radius:8px; box-shadow:0 1px 6px rgba(0,0,0,0.06); }
+    .rpt-header { border-bottom:3px solid #8B4513; padding-bottom:14px; margin-bottom:20px; }
+    .rpt-title  { font-size:1.7em; font-weight:900; color:#8B4513; }
+    .rpt-meta   { font-size:0.92em; color:#555; margin-top:4px; }
+
+    /* Summary cards (same style as batch_review info-card) */
+    .info-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin-bottom:20px; }
+    .info-card { padding:12px; background:#f9f9f9; border-radius:6px; border-left:4px solid #8B4513; }
+    .info-label { font-weight:700; color:#666; font-size:0.87em; }
+    .info-value { font-size:1.1em; margin-top:4px; color:#222; }
+
+    /* Section headings */
+    .sec-heading { font-size:1.1em; font-weight:800; color:#333; margin:24px 0 10px;
+                   padding-bottom:6px; border-bottom:2px solid #ddd; }
+
+    /* Data tables */
+    .rpt-table { width:100%; border-collapse:collapse; font-size:0.9em; margin-bottom:16px; }
+    .rpt-table th { background:#8B4513; color:#fff; padding:9px 12px; text-align:left; }
+    .rpt-table td { padding:8px 12px; border-bottom:1px solid #eee; }
+    .rpt-table tr:nth-child(even) td { background:#f9f9f9; }
+
+    /* Action bar */
+    .action-bar { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:20px; }
+    .btn-print  { padding:10px 22px; background:#4CAF50; color:#fff; border:none;
+                  border-radius:5px; font-size:0.95em; font-weight:700; cursor:pointer; }
+    .btn-csv    { padding:10px 22px; background:#2196F3; color:#fff; border:none;
+                  border-radius:5px; font-size:0.95em; font-weight:700; cursor:pointer;
+                  text-decoration:none; display:inline-block; }
+    .btn-back   { padding:10px 22px; background:#8B4513; color:#fff; border:none;
+                  border-radius:5px; font-size:0.95em; font-weight:700; cursor:pointer; }
+
+    /* Print overrides */
+    @media print {
+      .no-print { display:none !important; }
+      .rpt-container { box-shadow:none; margin:0; padding:10px; border-radius:0; }
+      body { background:#fff; }
+    }
+  </style>
+</head>
+<body class="page-bg">
+<div class="page-container">
+  <div class="rpt-container">
+
+    <!-- Action bar (hidden when printing) -->
+    <div class="action-bar no-print">
+      <button class="btn-back" onclick="window.location='{{ url_for('reports') }}'">← Back to Reports</button>
+      <button class="btn-print" onclick="window.print()">🖨 Print / Save PDF</button>
+      <a class="btn-csv" href="{{ csv_url }}">⬇ Export CSV</a>
+    </div>
+
+    <!-- Report header -->
+    <div class="rpt-header">
+      <div class="rpt-title">{{ report_title }}</div>
+      <div class="rpt-meta">
+        {{ batch.beer_name or 'Unnamed' }}{% if batch.batch_name %} — {{ batch.batch_name }}{% endif %} &bull;
+        Tilt: {{ color }} &bull;
+        {% if batch.ferm_start_date %}Started: {{ batch.ferm_start_date }}{% endif %}
+        {% if not batch.get('is_active', True) %} &bull; <em>Closed</em>{% endif %}
+        &bull; Generated {{ generated_at }}
+      </div>
+    </div>
+
+    <!-- ── Batch overview cards ── -->
+    <div class="sec-heading">Batch Overview</div>
+    <div class="info-grid">
+      <div class="info-card"><div class="info-label">Beer Name</div><div class="info-value">{{ batch.beer_name or '—' }}</div></div>
+      <div class="info-card"><div class="info-label">Batch Name</div><div class="info-value">{{ batch.batch_name or '—' }}</div></div>
+      <div class="info-card"><div class="info-label">Tilt Color</div><div class="info-value" style="color:{{ color_code }}; font-weight:700;">{{ color }}</div></div>
+      <div class="info-card"><div class="info-label">Start Date</div><div class="info-value">{{ batch.ferm_start_date or '—' }}</div></div>
+      <div class="info-card"><div class="info-label">Recipe OG</div><div class="info-value">{{ batch.recipe_og or '—' }}</div></div>
+      <div class="info-card"><div class="info-label">Recipe FG</div><div class="info-value">{{ batch.recipe_fg or '—' }}</div></div>
+      <div class="info-card"><div class="info-label">Recipe ABV</div><div class="info-value">{{ (batch.recipe_abv ~ '%') if batch.recipe_abv else '—' }}</div></div>
+      <div class="info-card"><div class="info-label">Brew ID</div><div class="info-value" style="font-size:0.9em;">{{ batch.brewid[:16] if batch.brewid else '—' }}</div></div>
+    </div>
+
+    {% if stats.total_readings > 0 %}
+    <!-- ── Actual / measured summary ── -->
+    <div class="sec-heading">Measured Results</div>
+    <div class="info-grid">
+      {% if stats.start_gravity is not none %}<div class="info-card"><div class="info-label">Original Gravity (actual)</div><div class="info-value">{{ "%.3f"|format(stats.start_gravity) }}</div></div>{% endif %}
+      {% if stats.end_gravity   is not none %}<div class="info-card"><div class="info-label">Final Gravity</div><div class="info-value">{{ "%.3f"|format(stats.end_gravity) }}</div></div>{% endif %}
+      {% if stats.estimated_abv is not none %}<div class="info-card"><div class="info-label">Estimated ABV</div><div class="info-value">{{ "%.2f"|format(stats.estimated_abv) }}%</div></div>{% endif %}
+      {% if stats.duration_days is not none %}<div class="info-card"><div class="info-label">Duration (days)</div><div class="info-value">{{ stats.duration_days }}</div></div>{% endif %}
+      <div class="info-card"><div class="info-label">Total Readings</div><div class="info-value">{{ stats.total_readings }}</div></div>
+      {% if stats.avg_temp is not none %}<div class="info-card"><div class="info-label">Average Temperature</div><div class="info-value">{{ "%.1f"|format(stats.avg_temp) }}°F</div></div>{% endif %}
+      {% if stats.min_temp is not none %}<div class="info-card"><div class="info-label">Min Temperature</div><div class="info-value">{{ stats.min_temp }}°F</div></div>{% endif %}
+      {% if stats.max_temp is not none %}<div class="info-card"><div class="info-label">Max Temperature</div><div class="info-value">{{ stats.max_temp }}°F</div></div>{% endif %}
+    </div>
+    {% endif %}
+
+    <!-- ── Breakdown table ── -->
+    {% if rows %}
+    <div class="sec-heading">{{ table_heading }}</div>
+    {% if date_range_note %}
+    <p style="font-size:0.88em; color:#666; margin-top:-6px; margin-bottom:12px;">{{ date_range_note }}</p>
+    {% endif %}
+    <table class="rpt-table">
+      <thead>
+        <tr>
+          {% for col in columns %}
+          <th>{{ col }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          {% for cell in row %}
+          <td>{{ cell }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:#999; font-style:italic;">No data available for this report.</p>
+    {% endif %}
+
+    <!-- ── Bottom action bar ── -->
+    <div class="action-bar no-print" style="margin-top:24px; margin-bottom:0;">
+      <button class="btn-back" onclick="window.location='{{ url_for('reports') }}'">← Back to Reports</button>
+      <button class="btn-print" onclick="window.print()">🖨 Print / Save PDF</button>
+      <a class="btn-csv" href="{{ csv_url }}">⬇ Export CSV</a>
+    </div>
+
+  </div><!-- /.rpt-container -->
+</div>
+</body>
+</html>
