@@ -8957,7 +8957,7 @@ def pause_tilt_tracking():
         return jsonify({'success': True, 'message': f'Tracking paused for {color}'})
     except Exception as e:
         print(f"[LOG] Error pausing tilt tracking: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Failed to pause tracking — check server logs'}), 500
 
 
 @app.route('/resume_tilt_tracking', methods=['POST'])
@@ -8979,7 +8979,7 @@ def resume_tilt_tracking():
         return jsonify({'success': True, 'message': f'Tracking resumed for {color}'})
     except Exception as e:
         print(f"[LOG] Error resuming tilt tracking: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': 'Failed to resume tracking — check server logs'}), 500
 
 
 @app.route('/cleanup_batch_duplicates', methods=['POST'])

@@ -243,7 +243,7 @@
         </form>
 
         {# ── Archive / Resume recording ── #}
-        {% set is_paused = tilt_cfg.get(selected_tilt, {}).get('tracking_paused', false) %}
+        {% set is_paused = tilt_cfg.get(selected_tilt, {}).get('tracking_paused', False) %}
         <div style="margin-top:20px; padding:14px; background:#fff8e1; border:1px solid #ffe082; border-radius:8px;">
           <div class="heading" style="font-size:1em; color:#795548; margin-bottom:6px;">Recording Control</div>
           {% if is_paused %}
