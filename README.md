@@ -312,6 +312,8 @@ Temperature control requires at least one TP-Link Kasa smart plug connected to a
 
 > **Plug ports:** The Heating Plug Port and Cooling Plug Port fields accept the network port number used to communicate with the Kasa device (default is auto-detected). Leave blank unless instructed otherwise by the Kasa Scan results.
 
+> **Tilt and temperature control are independent functions.** The function of the Tilt for temperature control is independent of its temperature/gravity recording function. When fermentation is complete, click on the **Close** button in ⚙ gear → Batch History. This closes the batch, taking the Tilt offline for temp/gravity reporting. However, the temperature controller will continue to operate until its switch is turned off. This is ideal for instances in which you choose to cold crash after fermentation is completed.
+
 ---
 
 ### Using Charts (Chart_Plotly)

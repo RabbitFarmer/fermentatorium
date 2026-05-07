@@ -247,6 +247,14 @@
       white-space: nowrap;
     }
 
+    /* Container for stacked pills (CHART + STATUS) */
+    .footer-pills {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-items: flex-end;
+    }
+
     /* ── Toggle switch ── */
     .footer-toggle-container {
       display: flex;
@@ -558,13 +566,20 @@
                   <div class="footer-ts">Last: <span id="footer-ts-{{ safe }}">{{ tilt.timestamp | localtime }}</span></div>
                   <div class="footer-ferm-start" id="footer-ferm-start-{{ safe }}">
                     {%- if tilt.ferm_start_date %}
-                      Start: {{ tilt.ferm_start_date }} &nbsp;|&nbsp; Day {{ tilt.ferm_start_date | ferm_days }}
+                      Start: {{ tilt.ferm_start_date }} &nbsp;|&nbsp; Day {{ tilt.ferm_start_date | ferm_days(tilt.ferm_complete_date or '') }}
                     {%- endif %}
                   </div>
                 </div>
-                <a class="chart-pill"
-                   href="{{ url_for('chart_plotly_for', tilt_color=tilt_color) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
-                   style="color:{{ tilt.color_code }};">CHART</a>
+                <div class="footer-pills">
+                  <a class="chart-pill"
+                     href="{{ url_for('chart_plotly_for', tilt_color=tilt_color) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
+                     style="color:{{ tilt.color_code }};">CHART</a>
+                  {%- if tilt.brewid %}
+                  <a class="chart-pill"
+                     href="{{ url_for('batch_review', brewid=tilt.brewid) }}"
+                     style="color:{{ tilt.color_code }};">STATUS</a>
+                  {%- endif %}
+                </div>
               </footer>
 
             </article>
@@ -627,13 +642,23 @@
                   <div class="footer-mac">MAC: <span id="footer-mac-{{ safe }}">--</span></div>
                   <div class="footer-ts">Last: <span id="footer-ts-{{ safe }}">--</span></div>
                   {%- set _off_fsd = off_cfg.get('ferm_start_date', '') %}
+                  {%- set _off_ns  = off_cfg.get('notification_state', {}) or {} %}{# or {} guards against null stored value #}
+                  {%- set _off_fcd_raw = _off_ns.get('fermentation_completion_datetime', '') %}
+                  {%- set _off_fcd = _off_fcd_raw[:10] if _off_fcd_raw else '' %}
                   {%- if _off_fsd %}
-                  <div class="footer-ferm-start">Start: {{ _off_fsd }} &nbsp;|&nbsp; Day {{ _off_fsd | ferm_days }}</div>
+                  <div class="footer-ferm-start">Start: {{ _off_fsd }} &nbsp;|&nbsp; Day {{ _off_fsd | ferm_days(_off_fcd) }}</div>
                   {%- endif %}
                 </div>
-                <a class="chart-pill"
-                   href="{{ url_for('chart_plotly_for', tilt_color=tilt_color) }}{% if off_cfg.get('brewid') %}?brew={{ off_cfg.get('brewid') | urlencode }}{% endif %}"
-                   style="color:{{ off_color }};">CHART</a>
+                <div class="footer-pills">
+                  <a class="chart-pill"
+                     href="{{ url_for('chart_plotly_for', tilt_color=tilt_color) }}{% if off_cfg.get('brewid') %}?brew={{ off_cfg.get('brewid') | urlencode }}{% endif %}"
+                     style="color:{{ off_color }};">CHART</a>
+                  {%- if off_cfg.get('brewid') %}
+                  <a class="chart-pill"
+                     href="{{ url_for('batch_review', brewid=off_cfg.get('brewid')) }}"
+                     style="color:{{ off_color }};">STATUS</a>
+                  {%- endif %}
+                </div>
               </footer>
 
             </article>
@@ -712,12 +737,19 @@
                   <div class="footer-mac">MAC: <span id="footer-mac-{{ safe }}">{{ tilt.mac_address or '--' }}</span></div>
                   <div class="footer-ts">Last: <span id="footer-ts-{{ safe }}">{{ tilt.timestamp | localtime }}</span></div>
                   {%- if tilt.ferm_start_date %}
-                  <div class="footer-ferm-start" id="footer-ferm-start-{{ safe }}">Start: {{ tilt.ferm_start_date }} &nbsp;|&nbsp; Day {{ tilt.ferm_start_date | ferm_days }}</div>
+                  <div class="footer-ferm-start" id="footer-ferm-start-{{ safe }}">Start: {{ tilt.ferm_start_date }} &nbsp;|&nbsp; Day {{ tilt.ferm_start_date | ferm_days(tilt.ferm_complete_date or '') }}</div>
                   {%- endif %}
                 </div>
-                <a class="chart-pill"
-                   href="{{ url_for('chart_plotly_for', tilt_color=color) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
-                   style="color:{{ tilt.color_code }};">CHART</a>
+                <div class="footer-pills">
+                  <a class="chart-pill"
+                     href="{{ url_for('chart_plotly_for', tilt_color=color) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
+                     style="color:{{ tilt.color_code }};">CHART</a>
+                  {%- if tilt.brewid %}
+                  <a class="chart-pill"
+                     href="{{ url_for('batch_review', brewid=tilt.brewid) }}"
+                     style="color:{{ tilt.color_code }};">STATUS</a>
+                  {%- endif %}
+                </div>
               </footer>
             </article>
           {% endif %}
@@ -995,20 +1027,24 @@
         } catch(e) { timestamp = tilt.timestamp; }
       }
 
-      const fermStartDate = tilt.ferm_start_date || '';
+      const fermStartDate    = tilt.ferm_start_date    || '';
+      const fermCompleteDate = tilt.ferm_complete_date || '';
       let fermDaysHtml = '';
       if (fermStartDate) {
         try {
           const startMs = new Date(fermStartDate + 'T00:00:00Z').getTime();
-          const nowMs   = new Date().setUTCHours(0, 0, 0, 0);
-          const day     = Math.max(1, Math.floor((nowMs - startMs) / 86400000) + 1);
+          const endMs   = fermCompleteDate
+            ? new Date(fermCompleteDate + 'T00:00:00Z').getTime()
+            : new Date().setUTCHours(0, 0, 0, 0);
+          const day     = Math.max(1, Math.floor((endMs - startMs) / 86400000) + 1);
           fermDaysHtml = `<div class="footer-ferm-start" id="footer-ferm-start-${safe}">Start: ${fermStartDate} &nbsp;|&nbsp; Day ${day}</div>`;
         } catch(e) { fermDaysHtml = ''; }
       }
 
-      const chartHref = '/chart_plotly/' + encodeURIComponent(color) +
-                        (brewid !== '--' ? '?brew=' + encodeURIComponent(brewid) : '');
-      const brewAttr  = brewid !== '--'
+      const chartHref  = '/chart_plotly/' + encodeURIComponent(color) +
+                         (brewid !== '--' ? '?brew=' + encodeURIComponent(brewid) : '');
+      const statusHref = brewid !== '--' ? '/batch_review/' + encodeURIComponent(brewid) : '';
+      const brewAttr   = brewid !== '--'
         ? `data-brewid="${brewid}" title="View fermentation chart"` : '';
 
       const card = document.createElement('article');
@@ -1058,7 +1094,10 @@
             <div class="footer-ts">Last: <span id="footer-ts-${safe}">${timestamp}</span></div>
             ${fermDaysHtml}
           </div>
-          <a class="chart-pill" href="${chartHref}" style="color:${colorCode};">CHART</a>
+          <div class="footer-pills">
+            <a class="chart-pill" href="${chartHref}" style="color:${colorCode};">CHART</a>
+            ${statusHref ? `<a class="chart-pill" href="${statusHref}" style="color:${colorCode};">STATUS</a>` : ''}
+          </div>
         </footer>
       `;
       return card;
@@ -1215,14 +1254,17 @@
         if (footerBrewid && entry.brewid)      footerBrewid.textContent = entry.brewid;
         if (footerMac    && entry.mac_address) footerMac.textContent    = entry.mac_address;
 
-        // Fermentation start date + days
+        // Fermentation start date + days (capped at ferm_complete_date when set)
         if (entry.ferm_start_date) {
           const fsEl = document.getElementById('footer-ferm-start-' + safe);
           if (fsEl) {
             try {
-              const startMs = new Date(entry.ferm_start_date + 'T00:00:00Z').getTime();
-              const nowMs   = new Date().setUTCHours(0, 0, 0, 0);
-              const day     = Math.max(1, Math.floor((nowMs - startMs) / 86400000) + 1);
+              const startMs       = new Date(entry.ferm_start_date + 'T00:00:00Z').getTime();
+              const completeDate  = entry.ferm_complete_date || '';
+              const endMs         = completeDate
+                ? new Date(completeDate + 'T00:00:00Z').getTime()
+                : new Date().setUTCHours(0, 0, 0, 0);
+              const day           = Math.max(1, Math.floor((endMs - startMs) / 86400000) + 1);
               fsEl.innerHTML = `Start: ${entry.ferm_start_date} &nbsp;|&nbsp; Day ${day}`;
             } catch(e) {}
           }
