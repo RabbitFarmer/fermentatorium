@@ -9459,6 +9459,22 @@ def update_system():
             output = init_msg
             result = _SubprocessResult(returncode=0 if init_ok else 1)
 
+        # The .git/objects directory is owned by root but the service runs as a
+        # regular user.  This happens when the installer cloned the repo as root
+        # before ownership was fixed.  Provide a clear fix command rather than
+        # exposing the raw git error.
+        elif result.returncode != 0 and 'insufficient permission' in output and '.git/objects' in output:
+            import getpass
+            svc_user = getpass.getuser()
+            output = (
+                'Update failed: the .git directory is owned by root but the service '
+                f'runs as \'{svc_user}\'.\n\n'
+                f'To fix, run this command on the Raspberry Pi:\n\n'
+                f'  sudo chown -R {svc_user}:{svc_user} {_HERE}\n\n'
+                'Then click Update again.'
+            )
+            result = _SubprocessResult(returncode=1)
+
         success = result.returncode == 0
         already_up_to_date = 'Already up to date' in output or 'Already up-to-date' in output
 

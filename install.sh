@@ -82,6 +82,22 @@ ensure_venv_and_deps() {
   fi
 }
 
+fix_repo_ownership() {
+  # The automated installer clones the repository as root, but the service runs
+  # as APP_USER.  Without this step, git pull (auto-update at startup and via the
+  # web UI Update button) fails with:
+  #   error: insufficient permission for adding an object to repository database
+  # Chowning the entire repo directory ensures APP_USER can write objects,
+  # update source files, and save config/log files at runtime.
+  if [[ "${APP_USER}" == "root" ]]; then
+    # Running directly as root (no sudo) — ownership is already correct.
+    return
+  fi
+  echo "→ Setting ${REPO_DIR} ownership to ${APP_USER} …"
+  chown -R "${APP_USER}:" "${REPO_DIR}"
+  echo "  ✓ Ownership set"
+}
+
 install_systemd_service() {
   # Note: heredoc uses double-quotes so REPO_DIR and APP_USER are expanded here.
   cat > "${SERVICE_PATH}" <<UNIT
@@ -119,6 +135,7 @@ main() {
   ensure_default_configs
   ensure_venv_and_deps
   install_systemd_service
+  fix_repo_ownership
 
   echo ""
   echo "Running from: ${REPO_DIR}"
