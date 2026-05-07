@@ -776,8 +776,12 @@ def localtime_filter(iso_str):
         return iso_str
 
 @app.template_filter('ferm_days')
-def ferm_days_filter(date_str):
-    """Return the number of fermentation days from a YYYY-MM-DD date string to today.
+def ferm_days_filter(date_str, end_date_str=None):
+    """Return the number of fermentation days from a YYYY-MM-DD date string.
+
+    If end_date_str is provided (YYYY-MM-DD or ISO datetime), the count is
+    capped at that date so that the counter stops advancing once fermentation
+    is complete.  When end_date_str is absent or empty the count runs to today.
 
     Uses local time (respecting the timezone configured in system settings / the TZ
     environment variable) so that users in non-UTC time zones see the correct day count
@@ -787,7 +791,11 @@ def ferm_days_filter(date_str):
         if not date_str:
             return None
         start = datetime.strptime(str(date_str).strip(), '%Y-%m-%d').date()
-        delta = (datetime.now().date() - start).days + 1
+        if end_date_str:
+            end = datetime.strptime(str(end_date_str).strip()[:10], '%Y-%m-%d').date()
+        else:
+            end = datetime.now().date()
+        delta = (end - start).days + 1
         return max(1, delta)
     except Exception:
         return None
@@ -1238,6 +1246,12 @@ def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=Fals
     adj_temp_f  = round(temp_f    + temp_variance,    1) if temp_f    is not None else None
     adj_gravity = round(raw_gravity + gravity_variance, 3) if raw_gravity is not None else None
 
+    # Extract the fermentation completion date (YYYY-MM-DD) so the tiltcard
+    # day counter can stop advancing once fermentation is complete.
+    _ns = cfg.get("notification_state", {}) or {}
+    _ferm_comp_dt = _ns.get("fermentation_completion_datetime", "")
+    ferm_complete_date = str(_ferm_comp_dt)[:10] if _ferm_comp_dt else ""
+
     tilt_entry = {
         "gravity": round(gravity, 3) if gravity is not None else None,
         "temp_f": temp_f,
@@ -1256,6 +1270,7 @@ def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=Fals
         "mac_address": resolved_mac,
         "is_pro": is_pro,
         "ferm_start_date": cfg.get("ferm_start_date", ""),
+        "ferm_complete_date": ferm_complete_date,
         # Calibration
         "temp_variance":    temp_variance,
         "gravity_variance": gravity_variance,
@@ -7026,16 +7041,24 @@ def calculate_batch_statistics(batch_data, batch_info):
     notif_state = batch_info.get('notification_state', {}) or {}
     ferm_start_dt = notif_state.get('fermentation_start_datetime')
     ferm_comp_dt = notif_state.get('fermentation_completion_datetime')
-    batch_closed = batch_info.get('active') is False
+    batch_closed = batch_info.get('is_active') is False
     
     if batch_closed and ferm_comp_dt:
         try:
-            dt = datetime.fromisoformat(str(ferm_comp_dt).replace('Z', '+00:00'))
-            stats['ferm_status'] = f'Fermentation Complete — {dt.strftime("%Y-%m-%d")}'
+            dt_comp = datetime.fromisoformat(str(ferm_comp_dt).replace('Z', '+00:00'))
+            closed_at = batch_info.get('closed_date') or batch_info.get('closed_at') or ''
+            try:
+                dt_closed = datetime.fromisoformat(str(closed_at).replace('Z', '+00:00'))
+                stats['ferm_status'] = (
+                    f'Fermentation Complete — {dt_comp.strftime("%Y-%m-%d")}'
+                    f' · Closed {dt_closed.strftime("%Y-%m-%d")}'
+                )
+            except Exception:
+                stats['ferm_status'] = f'Fermentation Complete — {dt_comp.strftime("%Y-%m-%d")} · Closed'
         except Exception:
-            stats['ferm_status'] = 'Fermentation Complete'
+            stats['ferm_status'] = 'Fermentation Complete · Closed'
     elif batch_closed:
-        closed_at = batch_info.get('closed_at') or ''
+        closed_at = batch_info.get('closed_date') or batch_info.get('closed_at') or ''
         try:
             dt = datetime.fromisoformat(str(closed_at).replace('Z', '+00:00'))
             stats['ferm_status'] = f'Batch Closed — {dt.strftime("%Y-%m-%d")}'

@@ -125,7 +125,7 @@
         <button type="button" onclick="window.location='/batch_history'" class="btn-action">← Back to History</button>
         <button type="button" onclick="window.location='/chart_plotly/{{ color }}'" class="btn-action" style="background-color:#1565C0;">📈 View Chart</button>
         <button type="button" onclick="window.print()" class="btn-print">Print / Export PDF</button>
-        {% if batch.active != false %}
+        {% if batch.get('is_active', true) %}
           <button type="button" onclick="closeBatch()" class="btn-action" style="background-color:#6D4C41; margin-left:auto;">🔒 Close / Complete This Batch</button>
         {% else %}
           <button type="button" onclick="reopenBatch()" class="btn-action" style="background-color:#546E7A; margin-left:auto;">🔓 Reopen Batch</button>
