@@ -299,9 +299,9 @@
     /* ── Banner sub-elements ── */
     .tilt-batch-name  { font-size: 18px; font-weight: 700; opacity: 0.95; margin-top: 4px; }
 
-    /* Clickable banner */
-    .tilt-banner[data-tilt-color] { cursor: pointer; }
-    .tilt-banner[data-tilt-color]:hover { opacity: 0.92; }
+    /* Clickable tilt card */
+    article.tilt-card[data-tilt] { cursor: pointer; }
+    article.tilt-card[data-tilt]:hover { opacity: 0.92; }
     .display-mode-3 .tc-header      { font-size: 26px; padding: 8px 12px 6px; }
     .display-mode-3 .tc-status      { font-size: 24px; margin: 3px 0 4px; }
     .display-mode-3 .tc-label       { font-size: 22px; }
@@ -571,12 +571,9 @@
                   </div>
                 </div>
                 <div class="footer-pills">
-                  <a class="chart-pill"
-                     href="{{ url_for('chart_plotly_for', tilt_color=tilt_color) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
-                     style="color:{{ tilt.color_code }};">CHART</a>
                   {%- if tilt.brewid %}
                   <a class="chart-pill"
-                     href="{{ url_for('batch_review', brewid=tilt.brewid) }}"
+                     href="{{ url_for('batch_review', brewid=tilt.brewid) }}?from=dashboard"
                      style="color:{{ tilt.color_code }};">STATUS</a>
                   {%- endif %}
                 </div>
@@ -650,12 +647,9 @@
                   {%- endif %}
                 </div>
                 <div class="footer-pills">
-                  <a class="chart-pill"
-                     href="{{ url_for('chart_plotly_for', tilt_color=tilt_color) }}{% if off_cfg.get('brewid') %}?brew={{ off_cfg.get('brewid') | urlencode }}{% endif %}"
-                     style="color:{{ off_color }};">CHART</a>
                   {%- if off_cfg.get('brewid') %}
                   <a class="chart-pill"
-                     href="{{ url_for('batch_review', brewid=off_cfg.get('brewid')) }}"
+                     href="{{ url_for('batch_review', brewid=off_cfg.get('brewid')) }}?from=dashboard"
                      style="color:{{ off_color }};">STATUS</a>
                   {%- endif %}
                 </div>
@@ -741,12 +735,9 @@
                   {%- endif %}
                 </div>
                 <div class="footer-pills">
-                  <a class="chart-pill"
-                     href="{{ url_for('chart_plotly_for', tilt_color=color) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
-                     style="color:{{ tilt.color_code }};">CHART</a>
                   {%- if tilt.brewid %}
                   <a class="chart-pill"
-                     href="{{ url_for('batch_review', brewid=tilt.brewid) }}"
+                     href="{{ url_for('batch_review', brewid=tilt.brewid) }}?from=dashboard"
                      style="color:{{ tilt.color_code }};">STATUS</a>
                   {%- endif %}
                 </div>
@@ -1043,7 +1034,7 @@
 
       const chartHref  = '/chart_plotly/' + encodeURIComponent(color) +
                          (brewid !== '--' ? '?brew=' + encodeURIComponent(brewid) : '');
-      const statusHref = brewid !== '--' ? '/batch_review/' + encodeURIComponent(brewid) : '';
+      const statusHref = brewid !== '--' ? '/batch_review/' + encodeURIComponent(brewid) + '?from=dashboard' : '';
       const brewAttr   = brewid !== '--'
         ? `data-brewid="${brewid}" title="View fermentation chart"` : '';
 
@@ -1095,7 +1086,6 @@
             ${fermDaysHtml}
           </div>
           <div class="footer-pills">
-            <a class="chart-pill" href="${chartHref}" style="color:${colorCode};">CHART</a>
             ${statusHref ? `<a class="chart-pill" href="${statusHref}" style="color:${colorCode};">STATUS</a>` : ''}
           </div>
         </footer>
@@ -1453,16 +1443,15 @@
       /* Position TC cards below their assigned tilts */
       positionTempCards();
 
-      /* Click on tilt banner → batch review (if brewid) or chart */
+      /* Click on tilt card → chart (full card is the chart entry point) */
       document.addEventListener('click', function(e) {
-        const banner = e.target.closest('.tilt-banner[data-tilt-color]');
-        if (!banner) return;
-        // Don't navigate when clicking a child link
-        if (e.target.tagName === 'A') return;
-        const brewid    = banner.getAttribute('data-brewid');
-        const tiltColor = banner.getAttribute('data-tilt-color');
-        if (brewid)    { window.location.href = '/batch_review/'  + encodeURIComponent(brewid);    return; }
-        if (tiltColor) { window.location.href = '/chart_plotly/' + encodeURIComponent(tiltColor); return; }
+        // Don't intercept clicks on interactive elements
+        if (e.target.tagName === 'A' || e.target.tagName === 'BUTTON' ||
+            e.target.tagName === 'INPUT' || e.target.tagName === 'LABEL') return;
+        const card = e.target.closest('article.tilt-card[data-tilt]');
+        if (!card) return;
+        const tiltColor = card.getAttribute('data-tilt');
+        if (tiltColor) { window.location.href = '/chart_plotly/' + encodeURIComponent(tiltColor); }
       });
 
       /* ── Temp-control toggle switches ── */

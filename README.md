@@ -264,7 +264,7 @@ All navigation is through the **⚙ gear icon** in the top-right corner of the m
 
 ### Clicking on cards
 
-- **Tilt brew cards** on the main display are clickable — tap any card to open the interactive chart for that Tilt color.
+- **Tilt brew cards** on the main display are clickable — tap anywhere on the card to open the interactive chart for that Tilt color. Each card also shows a **STATUS** pill (when a batch is active) that links directly to the batch details screen.
 - **Temperature control cards** on the main display are clickable — tap a temp-control card to open the temperature summary page for that controller.
 
 ---
@@ -318,7 +318,7 @@ Temperature control requires at least one TP-Link Kasa smart plug connected to a
 
 ### Using Charts (Chart_Plotly)
 
-- **From the dashboard:** Tap any Tilt brew card to open that Tilt's interactive chart.
+- **From the dashboard:** Tap anywhere on a Tilt brew card to open that Tilt's interactive chart. Use the **STATUS** pill on the card to view the batch details screen instead.
 - **Direct URL:** `http://<pi-ip>:5001/chart_plotly/<Color>` (e.g., `/chart_plotly/Red`).
 
 The Plotly chart shows:

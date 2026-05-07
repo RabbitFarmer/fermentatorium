@@ -84,7 +84,7 @@ except Exception:
 
 # Import log_error and log_kasa_command for kasa logging
 try:
-    from logger import log_error, log_kasa_command, log_kasa_diag, log_notification, log_event, _now_ts
+    from logger import log_error, log_kasa_command, log_kasa_diag, log_notification, log_event, log_to_batch_log, _now_ts
 except Exception:
     def log_error(msg, **extra):
         print(f"[ERROR] {msg}")
@@ -1636,6 +1636,12 @@ def log_tilt_reading(color, gravity, temp_f, rssi, mac="", is_pro=False):
     
     # Log to control log
     append_control_log("tilt_reading", payload)
+    
+    # Skip batch JSONL logging, third-party forwarding, and notification checks when
+    # tracking is paused for this tilt (user manually stopped recording via Batch Settings).
+    # Temperature control continues to operate regardless.
+    if cfg.get('tracking_paused'):
+        return
     
     # Log to batch-specific jsonl
     if brewid:
@@ -3211,6 +3217,8 @@ Loss of Signal -- Receiving no tilt readings"""
                     brewid=brewid,
                     color=color
                 )
+                # Log the event to the batch JSONL so it appears in Notifications & Events
+                log_to_batch_log('loss_of_signal', body, color)
 
 def queue_notification_retry(notification_type, subject, body, brewid, color):
     """
@@ -3448,6 +3456,9 @@ def send_daily_report():
         mode = (system_cfg.get('warning_mode') or 'NONE').upper()
         if mode in ('EMAIL', 'PUSH', 'BOTH'):
             attempt_send_notifications(subject, body)
+        
+        # Log the daily report event to the batch JSONL so it appears in Notifications & Events
+        log_to_batch_log('daily_report', body, color)
         
         # Update last_daily_report timestamp to prevent duplicate reports
         if brewid not in batch_notification_state:
@@ -6000,6 +6011,9 @@ def batch_settings():
         except Exception as e:
             print(f"[LOG] Could not save batch history for {color}: {e}")
         tilt_cfg[color] = batch_entry
+        # Clear any paused tracking state when a batch is saved — the user is
+        # explicitly setting up a new batch so recording should resume.
+        tilt_cfg[color].pop('tracking_paused', None)
         try:
             save_json(TILT_CONFIG_FILE, tilt_cfg)
         except Exception as e:
@@ -6932,7 +6946,48 @@ def batch_review(brewid):
                          freq_stats=freq_stats,
                          batch_events=batch_events,
                          temp_events=temp_events,
-                         color_map=COLOR_MAP)
+                         color_map=COLOR_MAP,
+                         return_url=_batch_review_return_url(),
+                         tilt_mac=_batch_review_tilt_mac(color),
+                         tilt_label=_batch_review_tilt_label(color))
+
+
+def _batch_review_return_url():
+    """Return the URL the "Return" button on batch_review should navigate back to."""
+    from_page = request.args.get('from', 'history')
+    return '/' if from_page == 'dashboard' else '/batch_history'
+
+
+def _batch_review_tilt_mac(color):
+    """Return the MAC address for the tilt color, from live data or persisted tilt_table."""
+    if not color:
+        return None
+    mac = live_tilts.get(color, {}).get('mac_address', '')
+    if mac:
+        return mac
+    # Fall back to tilt_table (persisted even when tilt is offline)
+    for mac_key, rec in tilt_table.items():
+        if rec.get('tilt_color', '') == color:
+            return mac_key
+    return None
+
+
+def _batch_review_tilt_label(color):
+    """Return a human-readable device-type label for the tilt color."""
+    if not color:
+        return None
+    is_pro = live_tilts.get(color, {}).get('is_pro')
+    if is_pro is not None:
+        return 'Tilt Pro' if is_pro else 'Tilt'
+    # Check tilt_table
+    for mac_key, rec in tilt_table.items():
+        if rec.get('tilt_color', '') == color:
+            tilt_type = rec.get('tilt_type', 'unknown')
+            if tilt_type in ('pro', 'mini-pro'):
+                return 'Tilt Pro'
+            elif tilt_type == 'standard':
+                return 'Tilt'
+    return None
 
 
 def calculate_batch_statistics(batch_data, batch_info):
@@ -8881,6 +8936,50 @@ def reopen_batch():
     except Exception as e:
         print(f"[LOG] Error reopening batch: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/pause_tilt_tracking', methods=['POST'])
+def pause_tilt_tracking():
+    """
+    Pause fermentation recording and notifications for a Tilt color.
+    Temperature control remains active while tracking is paused.
+    """
+    try:
+        color = request.form.get('color', '').strip()
+        if not color or color not in tilt_cfg:
+            return jsonify({'success': False, 'error': 'Unknown tilt color'}), 400
+        tilt_cfg[color]['tracking_paused'] = True
+        try:
+            save_json(TILT_CONFIG_FILE, tilt_cfg)
+        except Exception as e:
+            print(f"[LOG] Could not save tilt_config in pause_tilt_tracking: {e}")
+        print(f"[LOG] Tracking paused for {color}")
+        return jsonify({'success': True, 'message': f'Tracking paused for {color}'})
+    except Exception as e:
+        print(f"[LOG] Error pausing tilt tracking: {e}")
+        return jsonify({'success': False, 'error': 'Failed to pause tracking — check server logs'}), 500
+
+
+@app.route('/resume_tilt_tracking', methods=['POST'])
+def resume_tilt_tracking():
+    """
+    Resume fermentation recording and notifications for a Tilt color.
+    Tracking is also automatically resumed whenever a new batch is saved.
+    """
+    try:
+        color = request.form.get('color', '').strip()
+        if not color or color not in tilt_cfg:
+            return jsonify({'success': False, 'error': 'Unknown tilt color'}), 400
+        tilt_cfg[color].pop('tracking_paused', None)
+        try:
+            save_json(TILT_CONFIG_FILE, tilt_cfg)
+        except Exception as e:
+            print(f"[LOG] Could not save tilt_config in resume_tilt_tracking: {e}")
+        print(f"[LOG] Tracking resumed for {color}")
+        return jsonify({'success': True, 'message': f'Tracking resumed for {color}'})
+    except Exception as e:
+        print(f"[LOG] Error resuming tilt tracking: {e}")
+        return jsonify({'success': False, 'error': 'Failed to resume tracking — check server logs'}), 500
 
 
 @app.route('/cleanup_batch_duplicates', methods=['POST'])

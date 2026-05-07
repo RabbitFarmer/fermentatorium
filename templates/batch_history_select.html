@@ -81,7 +81,7 @@
         <ul class="batch-list">
           {% for batch in active_batches %}
             <li class="batch-item">
-              <a href="{{ url_for('batch_review', brewid=batch.brewid) }}" class="batch-link">
+              <a href="{{ url_for('batch_review', brewid=batch.brewid) }}?from=history" class="batch-link">
                 <div class="batch-name">
                   <span class="tilt-color-badge" style="background-color: {{ color_map.get(batch.color, '#e9eef0') }}; {% if batch.color in ['Black', 'Purple', 'Blue', 'Green', 'Red'] %}color: #fff;{% endif %}">{{ batch.color }}</span>
                   {{ batch.beer_name or 'Unnamed Beer' }} - {{ batch.batch_name or 'Batch' }}
@@ -102,7 +102,7 @@
         <ul class="batch-list">
           {% for batch in closed_batches %}
             <li class="batch-item">
-              <a href="{{ url_for('batch_review', brewid=batch.brewid) }}" class="batch-link">
+              <a href="{{ url_for('batch_review', brewid=batch.brewid) }}?from=history" class="batch-link">
                 <div class="batch-name">
                   <span class="tilt-color-badge" style="background-color: {{ color_map.get(batch.color, '#e9eef0') }}; {% if batch.color in ['Black', 'Purple', 'Blue', 'Green', 'Red'] %}color: #fff;{% endif %}">{{ batch.color }}</span>
                   {{ batch.beer_name or 'Unnamed Beer' }} - {{ batch.batch_name or 'Batch' }}
