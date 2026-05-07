@@ -43,7 +43,7 @@ import socket
 
 from email.mime.text import MIMEText
 from flask import (Flask, abort, jsonify, redirect, render_template, request,
-                   url_for, make_response)
+                   url_for, make_response, Response)
 
 # Optional imports
 try:
@@ -3375,7 +3375,7 @@ def send_daily_report():
     Should be scheduled to run at user-specified time.
     """
     notif_cfg = system_cfg.get('batch_notifications', {})
-    if not notif_cfg.get('enable_daily_report', True):
+    if not notif_cfg.get('enable_daily_report', False):
         return
     
     brewery_name = system_cfg.get('brewery_name', 'Unknown Brewery')
@@ -5525,8 +5525,6 @@ def update_system_config():
         'loss_of_signal_timeout_minutes': int(data.get('loss_of_signal_timeout_minutes', 30)),
         'enable_fermentation_starting': 'enable_fermentation_starting' in data,
         'enable_fermentation_completion': 'enable_fermentation_completion' in data,
-        'enable_daily_report': 'enable_daily_report' in data,
-        'daily_report_time': data.get('daily_report_time', '09:00'),
     }
     system_cfg['batch_notifications'] = batch_notif
 
@@ -9634,6 +9632,405 @@ def restart_system():
 def utilities():
     """Display the utilities page with available helper scripts."""
     return render_template('utilities.html', system_settings=system_cfg)
+
+
+# ── Reports ──────────────────────────────────────────────────────────────────
+
+def _load_all_batches_for_reports():
+    """Return a list of all batches (active + closed) across all colors, sorted newest first."""
+    batches = []
+    for color in TILT_UUIDS.values():
+        history_file = os.path.join(BATCHES_DIR, f'batch_history_{color}.json')
+        if not os.path.exists(history_file):
+            continue
+        try:
+            with open(history_file, 'r') as f:
+                for b in json.load(f):
+                    b['color'] = color
+                    batches.append(b)
+        except Exception as e:
+            print(f"[REPORTS] Error reading {history_file}: {e}")
+    batches.sort(key=lambda x: x.get('ferm_start_date', ''), reverse=True)
+    return batches
+
+
+def _load_batch_samples(brewid):
+    """Return a list of sample payloads from a batch JSONL file.
+
+    The file path is built from BATCHES_DIR + a filename found via os.listdir
+    (never from user-supplied input), so there is no path-injection risk.
+    """
+    # Scan the directory; never embed user input into a path component.
+    try:
+        filenames = [fn for fn in os.listdir(BATCHES_DIR) if fn.endswith('.jsonl')]
+    except OSError:
+        return []
+
+    matched_name = None
+    for fn in filenames:
+        stem = fn[:-6]  # strip '.jsonl'
+        # Match "brewid.jsonl" or "anything_brewid.jsonl"
+        if stem == brewid or stem.endswith('_' + brewid):
+            matched_name = fn
+            break
+
+    if not matched_name:
+        return []
+
+    # Build path from trusted directory constant + directory-listed filename
+    file_path = os.path.join(BATCHES_DIR, matched_name)
+    samples = []
+    try:
+        with open(file_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except Exception:
+                    continue
+                if entry.get('event') in ('sample', 'SAMPLE', 'tilt_reading'):
+                    samples.append(entry.get('payload', entry))
+    except Exception as e:
+        print(f"[REPORTS] Error reading batch samples for {brewid}: {e}")
+    return samples
+
+
+
+def _parse_ts(ts_raw):
+    """Parse an ISO timestamp string to a timezone-aware datetime, or None."""
+    if not ts_raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(ts_raw).replace('Z', '+00:00'))
+    except Exception:
+        return None
+
+
+def _build_report_data(batch_info, samples, report_type, range_start=None, range_end=None):
+    """
+    Build columns + rows for the report table, plus the table heading and
+    an optional date-range note.
+
+    report_type: 'overall' | 'weekly' | 'daily_all' | 'daily_range'
+    range_start/range_end: date objects (used for daily_range only)
+    """
+    from collections import defaultdict
+    import math
+
+    # Filter samples by date range for daily_range
+    if report_type == 'daily_range' and (range_start or range_end):
+        filtered = []
+        for s in samples:
+            ts = _parse_ts(s.get('timestamp'))
+            if ts is None:
+                continue
+            day = ts.date()
+            if range_start and day < range_start:
+                continue
+            if range_end and day > range_end:
+                continue
+            filtered.append(s)
+        samples = filtered
+
+    # ── Overall: weekly breakdown table ──────────────────────────────────────
+    if report_type == 'overall':
+        columns = ['Week', 'Days', 'Readings', 'Gravity Start', 'Gravity End', 'Grav Drop',
+                   'Avg Temp (°F)', 'Min Temp (°F)', 'Max Temp (°F)']
+        rows = []
+        week_buckets = defaultdict(list)
+        for s in samples:
+            ts = _parse_ts(s.get('timestamp'))
+            if ts is None:
+                continue
+            week_num = ts.isocalendar()[1]
+            year_num = ts.isocalendar()[0]
+            week_buckets[(year_num, week_num)].append(s)
+
+        for (yr, wk) in sorted(week_buckets.keys()):
+            ws = week_buckets[(yr, wk)]
+            gravities = [s.get('gravity') for s in ws if s.get('gravity') is not None]
+            temps     = [s.get('temp_f')  for s in ws if s.get('temp_f')  is not None]
+            timestamps = sorted([_parse_ts(s.get('timestamp')) for s in ws if _parse_ts(s.get('timestamp'))])
+            days = ((timestamps[-1] - timestamps[0]).days + 1) if len(timestamps) >= 2 else 1
+            grav_start = '%.3f' % gravities[0]  if gravities else '—'
+            grav_end   = '%.3f' % gravities[-1] if gravities else '—'
+            grav_drop  = ('%.3f' % (gravities[0] - gravities[-1])) if len(gravities) >= 2 else '—'
+            avg_t = ('%.1f' % (sum(temps) / len(temps))) if temps else '—'
+            min_t = ('%.1f' % min(temps)) if temps else '—'
+            max_t = ('%.1f' % max(temps)) if temps else '—'
+            rows.append([f'Wk {wk} ({yr})', days, len(ws), grav_start, grav_end, grav_drop, avg_t, min_t, max_t])
+
+        return columns, rows, 'Weekly Breakdown', None
+
+    # ── Weekly: week-by-week rows ─────────────────────────────────────────────
+    if report_type == 'weekly':
+        columns = ['Week Starting', 'Week', 'Readings', 'Gravity Start', 'Gravity End', 'Grav Drop',
+                   'Avg Temp (°F)', 'Min Temp (°F)', 'Max Temp (°F)', 'Temp Control Events']
+        rows = []
+        week_buckets = defaultdict(list)
+        for s in samples:
+            ts = _parse_ts(s.get('timestamp'))
+            if ts is None:
+                continue
+            # Find Monday of that week
+            monday = ts.date() - __import__('datetime').timedelta(days=ts.weekday())
+            week_buckets[monday].append(s)
+
+        for monday in sorted(week_buckets.keys()):
+            ws = week_buckets[monday]
+            gravities  = [s.get('gravity') for s in ws if s.get('gravity') is not None]
+            temps      = [s.get('temp_f')  for s in ws if s.get('temp_f')  is not None]
+            grav_start = ('%.3f' % gravities[0])  if gravities else '—'
+            grav_end   = ('%.3f' % gravities[-1]) if gravities else '—'
+            grav_drop  = ('%.3f' % (gravities[0] - gravities[-1])) if len(gravities) >= 2 else '—'
+            avg_t = ('%.1f' % (sum(temps) / len(temps))) if temps else '—'
+            min_t = ('%.1f' % min(temps)) if temps else '—'
+            max_t = ('%.1f' % max(temps)) if temps else '—'
+            wk_label = monday.strftime('%b %d')
+            wk_num = monday.isocalendar()[1]
+            rows.append([wk_label, f'Wk {wk_num}', len(ws), grav_start, grav_end, grav_drop, avg_t, min_t, max_t, '—'])
+
+        return columns, rows, 'Week-by-Week Breakdown', None
+
+    # ── Daily (all or date range) ─────────────────────────────────────────────
+    columns = ['Date', 'Readings', 'Gravity Start', 'Gravity End', 'Grav Drop',
+               'Avg Temp (°F)', 'Min Temp (°F)', 'Max Temp (°F)']
+    rows = []
+    day_buckets = defaultdict(list)
+    for s in samples:
+        ts = _parse_ts(s.get('timestamp'))
+        if ts is None:
+            continue
+        day_buckets[ts.date()].append(s)
+
+    for day in sorted(day_buckets.keys()):
+        ds = day_buckets[day]
+        gravities = [s.get('gravity') for s in ds if s.get('gravity') is not None]
+        temps     = [s.get('temp_f')  for s in ds if s.get('temp_f')  is not None]
+        grav_start = ('%.3f' % gravities[0])  if gravities else '—'
+        grav_end   = ('%.3f' % gravities[-1]) if gravities else '—'
+        grav_drop  = ('%.3f' % (gravities[0] - gravities[-1])) if len(gravities) >= 2 else '—'
+        avg_t = ('%.1f' % (sum(temps) / len(temps))) if temps else '—'
+        min_t = ('%.1f' % min(temps)) if temps else '—'
+        max_t = ('%.1f' % max(temps)) if temps else '—'
+        rows.append([day.strftime('%Y-%m-%d'), len(ds), grav_start, grav_end, grav_drop, avg_t, min_t, max_t])
+
+    date_note = None
+    if report_type == 'daily_range' and (range_start or range_end):
+        parts = []
+        if range_start:
+            parts.append(f'from {range_start}')
+        if range_end:
+            parts.append(f'to {range_end}')
+        date_note = 'Showing data ' + ' '.join(parts)
+
+    return columns, rows, 'Day-by-Day Breakdown', date_note
+
+
+_REPORT_TYPE_LABELS = {
+    'overall':     'Overall Summary',
+    'weekly':      'Weekly Summary',
+    'daily_all':   'Daily Summary — All Data',
+    'daily_range': 'Daily Summary — Date Range',
+}
+
+
+@app.route('/reports', methods=['GET', 'POST'])
+def reports():
+    """Reports selector page (GET) and report generator dispatcher (POST)."""
+    all_batches = _load_all_batches_for_reports()
+
+    if request.method == 'POST':
+        brewid      = request.form.get('brewid', '').strip()
+        report_type = request.form.get('report_type', 'overall').strip()
+        range_start = request.form.get('range_start', '').strip()
+        range_end   = request.form.get('range_end', '').strip()
+
+        if not brewid:
+            return render_template('reports_select.html',
+                                   all_batches=all_batches,
+                                   selected_brewid='',
+                                   report_type=report_type,
+                                   range_start=range_start,
+                                   range_end=range_end,
+                                   error='Please select a batch.')
+
+        # Redirect to GET-based view so the URL is bookmarkable / printable
+        from urllib.parse import urlencode
+        params = {'brewid': brewid, 'type': report_type}
+        if range_start:
+            params['range_start'] = range_start
+        if range_end:
+            params['range_end'] = range_end
+        return redirect(url_for('reports_view') + '?' + urlencode(params))
+
+    return render_template('reports_select.html',
+                           all_batches=all_batches,
+                           selected_brewid=request.args.get('brewid', ''),
+                           report_type=request.args.get('type', 'overall'),
+                           range_start=request.args.get('range_start', ''),
+                           range_end=request.args.get('range_end', ''))
+
+
+@app.route('/reports/view')
+def reports_view():
+    """Render a specific report as a printable HTML page."""
+    import re as _re
+    brewid      = request.args.get('brewid', '').strip()
+    report_type = request.args.get('type', 'overall').strip()
+    range_start_str = request.args.get('range_start', '').strip()
+    range_end_str   = request.args.get('range_end', '').strip()
+
+    if not brewid or not _re.match(r'^[a-zA-Z0-9\-_]+$', brewid):
+        return redirect(url_for('reports'))
+
+    # Find batch info
+    batch_info = None
+    color = None
+    for c in TILT_UUIDS.values():
+        history_file = os.path.join(BATCHES_DIR, f'batch_history_{c}.json')
+        if not os.path.exists(history_file):
+            continue
+        try:
+            with open(history_file, 'r') as f:
+                for b in json.load(f):
+                    if b.get('brewid') == brewid:
+                        batch_info = b
+                        color = c
+                        break
+        except Exception:
+            pass
+        if batch_info:
+            break
+
+    if not batch_info:
+        return redirect(url_for('reports'))
+
+    samples    = _load_batch_samples(brewid)
+    batch_data = [{'event': 'sample', 'payload': s} for s in samples]
+    stats      = calculate_batch_statistics(batch_data, batch_info)
+
+    # Parse date-range bounds
+    range_start = range_end = None
+    try:
+        if range_start_str:
+            range_start = datetime.strptime(range_start_str, '%Y-%m-%d').date()
+    except ValueError:
+        pass
+    try:
+        if range_end_str:
+            range_end = datetime.strptime(range_end_str, '%Y-%m-%d').date()
+    except ValueError:
+        pass
+
+    columns, rows, table_heading, date_range_note = _build_report_data(
+        batch_info, samples, report_type, range_start, range_end
+    )
+
+    report_title = _REPORT_TYPE_LABELS.get(report_type, 'Report')
+    generated_at = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+    color_code   = COLOR_MAP.get(color, '#333')
+
+    # Build CSV export URL with same params
+    from urllib.parse import urlencode
+    csv_params = {'brewid': brewid, 'type': report_type}
+    if range_start_str:
+        csv_params['range_start'] = range_start_str
+    if range_end_str:
+        csv_params['range_end'] = range_end_str
+    csv_url = url_for('reports_export_csv') + '?' + urlencode(csv_params)
+
+    return render_template('reports_view.html',
+                           batch=batch_info,
+                           color=color,
+                           color_code=color_code,
+                           stats=stats,
+                           report_title=report_title,
+                           table_heading=table_heading,
+                           date_range_note=date_range_note,
+                           columns=columns,
+                           rows=rows,
+                           generated_at=generated_at,
+                           csv_url=csv_url)
+
+
+@app.route('/reports/export_csv')
+def reports_export_csv():
+    """Stream the report table as a downloadable CSV file."""
+    import io, csv, re as _re
+    brewid      = request.args.get('brewid', '').strip()
+    report_type = request.args.get('type', 'overall').strip()
+    range_start_str = request.args.get('range_start', '').strip()
+    range_end_str   = request.args.get('range_end', '').strip()
+
+    if not brewid or not _re.match(r'^[a-zA-Z0-9\-_]+$', brewid):
+        return redirect(url_for('reports'))
+
+    # Find batch info
+    batch_info = None
+    color = None
+    for c in TILT_UUIDS.values():
+        history_file = os.path.join(BATCHES_DIR, f'batch_history_{c}.json')
+        if not os.path.exists(history_file):
+            continue
+        try:
+            with open(history_file, 'r') as f:
+                for b in json.load(f):
+                    if b.get('brewid') == brewid:
+                        batch_info = b
+                        color = c
+                        break
+        except Exception:
+            pass
+        if batch_info:
+            break
+
+    if not batch_info:
+        return redirect(url_for('reports'))
+
+    samples = _load_batch_samples(brewid)
+
+    range_start = range_end = None
+    try:
+        if range_start_str:
+            range_start = datetime.strptime(range_start_str, '%Y-%m-%d').date()
+    except ValueError:
+        pass
+    try:
+        if range_end_str:
+            range_end = datetime.strptime(range_end_str, '%Y-%m-%d').date()
+    except ValueError:
+        pass
+
+    columns, rows, _, _ = _build_report_data(
+        batch_info, samples, report_type, range_start, range_end
+    )
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    # Header rows
+    writer.writerow(['Fermentatorium Report'])
+    writer.writerow([_REPORT_TYPE_LABELS.get(report_type, 'Report')])
+    beer = batch_info.get('beer_name', '')
+    bname = batch_info.get('batch_name', '')
+    writer.writerow([f'Batch: {beer}{(" — " + bname) if bname else ""}'])
+    writer.writerow([f'Tilt: {color}', f'Start: {batch_info.get("ferm_start_date", "")}'])
+    writer.writerow([])
+    writer.writerow(columns)
+    for row in rows:
+        writer.writerow(row)
+
+    label = _REPORT_TYPE_LABELS.get(report_type, 'report').lower().replace(' ', '_').replace('/', '')
+    filename = f'fermentatorium_{label}_{brewid[:8]}.csv'
+    return Response(
+        buf.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+    )
+
+
 
 
 @app.route('/run_utility', methods=['POST'])

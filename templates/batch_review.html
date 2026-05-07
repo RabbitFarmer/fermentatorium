@@ -10,6 +10,7 @@
     .heading { font-weight:900; margin-bottom:6px; font-size:1.8em; color:#1a6; }
     .subheading { font-weight:700; margin-top:20px; margin-bottom:8px; font-size:1.3em; color:#333; }
     .info-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:12px; margin-bottom:20px; }
+    .info-grid-4col { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:12px; margin-bottom:20px; }
     .info-card { padding:12px; background:#f9f9f9; border-radius:6px; border-left:4px solid #1a6; }
     .info-label { font-weight:700; color:#666; font-size:0.9em; }
     .info-value { font-size:1.1em; margin-top:4px; }
@@ -151,7 +152,7 @@
 
       {# ── Batch Information ── #}
       <div class="subheading">Batch Information</div>
-      <div class="info-grid" style="grid-template-columns:repeat(4,minmax(0,1fr));">
+      <div class="info-grid-4col">
         <div class="info-card">
           <div class="info-label">Tilt Color</div>
           <div class="info-value" style="color: {{ color_map.get(color, '#333') }}; font-weight:700;">{{ color }}</div>

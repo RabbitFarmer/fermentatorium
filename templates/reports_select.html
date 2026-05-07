@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Reports</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    .rpt-container { max-width:760px; margin:18px auto; padding:24px; background:#fff; border-radius:8px; box-shadow:0 1px 6px rgba(0,0,0,0.06); }
+    .rpt-title { font-size:1.6em; font-weight:900; color:#8B4513; margin-bottom:6px; }
+    .rpt-subtitle { font-size:0.95em; color:#666; margin-bottom:24px; }
+    .field-group { margin-bottom:20px; }
+    .field-group label { display:block; font-weight:700; color:#333; margin-bottom:6px; font-size:0.95em; }
+    .field-group select, .field-group input[type=date] {
+      width:100%; padding:9px 12px; border:1px solid #ccc; border-radius:5px;
+      font-size:0.95em; box-sizing:border-box;
+    }
+    .field-group select:focus, .field-group input[type=date]:focus { outline:2px solid #8B4513; }
+    .radio-group { display:flex; flex-direction:column; gap:10px; }
+    .radio-option { display:flex; align-items:center; gap:10px; cursor:pointer; }
+    .radio-option input[type=radio] { width:18px; height:18px; accent-color:#8B4513; }
+    .radio-option span { font-size:0.95em; color:#333; }
+    .date-range-row { display:flex; gap:16px; flex-wrap:wrap; }
+    .date-range-row .field-group { flex:1; min-width:140px; }
+    #date-range-block { display:none; margin-top:12px; }
+    .divider { border:none; border-top:1px solid #e0e0e0; margin:24px 0; }
+    .btn-generate {
+      padding:11px 32px; background:#8B4513; color:#fff; border:none; border-radius:5px;
+      font-size:1em; font-weight:700; cursor:pointer; transition:background 0.2s;
+    }
+    .btn-generate:hover { background:#A0522D; }
+    .type-cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-top:6px; }
+    .type-card {
+      border:2px solid #ddd; border-radius:8px; padding:14px 16px; cursor:pointer;
+      transition:border-color 0.15s, background 0.15s;
+    }
+    .type-card:hover { border-color:#8B4513; background:#faf5f0; }
+    .type-card.selected { border-color:#8B4513; background:#faf5f0; }
+    .type-card input[type=radio] { position:absolute; opacity:0; pointer-events:none; }
+    .type-card .tc-name { font-weight:700; font-size:0.97em; color:#333; margin-bottom:4px; }
+    .type-card .tc-desc { font-size:0.83em; color:#666; line-height:1.4; }
+  </style>
+  <script>
+    function selectTypeCard(el) {
+      document.querySelectorAll('.type-card').forEach(c => c.classList.remove('selected'));
+      el.classList.add('selected');
+      el.querySelector('input[type=radio]').checked = true;
+      const val = el.querySelector('input[type=radio]').value;
+      document.getElementById('date-range-block').style.display =
+        (val === 'daily_range') ? 'block' : 'none';
+    }
+    // Keep cards in sync when form reloads
+    document.addEventListener('DOMContentLoaded', function() {
+      document.querySelectorAll('.type-card').forEach(card => {
+        const radio = card.querySelector('input[type=radio]');
+        if (radio.checked) card.classList.add('selected');
+        card.addEventListener('click', function() { selectTypeCard(card); });
+      });
+      const checked = document.querySelector('.type-card input[type=radio]:checked');
+      if (checked && checked.value === 'daily_range') {
+        document.getElementById('date-range-block').style.display = 'block';
+      }
+    });
+  </script>
+</head>
+<body class="page-bg">
+  <div class="page-container">
+    <header class="site-header">
+      <h1 class="dashboard-title">REPORTS</h1>
+    </header>
+
+    <div class="rpt-container">
+      <div class="rpt-title">Generate a Report</div>
+      <div class="rpt-subtitle">Select a batch and report type, then click Generate.</div>
+
+      {% if not all_batches %}
+      <p style="color:#999; font-style:italic;">No batches found. Run some fermentations first.</p>
+      {% else %}
+      <form method="POST" action="{{ url_for('reports') }}">
+
+        <!-- Batch selector -->
+        <div class="field-group">
+          <label for="brewid">Batch</label>
+          <select name="brewid" id="brewid" required>
+            <option value="">— select a batch —</option>
+            {% for b in all_batches %}
+            <option value="{{ b.brewid }}" {% if selected_brewid == b.brewid %}selected{% endif %}>
+              {{ b.beer_name or 'Unnamed' }}{% if b.batch_name %} — {{ b.batch_name }}{% endif %}
+              ({{ b.color }}{% if b.ferm_start_date %}, started {{ b.ferm_start_date }}{% endif %}{% if not b.is_active %}, closed{% endif %})
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Report type -->
+        <div class="field-group">
+          <label>Report Type</label>
+          <div class="type-cards">
+
+            <label class="type-card">
+              <input type="radio" name="report_type" value="overall" {% if report_type == 'overall' or not report_type %}checked{% endif %}>
+              <div class="tc-name">📊 Overall Summary</div>
+              <div class="tc-desc">Full-batch statistics: OG → FG, ABV, temperature, and a weekly breakdown table.</div>
+            </label>
+
+            <label class="type-card">
+              <input type="radio" name="report_type" value="weekly" {% if report_type == 'weekly' %}checked{% endif %}>
+              <div class="tc-name">📅 Weekly Summary</div>
+              <div class="tc-desc">Week-by-week breakdown of gravity and temperature readings.</div>
+            </label>
+
+            <label class="type-card">
+              <input type="radio" name="report_type" value="daily_all" {% if report_type == 'daily_all' %}checked{% endif %}>
+              <div class="tc-name">📆 Daily Summary</div>
+              <div class="tc-desc">Day-by-day breakdown of all data in the batch.</div>
+            </label>
+
+            <label class="type-card">
+              <input type="radio" name="report_type" value="daily_range" {% if report_type == 'daily_range' %}checked{% endif %}>
+              <div class="tc-name">🗓 Daily (Date Range)</div>
+              <div class="tc-desc">Day-by-day breakdown within a specified date range.</div>
+            </label>
+
+          </div><!-- /.type-cards -->
+
+          <!-- Date range sub-form -->
+          <div id="date-range-block">
+            <div class="date-range-row" style="margin-top:14px;">
+              <div class="field-group">
+                <label for="range_start">From Date</label>
+                <input type="date" name="range_start" id="range_start" value="{{ range_start or '' }}">
+              </div>
+              <div class="field-group">
+                <label for="range_end">To Date</label>
+                <input type="date" name="range_end" id="range_end" value="{{ range_end or '' }}">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-generate">Generate Report →</button>
+      </form>
+      {% endif %}
+
+      <div style="margin-top:28px;">
+        <button type="button" onclick="window.location='/'" class="btn-action">← Return to Dashboard</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
