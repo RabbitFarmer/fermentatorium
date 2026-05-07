@@ -151,7 +151,7 @@
 
       {# ── Batch Information ── #}
       <div class="subheading">Batch Information</div>
-      <div class="info-grid">
+      <div class="info-grid" style="grid-template-columns:repeat(4,minmax(0,1fr));">
         <div class="info-card">
           <div class="info-label">Tilt Color</div>
           <div class="info-value" style="color: {{ color_map.get(color, '#333') }}; font-weight:700;">{{ color }}</div>
@@ -192,33 +192,111 @@
       {% if stats.total_readings > 0 %}
       {# ── Actual ── #}
       <div class="subheading">Actual</div>
-      <div class="stats-grid">
-        {% if stats.start_gravity is not none %}<div class="stat-card"><div class="stat-value">{{ "%.3f"|format(stats.start_gravity) }}</div><div class="stat-label">Original Gravity</div></div>{% endif %}
-        {% if stats.end_gravity is not none %}<div class="stat-card"><div class="stat-value">{{ "%.3f"|format(stats.end_gravity) }}</div><div class="stat-label">Current / Final Gravity</div></div>{% endif %}
-        {% if stats.estimated_abv is not none %}<div class="stat-card"><div class="stat-value">{{ "%.2f"|format(stats.estimated_abv) }}%</div><div class="stat-label">ABV</div></div>{% endif %}
+      <div class="info-grid">
+        {% if stats.start_gravity is not none %}<div class="info-card"><div class="info-label">Original Gravity</div><div class="info-value">{{ "%.3f"|format(stats.start_gravity) }}</div></div>{% endif %}
+        {% if stats.end_gravity is not none %}<div class="info-card"><div class="info-label">Current / Final Gravity</div><div class="info-value">{{ "%.3f"|format(stats.end_gravity) }}</div></div>{% endif %}
+        {% if stats.estimated_abv is not none %}<div class="info-card"><div class="info-label">ABV</div><div class="info-value">{{ "%.2f"|format(stats.estimated_abv) }}%</div></div>{% endif %}
       </div>
 
       {# ── Fermentation Statistics ── #}
       <div class="subheading">Fermentation Statistics</div>
-      <div class="stats-grid">
-        <div class="stat-card"><div class="stat-value">{{ stats.total_readings }}</div><div class="stat-label">Total Readings</div></div>
-        {% if stats.duration_days is not none %}<div class="stat-card"><div class="stat-value">{{ stats.duration_days }}</div><div class="stat-label">Duration (days)</div></div>{% endif %}
-        {% if stats.avg_temp is not none %}<div class="stat-card"><div class="stat-value">{{ "%.1f"|format(stats.avg_temp) }}°F</div><div class="stat-label">Average Temperature</div></div>{% endif %}
+      <div class="info-grid">
+        <div class="info-card"><div class="info-label">Total Readings</div><div class="info-value">{{ stats.total_readings }}</div></div>
+        {% if stats.duration_days is not none %}<div class="info-card"><div class="info-label">Duration (days)</div><div class="info-value">{{ stats.duration_days }}</div></div>{% endif %}
+        {% if stats.avg_temp is not none %}<div class="info-card"><div class="info-label">Average Temperature</div><div class="info-value">{{ "%.1f"|format(stats.avg_temp) }}°F</div></div>{% endif %}
         {% if stats.fermentation_rate is not none %}
-        <div class="stat-card">
-          <div class="stat-value">{{ "%.4f"|format(stats.fermentation_rate) }}</div>
-          <div class="stat-label">Gravity Drop / Day (recent)</div>
-          {% if stats.rate_status %}
-            {% set rs = stats.rate_status %}
-            {% if 'Rapid' in rs %}<span class="rate-badge rate-rapid">{{ rs }}</span>
-            {% elif 'Active' in rs %}<span class="rate-badge rate-active">{{ rs }}</span>
-            {% elif 'Slowing' in rs %}<span class="rate-badge rate-slowing">{{ rs }}</span>
-            {% else %}<span class="rate-badge rate-stalled">{{ rs }}</span>
+        <div class="info-card">
+          <div class="info-label">Gravity Drop / Day (recent)</div>
+          <div class="info-value">{{ "%.4f"|format(stats.fermentation_rate) }}
+            {% if stats.rate_status %}
+              {% set rs = stats.rate_status %}
+              {% if 'Rapid' in rs %}<span class="rate-badge rate-rapid">{{ rs }}</span>
+              {% elif 'Active' in rs %}<span class="rate-badge rate-active">{{ rs }}</span>
+              {% elif 'Slowing' in rs %}<span class="rate-badge rate-slowing">{{ rs }}</span>
+              {% else %}<span class="rate-badge rate-stalled">{{ rs }}</span>
+              {% endif %}
             {% endif %}
-          {% endif %}
+          </div>
         </div>
         {% endif %}
       </div>
+
+      {# ── Fermentation Data (collapsible) ── #}
+      <details class="section-details">
+        <summary>🗂 Fermentation Data &amp; Chart</summary>
+        <div class="section-body">
+          <div class="no-print" style="display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+            <button type="button" onclick="viewAllData()" class="btn-action" style="background-color:#4CAF50;">View All Data</button>
+            <button type="button" onclick="window.print()" class="btn-print">Print / Save PDF</button>
+            <button type="button" onclick="exportToCSV()" class="btn-action" style="background-color:#2196F3;">CSV Export</button>
+            <button type="button" onclick="window.location='/batch_settings?tilt_color={{ color }}'" class="btn-action" style="background-color:#FF9800;">Edit Batch</button>
+          </div>
+          <iframe src="/chart_plotly/{{ color }}" style="width:100%; height:620px; border:none; border-radius:6px; display:block;" title="Fermentation chart for {{ color }}"></iframe>
+        </div>
+      </details>
+
+      {# ── Temperature Control Records (collapsible) ── #}
+      {% if temp_events %}
+      <details class="section-details">
+        <summary>🌡 Temperature Control Records ({{ temp_events|length }})</summary>
+        <div class="section-body">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Event Type</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for ev in temp_events %}
+              <tr>
+                <td style="white-space:nowrap; font-size:0.9em;">{{ ev.timestamp or 'N/A' }}</td>
+                <td style="font-size:0.9em;">{{ ev.event_type | replace('_', ' ') | title }}</td>
+                <td style="font-size:0.9em;">
+                  {% if ev.current_temp is not none %}Temp: {{ ev.current_temp }}°F{% endif %}
+                  {% if ev.low_limit is not none %} Low: {{ ev.low_limit }}°F{% endif %}
+                  {% if ev.high_limit is not none %} High: {{ ev.high_limit }}°F{% endif %}
+                  {% if ev.message %} {{ ev.message }}{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      {% endif %}
+
+      {# ── Notifications & Events (collapsible) ── #}
+      {% if batch_events %}
+      <details class="section-details">
+        <summary>📣 Notifications &amp; Events ({{ batch_events|length }})</summary>
+        <div class="section-body">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Event Type</th>
+                <th>Message</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for ev in batch_events %}
+              <tr>
+                <td style="white-space:nowrap; font-size:0.9em;">{{ ev.timestamp or 'N/A' }}</td>
+                <td>
+                  <span class="event-badge event-{{ ev.event_type | replace(' ', '_') | default('default') }}">
+                    {{ ev.event_type | replace('_', ' ') | title }}
+                  </span>
+                </td>
+                <td style="font-size:0.9em;">{{ ev.message or '' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      {% endif %}
 
       {# ── Reading Conformity Report (collapsible) ── #}
       {% if freq_stats and freq_stats.total_gaps > 0 %}
@@ -264,83 +342,6 @@
           <p style="font-size:0.85em; color:#888; margin-top:8px;">
             For detailed per-interval breakdown, open <a href="{{ url_for('batch_data_view', brewid=batch.brewid) }}" rel="noopener">View All Data</a>.
           </p>
-        </div>
-      </details>
-      {% endif %}
-
-      {# ── Fermentation Data (collapsible) ── #}
-      <details class="section-details">
-        <summary>🗂 Fermentation Data &amp; Chart</summary>
-        <div class="section-body">
-          <div class="no-print" style="display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
-            <button type="button" onclick="viewAllData()" class="btn-action" style="background-color:#4CAF50;">View All Data</button>
-            <button type="button" onclick="window.print()" class="btn-print">Print / Save PDF</button>
-            <button type="button" onclick="exportToCSV()" class="btn-action" style="background-color:#2196F3;">CSV Export</button>
-            <button type="button" onclick="window.location='/batch_settings?tilt_color={{ color }}'" class="btn-action" style="background-color:#FF9800;">Edit Batch</button>
-          </div>
-          <iframe src="/chart_plotly/{{ color }}" style="width:100%; height:620px; border:none; border-radius:6px; display:block;" title="Fermentation chart for {{ color }}"></iframe>
-        </div>
-      </details>
-
-      {# ── Notifications & Events (collapsible) ── #}
-      {% if batch_events %}
-      <details class="section-details">
-        <summary>📣 Notifications &amp; Events ({{ batch_events|length }})</summary>
-        <div class="section-body">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Timestamp</th>
-                <th>Event Type</th>
-                <th>Message</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for ev in batch_events %}
-              <tr>
-                <td style="white-space:nowrap; font-size:0.9em;">{{ ev.timestamp or 'N/A' }}</td>
-                <td>
-                  <span class="event-badge event-{{ ev.event_type | replace(' ', '_') | default('default') }}">
-                    {{ ev.event_type | replace('_', ' ') | title }}
-                  </span>
-                </td>
-                <td style="font-size:0.9em;">{{ ev.message or '' }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </details>
-      {% endif %}
-
-      {# ── Temperature Control Records (collapsible) ── #}
-      {% if temp_events %}
-      <details class="section-details">
-        <summary>🌡 Temperature Control Records ({{ temp_events|length }})</summary>
-        <div class="section-body">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Timestamp</th>
-                <th>Event Type</th>
-                <th>Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for ev in temp_events %}
-              <tr>
-                <td style="white-space:nowrap; font-size:0.9em;">{{ ev.timestamp or 'N/A' }}</td>
-                <td style="font-size:0.9em;">{{ ev.event_type | replace('_', ' ') | title }}</td>
-                <td style="font-size:0.9em;">
-                  {% if ev.current_temp is not none %}Temp: {{ ev.current_temp }}°F{% endif %}
-                  {% if ev.low_limit is not none %} Low: {{ ev.low_limit }}°F{% endif %}
-                  {% if ev.high_limit is not none %} High: {{ ev.high_limit }}°F{% endif %}
-                  {% if ev.message %} {{ ev.message }}{% endif %}
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
         </div>
       </details>
       {% endif %}
