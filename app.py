@@ -1248,6 +1248,7 @@ def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=Fals
 
     # Extract the fermentation completion date (YYYY-MM-DD) so the tiltcard
     # day counter can stop advancing once fermentation is complete.
+    # `or {}` guards against notification_state being stored as null in the JSON config
     _ns = cfg.get("notification_state", {}) or {}
     _ferm_comp_dt = _ns.get("fermentation_completion_datetime", "")
     ferm_complete_date = str(_ferm_comp_dt)[:10] if _ferm_comp_dt else ""

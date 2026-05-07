@@ -642,7 +642,7 @@
                   <div class="footer-mac">MAC: <span id="footer-mac-{{ safe }}">--</span></div>
                   <div class="footer-ts">Last: <span id="footer-ts-{{ safe }}">--</span></div>
                   {%- set _off_fsd = off_cfg.get('ferm_start_date', '') %}
-                  {%- set _off_ns  = off_cfg.get('notification_state', {}) or {} %}
+                  {%- set _off_ns  = off_cfg.get('notification_state', {}) or {} %}{# or {} guards against null stored value #}
                   {%- set _off_fcd_raw = _off_ns.get('fermentation_completion_datetime', '') %}
                   {%- set _off_fcd = _off_fcd_raw[:10] if _off_fcd_raw else '' %}
                   {%- if _off_fsd %}
