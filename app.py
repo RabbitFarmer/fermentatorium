@@ -9210,6 +9210,10 @@ def _normalize_dropbox_folder(folder):
     return folder
 
 
+class _DropboxError(Exception):
+    """Raised for expected, user-facing Dropbox backup errors."""
+
+
 def _load_dropbox_backup_state():
     state = load_json(DROPBOX_BACKUP_STATE_FILE, {})
     if not isinstance(state, dict):
@@ -9265,7 +9269,9 @@ def _dropbox_create_folder_if_needed(access_token, folder):
         # Existing folder is expected on subsequent backups.
         if e.code == 409 and ('path/conflict/folder' in body or 'conflict' in body):
             return
-        raise RuntimeError(f'Failed to create Dropbox folder: HTTP {e.code} {body}')
+        raise _DropboxError(f'Failed to create Dropbox folder (HTTP {e.code}). Check your access token and folder settings.')
+    except urllib.error.URLError:
+        raise _DropboxError('Cannot reach Dropbox. Check your network connection and try again.')
 
 
 def _upload_file_to_dropbox(access_token, folder, slot, local_path):
@@ -9299,8 +9305,9 @@ def _upload_file_to_dropbox(access_token, folder, slot, local_path):
         with urllib.request.urlopen(req, timeout=upload_timeout):
             pass
     except urllib.error.HTTPError as e:
-        body = e.read().decode('utf-8', errors='replace')
-        raise RuntimeError(f'Dropbox upload failed: HTTP {e.code} {body}')
+        raise _DropboxError(f'Dropbox upload failed (HTTP {e.code}). Check your access token and folder settings.')
+    except urllib.error.URLError:
+        raise _DropboxError('Cannot reach Dropbox. Check your network connection and try again.')
 
     return dropbox_path
 
@@ -9322,13 +9329,25 @@ def _perform_dropbox_backup(trigger='manual'):
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         backup_filename = f'fermenter_backup_{timestamp}.tar.gz'
 
-        with tempfile.TemporaryDirectory(prefix='fermenter_dropbox_backup_') as tmpdir:
-            backup_full_path = _create_backup_archive(tmpdir, backup_filename)
-            backup_size = os.path.getsize(backup_full_path)
-            backup_size_mb = backup_size / (1024 * 1024)
+        try:
+            with tempfile.TemporaryDirectory(prefix='fermenter_dropbox_backup_') as tmpdir:
+                backup_full_path = _create_backup_archive(tmpdir, backup_filename)
+                backup_size = os.path.getsize(backup_full_path)
+                backup_size_mb = backup_size / (1024 * 1024)
 
-            _dropbox_create_folder_if_needed(access_token, folder)
-            uploaded_path = _upload_file_to_dropbox(access_token, folder, slot, backup_full_path)
+                _dropbox_create_folder_if_needed(access_token, folder)
+                uploaded_path = _upload_file_to_dropbox(access_token, folder, slot, backup_full_path)
+        except _DropboxError as e:
+            return {
+                'success': False,
+                'message': str(e)
+            }
+        except Exception as e:
+            print(f"[LOG] Dropbox backup unexpected error: {e}")
+            return {
+                'success': False,
+                'message': 'Backup failed due to an unexpected error. Check system logs.'
+            }
 
         now_epoch = int(time.time())
         state.update({
