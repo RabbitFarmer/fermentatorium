@@ -187,6 +187,13 @@ BROWSER_WARN_LOG = os.path.join(_HERE, 'logs', 'browser_warnings.log')
 TILT_CONFIG_FILE   = os.path.join(_HERE, 'config', 'tilt_config.json')
 TEMP_CFG_FILE      = os.path.join(_HERE, 'config', 'temp_control_config.json')
 SYSTEM_CFG_FILE    = os.path.join(_HERE, 'config', 'system_config.json')
+DROPBOX_BACKUP_STATE_FILE = os.path.join(_HERE, 'config', 'dropbox_backup_state.json')
+DROPBOX_BACKUP_SLOT_COUNT = 5
+DROPBOX_BACKUP_CHECK_INTERVAL_SECONDS = 60
+DROPBOX_UPLOAD_TIMEOUT_MIN_SECONDS = 120
+DROPBOX_UPLOAD_TIMEOUT_BASE_SECONDS = 30
+DROPBOX_UPLOAD_TIMEOUT_PER_MB_SECONDS = 15
+_dropbox_backup_lock = threading.Lock()
 
 # Valid tab names for system config page (using set for O(1) lookup)
 VALID_SYSTEM_CONFIG_TABS = {'main-settings', 'push-email', 'logging-integrations', 'backup-restore'}
@@ -908,6 +915,16 @@ temp_cfg_raw = migrate_temp_config_to_multi_controller(temp_cfg_raw)
 temp_cfg = temp_cfg_raw
 system_cfg = load_json(SYSTEM_CFG_FILE, {})
 tilt_table = load_tilt_table()  # MAC-keyed device registry (persists calibration by device)
+
+def ensure_system_defaults():
+    """Ensure required system settings are present."""
+    system_cfg.setdefault('backup_path', '/media/usb')
+    system_cfg.setdefault('dropbox_backup_enabled', False)
+    system_cfg.setdefault('dropbox_backup_interval_hours', 24)
+    system_cfg.setdefault('dropbox_backup_folder', '/FermentatoriumBackups')
+    system_cfg.setdefault('dropbox_access_token', '')
+
+ensure_system_defaults()
 
 
 def _parse_plug_port(value):
@@ -5461,6 +5478,11 @@ def update_system_config():
     if ntfy_auth_token:
         system_cfg["ntfy_auth_token"] = ntfy_auth_token
 
+    # Handle Dropbox Access Token - only update if provided
+    dropbox_access_token = data.get("dropbox_access_token", "")
+    if dropbox_access_token:
+        system_cfg["dropbox_access_token"] = dropbox_access_token.strip()
+
     # Handle Kasa credentials — always store username; only overwrite password
     # if a non-empty value is submitted (so the stored password is preserved
     # when the user saves other settings without re-entering it).
@@ -5498,6 +5520,10 @@ def update_system_config():
         "smtp_starttls": 'smtp_starttls' in data,
         "kasa_rate_limit_seconds": data.get("kasa_rate_limit_seconds", system_cfg.get('kasa_rate_limit_seconds', 10)),
         "tilt_logging_interval_minutes": int(data.get("tilt_logging_interval_minutes", system_cfg.get("tilt_logging_interval_minutes", 15))),
+        "backup_path": data.get("backup_path", system_cfg.get("backup_path", "/media/usb")).strip() or "/media/usb",
+        "dropbox_backup_enabled": 'dropbox_backup_enabled' in data,
+        "dropbox_backup_interval_hours": int(data.get("dropbox_backup_interval_hours", system_cfg.get("dropbox_backup_interval_hours", 24))),
+        "dropbox_backup_folder": data.get("dropbox_backup_folder", system_cfg.get("dropbox_backup_folder", "/FermentatoriumBackups")).strip() or "/FermentatoriumBackups",
         # Push notification provider settings
         "push_provider": data.get("push_provider", system_cfg.get("push_provider", "pushover")),
         "pushover_user_key": data.get("pushover_user_key", system_cfg.get("pushover_user_key", "")),
@@ -9092,69 +9118,29 @@ def delete_batch():
 @app.route('/backup_system', methods=['POST'])
 def backup_system():
     """Create a backup of all system files to the specified USB device."""
-    import tarfile
-    import shutil
-    
-    backup_path = request.form.get('backup_path', '/media/usb')
-    
+    backup_path = request.form.get('backup_path', system_cfg.get('backup_path', '/media/usb')).strip() or '/media/usb'
+
     # Validate that the backup path exists
     if not os.path.exists(backup_path):
         return jsonify({
             'success': False,
             'message': f'Backup path does not exist: {backup_path}. Please ensure USB device is mounted.'
         }), 400
-    
+
     # Check if the path is writable
     if not os.access(backup_path, os.W_OK):
         return jsonify({
             'success': False,
             'message': f'Backup path is not writable: {backup_path}. Check permissions.'
         }), 400
-    
+
     try:
-        # Create timestamped backup filename
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         backup_filename = f'fermenter_backup_{timestamp}.tar.gz'
-        backup_full_path = os.path.join(backup_path, backup_filename)
-        
-        # Files and directories to backup
-        items_to_backup = [
-            # Python program files
-            'app.py',
-            'kasa_worker.py',
-            'kasa_manager',
-            'logger.py',
-            'batch_history.py',
-            'batch_storage.py',
-            'fermentation_monitor.py',
-            'tilt_static.py',
-            'archive_compact_logs.py',
-            'backfill_temp_control_jsonl.py',
-            # Configuration files
-            'config/',
-            # Data files
-            'batches/',
-            'temp_control/',
-            'temp_control_log.jsonl',
-            # Web interface
-            'templates/',
-            'static/',
-            # Documentation
-            'requirements.txt',
-            'start.sh',
-            'README.md',
-        ]
-        
-        # Create the tar.gz archive
-        with tarfile.open(backup_full_path, 'w:gz') as tar:
-            for item in items_to_backup:
-                if os.path.exists(item):
-                    tar.add(item)
-        
-        # Get the size of the backup file
+        backup_full_path = _create_backup_archive(backup_path, backup_filename)
         backup_size = os.path.getsize(backup_full_path)
         backup_size_mb = backup_size / (1024 * 1024)
-        
+
         return jsonify({
             'success': True,
             'message': f'Backup created successfully: {backup_filename}',
@@ -9162,12 +9148,251 @@ def backup_system():
             'size_mb': f'{backup_size_mb:.2f}',
             'path': backup_full_path
         })
-        
+
     except Exception as e:
         return jsonify({
             'success': False,
             'message': f'Backup failed: {str(e)}'
         }), 500
+
+
+def _backup_items_to_archive():
+    """Return relative repository paths that should be included in full backups."""
+    return [
+        'app.py',
+        'kasa_worker.py',
+        'kasa_manager',
+        'logger.py',
+        'batch_history.py',
+        'batch_storage.py',
+        'fermentation_monitor.py',
+        'tilt_static.py',
+        'archive_compact_logs.py',
+        'backfill_temp_control_jsonl.py',
+        'utils/archive_compact_logs.py',
+        'utils/backfill_temp_control_jsonl.py',
+        'config/',
+        'batches/',
+        'temp_control/',
+        'temp_control_log.jsonl',
+        'templates/',
+        'static/',
+        'requirements.txt',
+        'start.sh',
+        'README.md',
+    ]
+
+
+def _create_backup_archive(backup_dir, backup_filename):
+    """Create a .tar.gz backup archive and return its full path."""
+    import tarfile
+
+    backup_full_path = os.path.join(backup_dir, backup_filename)
+
+    with tarfile.open(backup_full_path, 'w:gz') as tar:
+        for item in _backup_items_to_archive():
+            abs_item = os.path.join(_HERE, item)
+            if os.path.exists(abs_item):
+                arcname = item[:-1] if item.endswith('/') else item
+                tar.add(abs_item, arcname=arcname)
+
+    return backup_full_path
+
+
+def _normalize_dropbox_folder(folder):
+    folder = (folder or '').strip()
+    if not folder:
+        folder = '/FermentatoriumBackups'
+    if not folder.startswith('/'):
+        folder = '/' + folder
+    if len(folder) > 1 and folder.endswith('/'):
+        folder = folder.rstrip('/')
+    return folder
+
+
+def _load_dropbox_backup_state():
+    state = load_json(DROPBOX_BACKUP_STATE_FILE, {})
+    if not isinstance(state, dict):
+        state = {}
+
+    try:
+        next_slot = int(state.get('next_slot', 1))
+    except (TypeError, ValueError):
+        next_slot = 1
+    if next_slot < 1 or next_slot > DROPBOX_BACKUP_SLOT_COUNT:
+        next_slot = 1
+
+    try:
+        last_backup_epoch = int(state.get('last_backup_epoch', 0))
+    except (TypeError, ValueError):
+        last_backup_epoch = 0
+
+    return {
+        'next_slot': next_slot,
+        'last_backup_epoch': last_backup_epoch,
+        'last_backup_utc': state.get('last_backup_utc', ''),
+        'last_trigger': state.get('last_trigger', ''),
+        'last_uploaded_path': state.get('last_uploaded_path', '')
+    }
+
+
+def _save_dropbox_backup_state(state):
+    save_json(DROPBOX_BACKUP_STATE_FILE, state)
+
+
+def _dropbox_create_folder_if_needed(access_token, folder):
+    if folder == '/':
+        return
+
+    payload = json.dumps({
+        'path': folder,
+        'autorename': False
+    }).encode('utf-8')
+
+    req = urllib.request.Request(
+        'https://api.dropboxapi.com/2/files/create_folder_v2',
+        data=payload,
+        method='POST'
+    )
+    req.add_header('Authorization', f'Bearer {access_token}')
+    req.add_header('Content-Type', 'application/json')
+
+    try:
+        with urllib.request.urlopen(req, timeout=10):
+            pass
+    except urllib.error.HTTPError as e:
+        body = e.read().decode('utf-8', errors='replace')
+        # Existing folder is expected on subsequent backups.
+        if e.code == 409 and ('path/conflict/folder' in body or 'conflict' in body):
+            return
+        raise RuntimeError(f'Failed to create Dropbox folder: HTTP {e.code} {body}')
+
+
+def _upload_file_to_dropbox(access_token, folder, slot, local_path):
+    dropbox_path = f'{folder}/fermenter_backup_slot_{slot}.tar.gz'
+    api_arg = json.dumps({
+        'path': dropbox_path,
+        'mode': 'overwrite',
+        'autorename': False,
+        'mute': True
+    })
+
+    with open(local_path, 'rb') as f:
+        payload = f.read()
+
+    req = urllib.request.Request(
+        'https://content.dropboxapi.com/2/files/upload',
+        data=payload,
+        method='POST'
+    )
+    req.add_header('Authorization', f'Bearer {access_token}')
+    req.add_header('Dropbox-API-Arg', api_arg)
+    req.add_header('Content-Type', 'application/octet-stream')
+
+    file_size_mb = max(1.0, os.path.getsize(local_path) / (1024 * 1024))
+    upload_timeout = max(
+        DROPBOX_UPLOAD_TIMEOUT_MIN_SECONDS,
+        int(DROPBOX_UPLOAD_TIMEOUT_BASE_SECONDS + (file_size_mb * DROPBOX_UPLOAD_TIMEOUT_PER_MB_SECONDS))
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=upload_timeout):
+            pass
+    except urllib.error.HTTPError as e:
+        body = e.read().decode('utf-8', errors='replace')
+        raise RuntimeError(f'Dropbox upload failed: HTTP {e.code} {body}')
+
+    return dropbox_path
+
+
+def _perform_dropbox_backup(trigger='manual'):
+    with _dropbox_backup_lock:
+        access_token = system_cfg.get('dropbox_access_token', '').strip()
+        if not access_token:
+            return {
+                'success': False,
+                'message': 'Dropbox access token is not configured. Save it in System Settings first.'
+            }
+
+        folder = _normalize_dropbox_folder(system_cfg.get('dropbox_backup_folder', '/FermentatoriumBackups'))
+        state = _load_dropbox_backup_state()
+        slot = state.get('next_slot', 1)
+
+        import tempfile
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_filename = f'fermenter_backup_{timestamp}.tar.gz'
+
+        with tempfile.TemporaryDirectory(prefix='fermenter_dropbox_backup_') as tmpdir:
+            backup_full_path = _create_backup_archive(tmpdir, backup_filename)
+            backup_size = os.path.getsize(backup_full_path)
+            backup_size_mb = backup_size / (1024 * 1024)
+
+            _dropbox_create_folder_if_needed(access_token, folder)
+            uploaded_path = _upload_file_to_dropbox(access_token, folder, slot, backup_full_path)
+
+        now_epoch = int(time.time())
+        state.update({
+            'next_slot': 1 if slot >= DROPBOX_BACKUP_SLOT_COUNT else slot + 1,
+            'last_backup_epoch': now_epoch,
+            'last_backup_utc': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'last_trigger': trigger,
+            'last_uploaded_path': uploaded_path
+        })
+        _save_dropbox_backup_state(state)
+
+        return {
+            'success': True,
+            'message': f'Dropbox backup uploaded to slot {slot} ({uploaded_path})',
+            'slot': slot,
+            'path': uploaded_path,
+            'size_mb': f'{backup_size_mb:.2f}'
+        }
+
+
+def periodic_dropbox_backups():
+    """Run automatic Dropbox backups based on configured interval."""
+    while True:
+        try:
+            if not system_cfg.get('dropbox_backup_enabled', False):
+                time.sleep(DROPBOX_BACKUP_CHECK_INTERVAL_SECONDS)
+                continue
+
+            if not system_cfg.get('dropbox_access_token', '').strip():
+                time.sleep(DROPBOX_BACKUP_CHECK_INTERVAL_SECONDS)
+                continue
+
+            try:
+                interval_hours = int(system_cfg.get('dropbox_backup_interval_hours', 24))
+            except (TypeError, ValueError):
+                interval_hours = 24
+            interval_hours = max(1, min(168, interval_hours))
+            interval_seconds = interval_hours * 3600
+
+            state = _load_dropbox_backup_state()
+            now_epoch = int(time.time())
+            try:
+                last_backup_epoch = int(state.get('last_backup_epoch', 0))
+            except (TypeError, ValueError):
+                last_backup_epoch = 0
+
+            if (now_epoch - last_backup_epoch) >= interval_seconds:
+                result = _perform_dropbox_backup(trigger='automatic')
+                if result.get('success'):
+                    print(f"[LOG] Automatic Dropbox backup complete: {result.get('path')} ({result.get('size_mb')} MB)")
+                else:
+                    print(f"[LOG] Automatic Dropbox backup failed: {result.get('message')}")
+        except Exception as e:
+            print(f"[LOG] Dropbox backup scheduler error: {e}")
+
+        time.sleep(DROPBOX_BACKUP_CHECK_INTERVAL_SECONDS)
+
+
+@app.route('/run_dropbox_backup', methods=['POST'])
+def run_dropbox_backup():
+    """Run a Dropbox backup immediately."""
+    result = _perform_dropbox_backup(trigger='manual')
+    status = 200 if result.get('success') else 400
+    return jsonify(result), status
 
 
 @app.route('/restore_system', methods=['POST'])
@@ -10424,6 +10649,9 @@ if __name__ == '__main__':
     
     threading.Thread(target=_background_startup_sync, daemon=True).start()
     print("[LOG] Started background_startup_sync thread")
+
+    threading.Thread(target=periodic_dropbox_backups, daemon=True).start()
+    print("[LOG] Started periodic_dropbox_backups thread")
 
     # Determine Flask port from environment variable, config file, or default
     # Priority: 1) Environment variable, 2) Config file, 3) Default (5001)

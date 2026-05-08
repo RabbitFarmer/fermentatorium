@@ -547,10 +547,12 @@ Your configuration files (`config/*.json`) and batch data (`batches/`) are never
 
 From the dashboard, open **⚙ gear → System Settings → Backup & Restore / Update tab**:
 
-- **Create Backup** — downloads a `.zip` archive containing all config files, batch data, temperature logs, and notification logs.
-- **Restore** — upload a backup `.zip` to restore a previous state (config and data files only; the code itself is not included in backups).
+- **Create Backup** — writes a `.tar.gz` archive containing config files, batch data, logs, and UI assets to the configured USB path.
+- **Restore** — restore a previous `.tar.gz` backup from the configured USB path.
+- **Automatic Dropbox Backups** — configure a Dropbox access token, target folder, and interval, then enable automatic backups.
+- Dropbox backups use a **5-slot rotation**: backup #6 overwrites slot #1, backup #7 overwrites slot #2, and so on.
 
-Backups are stored in the `export/` directory on the Pi until downloaded or deleted.
+USB backups are stored at your configured mount path (default `/media/usb`).
 
 ---
 
