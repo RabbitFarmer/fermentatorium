@@ -1020,12 +1020,27 @@
           'Content-Type': 'application/x-www-form-urlencoded',
         }
       })
-      .then(response => response.json())
-      .then(data => {
+      .then(async response => {
+        const raw = await response.text();
+        let data = {};
+        try {
+          data = JSON.parse(raw);
+        } catch (e) {
+          data = {
+            success: false,
+            message: raw && raw.trim()
+              ? ('Server returned a non-JSON response: ' + raw.slice(0, 200))
+              : 'Server returned an empty response.'
+          };
+        }
+        return { response, data };
+      })
+      .then(({ response, data }) => {
         if (data.success) {
           statusDiv.innerHTML = '<span style="color: green;">✓ ' + escapeHtml(data.message) + '<br>Size: ' + escapeHtml(data.size_mb || '?') + ' MB</span>';
         } else {
-          statusDiv.innerHTML = '<span style="color: red;">✗ ' + escapeHtml(data.message || 'Dropbox backup failed') + '</span>';
+          const fallback = response.ok ? 'Dropbox backup failed' : ('Dropbox backup failed (HTTP ' + response.status + ')');
+          statusDiv.innerHTML = '<span style="color: red;">✗ ' + escapeHtml(data.message || fallback) + '</span>';
         }
       })
       .catch(error => {
