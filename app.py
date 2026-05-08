@@ -190,6 +190,9 @@ SYSTEM_CFG_FILE    = os.path.join(_HERE, 'config', 'system_config.json')
 DROPBOX_BACKUP_STATE_FILE = os.path.join(_HERE, 'config', 'dropbox_backup_state.json')
 DROPBOX_BACKUP_SLOT_COUNT = 5
 DROPBOX_BACKUP_CHECK_INTERVAL_SECONDS = 60
+DROPBOX_UPLOAD_TIMEOUT_MIN_SECONDS = 120
+DROPBOX_UPLOAD_TIMEOUT_BASE_SECONDS = 30
+DROPBOX_UPLOAD_TIMEOUT_PER_MB_SECONDS = 15
 _dropbox_backup_lock = threading.Lock()
 
 # Valid tab names for system config page (using set for O(1) lookup)
@@ -9190,7 +9193,8 @@ def _create_backup_archive(backup_dir, backup_filename):
         for item in _backup_items_to_archive():
             abs_item = os.path.join(_HERE, item)
             if os.path.exists(abs_item):
-                tar.add(abs_item, arcname=item.rstrip('/'))
+                arcname = item[:-1] if item.endswith('/') else item
+                tar.add(abs_item, arcname=arcname)
 
     return backup_full_path
 
@@ -9286,7 +9290,10 @@ def _upload_file_to_dropbox(access_token, folder, slot, local_path):
     req.add_header('Content-Type', 'application/octet-stream')
 
     file_size_mb = max(1.0, os.path.getsize(local_path) / (1024 * 1024))
-    upload_timeout = max(120, int(30 + (file_size_mb * 15)))
+    upload_timeout = max(
+        DROPBOX_UPLOAD_TIMEOUT_MIN_SECONDS,
+        int(DROPBOX_UPLOAD_TIMEOUT_BASE_SECONDS + (file_size_mb * DROPBOX_UPLOAD_TIMEOUT_PER_MB_SECONDS))
+    )
 
     try:
         with urllib.request.urlopen(req, timeout=upload_timeout):
