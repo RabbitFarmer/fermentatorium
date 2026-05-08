@@ -552,6 +552,15 @@ From the dashboard, open **⚙ gear → System Settings → Backup & Restore / U
 - **Automatic Dropbox Backups** — configure a Dropbox access token, target folder, and interval, then enable automatic backups.
 - Dropbox backups use a **5-slot rotation**: backup #6 overwrites slot #1, backup #7 overwrites slot #2, and so on.
 
+**Steps to Generate a Dropbox Access Token:**
+
+1. **Log in to Developer Console** — Visit the [Dropbox Developer Website](https://www.dropbox.com/developers) and log in.
+2. **Create App** — Click **Create App** and select **Scoped access**.
+3. **Configure Scopes** — Choose the app type (**App Folder**) and name it.
+4. **Set Permissions** — Navigate to the **Permissions** tab and select `files.content.read` and `files.content.write`.
+5. **Generate Token** — Go to the **Settings** tab, scroll to the **OAuth 2** section, and click **Generate** under "Generated access token".
+6. **Copy Token** — Save the generated token securely.
+
 USB backups are stored at your configured mount path (default `/media/usb`).
 
 ---
