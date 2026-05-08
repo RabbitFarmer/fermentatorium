@@ -1022,17 +1022,16 @@
       })
       .then(async response => {
         const raw = await response.text();
-        let data = {};
-        try {
-          data = JSON.parse(raw);
-        } catch (e) {
-          data = {
+        const data = (() => {
+          try {
+            return JSON.parse(raw);
+          } catch (e) {
+            return {
             success: false,
-            message: raw && raw.trim()
-              ? ('Server returned a non-JSON response: ' + raw.slice(0, 200))
-              : 'Server returned an empty response.'
+            message: 'Server returned an invalid response format.'
           };
-        }
+          }
+        })();
         return { response, data };
       })
       .then(({ response, data }) => {

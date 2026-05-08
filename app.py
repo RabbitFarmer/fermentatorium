@@ -9397,7 +9397,7 @@ def run_dropbox_backup():
         print(f"[LOG] Manual Dropbox backup failed unexpectedly: {e}")
         result = {
             'success': False,
-            'message': f'Unexpected error while running Dropbox backup: {e}'
+            'message': 'Unexpected error while running Dropbox backup.'
         }
         status = 500
     return jsonify(result), status
