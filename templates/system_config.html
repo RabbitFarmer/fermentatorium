@@ -707,7 +707,7 @@
             <td colspan="2" style="background-color: #f5f5f5; padding: 15px;">
               <h4 style="margin: 0 0 10px 0;">Backup Configuration</h4>
               <label for="backup_path"><b>USB Mount Path</b></label><br>
-              <input type="text" id="backup_path" value="/media/usb" placeholder="/media/usb" style="width: 100%; margin-top: 5px;">
+              <input type="text" id="backup_path" name="backup_path" value="{{ system_settings.get('backup_path', '/media/usb') }}" placeholder="/media/usb" style="width: 100%; margin-top: 5px;">
               <div style="font-size:0.9em;color:#666;margin-top:6px;">
                 Enter the path where your USB device is mounted (e.g., /media/usb, /mnt/usb0)
               </div>
@@ -736,6 +736,36 @@
           </tr>
           <tr>
             <td colspan="2" style="background-color: #f5f5f5; padding: 15px;">
+              <h4 style="margin: 0 0 10px 0;">Automatic Dropbox Backups</h4>
+              <div style="margin-bottom: 10px;">
+                <label>
+                  <input type="checkbox" name="dropbox_backup_enabled" {% if system_settings.get('dropbox_backup_enabled', False) %}checked{% endif %}>
+                  Enable automatic Dropbox backups
+                </label>
+              </div>
+              <label for="dropbox_backup_folder"><b>Dropbox Folder</b></label><br>
+              <input type="text" id="dropbox_backup_folder" name="dropbox_backup_folder" value="{{ system_settings.get('dropbox_backup_folder', '/FermentatoriumBackups') }}" placeholder="/FermentatoriumBackups" style="width: 100%; margin-top: 5px;">
+              <div style="margin-top: 12px;">
+                <label for="dropbox_access_token"><b>Dropbox Access Token</b></label><br>
+                <input type="password" id="dropbox_access_token" name="dropbox_access_token" value="" placeholder="Leave blank to keep existing token" style="width: 100%; margin-top: 5px;">
+              </div>
+              <div style="margin-top: 12px;">
+                <label for="dropbox_backup_interval_hours"><b>Automatic Backup Interval (hours)</b></label><br>
+                <input type="number" id="dropbox_backup_interval_hours" name="dropbox_backup_interval_hours" value="{{ system_settings.get('dropbox_backup_interval_hours', 24) }}" min="1" max="168" style="width: 120px; margin-top: 5px;">
+              </div>
+              <div style="font-size:0.9em;color:#666;margin-top:8px;">
+                Uses a 5-slot rotation in Dropbox: backup #6 overwrites slot #1, #7 overwrites slot #2, and so on.
+              </div>
+              <div style="margin-top: 15px;">
+                <button type="button" class="btn-primary" onclick="runDropboxBackupNow()" style="font-size: 14px; padding: 8px 20px;">
+                  Run Dropbox Backup Now
+                </button>
+              </div>
+              <div id="dropbox-backup-status" style="margin-top: 10px; font-weight: bold;"></div>
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2" style="background-color: #f5f5f5; padding: 15px;">
               <h4 style="margin: 0 0 10px 0;">Update System</h4>
               <p style="margin: 0 0 12px 0; color: #555;">
                 Download and apply the latest updates from the GitHub repository.
@@ -756,6 +786,7 @@
         <div style="text-align:center; margin-top:20px;">
           <button type="button" onclick="window.location='/'" class="btn-action">Return</button>
           <button type="button" onclick="switchToTab('main-settings')" class="btn-action" style="margin-left:16px;">Back</button>
+          <button type="submit" class="btn-primary" style="margin-left:16px;">Save</button>
           <button type="button" onclick="window.location='/system_config'" class="btn-secondary" style="margin-left:16px;">Cancel</button>
         </div>
       </div>
@@ -969,6 +1000,29 @@
           }
         } else {
           statusDiv.innerHTML = '<span style="color: red;">✗ Update failed. See output below for details.</span>';
+        }
+      })
+      .catch(error => {
+        statusDiv.innerHTML = '<span style="color: red;">✗ Error: ' + escapeHtml(error.message) + '</span>';
+      });
+    }
+
+    function runDropboxBackupNow() {
+      const statusDiv = document.getElementById('dropbox-backup-status');
+      statusDiv.innerHTML = '<span style="color: blue;">Running Dropbox backup, please wait...</span>';
+
+      fetch('/run_dropbox_backup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        }
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          statusDiv.innerHTML = '<span style="color: green;">✓ ' + escapeHtml(data.message) + '<br>Size: ' + escapeHtml(data.size_mb || '?') + ' MB</span>';
+        } else {
+          statusDiv.innerHTML = '<span style="color: red;">✗ ' + escapeHtml(data.message || 'Dropbox backup failed') + '</span>';
         }
       })
       .catch(error => {

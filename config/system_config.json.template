@@ -7,5 +7,10 @@
   "pushover_user_key": "",
   "pushover_api_token": "",
   "tilt_inactivity_timeout_minutes": 30,
-  "flask_port": 5001
+  "flask_port": 5001,
+  "backup_path": "/media/usb",
+  "dropbox_backup_enabled": false,
+  "dropbox_backup_interval_hours": 24,
+  "dropbox_backup_folder": "/FermentatoriumBackups",
+  "dropbox_access_token": ""
 }
