@@ -9390,8 +9390,16 @@ def periodic_dropbox_backups():
 @app.route('/run_dropbox_backup', methods=['POST'])
 def run_dropbox_backup():
     """Run a Dropbox backup immediately."""
-    result = _perform_dropbox_backup(trigger='manual')
-    status = 200 if result.get('success') else 400
+    try:
+        result = _perform_dropbox_backup(trigger='manual')
+        status = 200 if result.get('success') else 400
+    except Exception as e:
+        print(f"[LOG] Manual Dropbox backup failed unexpectedly: {e}")
+        result = {
+            'success': False,
+            'message': 'Unexpected error while running Dropbox backup.'
+        }
+        status = 500
     return jsonify(result), status
 
 

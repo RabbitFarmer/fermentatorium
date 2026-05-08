@@ -1020,12 +1020,26 @@
           'Content-Type': 'application/x-www-form-urlencoded',
         }
       })
-      .then(response => response.json())
-      .then(data => {
+      .then(async response => {
+        const raw = await response.text();
+        const data = (() => {
+          try {
+            return JSON.parse(raw);
+          } catch (e) {
+            return {
+            success: false,
+            message: 'Server returned an invalid response format.'
+          };
+          }
+        })();
+        return { response, data };
+      })
+      .then(({ response, data }) => {
         if (data.success) {
           statusDiv.innerHTML = '<span style="color: green;">✓ ' + escapeHtml(data.message) + '<br>Size: ' + escapeHtml(data.size_mb || '?') + ' MB</span>';
         } else {
-          statusDiv.innerHTML = '<span style="color: red;">✗ ' + escapeHtml(data.message || 'Dropbox backup failed') + '</span>';
+          const fallback = response.ok ? 'Dropbox backup failed' : ('Dropbox backup failed (HTTP ' + response.status + ')');
+          statusDiv.innerHTML = '<span style="color: red;">✗ ' + escapeHtml(data.message || fallback) + '</span>';
         }
       })
       .catch(error => {
