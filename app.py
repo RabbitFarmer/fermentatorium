@@ -189,6 +189,7 @@ TEMP_CFG_FILE      = os.path.join(_HERE, 'config', 'temp_control_config.json')
 SYSTEM_CFG_FILE    = os.path.join(_HERE, 'config', 'system_config.json')
 DROPBOX_BACKUP_STATE_FILE = os.path.join(_HERE, 'config', 'dropbox_backup_state.json')
 DROPBOX_BACKUP_SLOT_COUNT = 5
+DROPBOX_BACKUP_CHECK_INTERVAL_SECONDS = 60
 _dropbox_backup_lock = threading.Lock()
 
 # Valid tab names for system config page (using set for O(1) lookup)
@@ -9163,6 +9164,8 @@ def _backup_items_to_archive():
         'batch_storage.py',
         'fermentation_monitor.py',
         'tilt_static.py',
+        'archive_compact_logs.py',
+        'backfill_temp_control_jsonl.py',
         'utils/archive_compact_logs.py',
         'utils/backfill_temp_control_jsonl.py',
         'config/',
@@ -9181,7 +9184,6 @@ def _create_backup_archive(backup_dir, backup_filename):
     """Create a .tar.gz backup archive and return its full path."""
     import tarfile
 
-    os.makedirs(backup_dir, exist_ok=True)
     backup_full_path = os.path.join(backup_dir, backup_filename)
 
     with tarfile.open(backup_full_path, 'w:gz') as tar:
@@ -9252,7 +9254,7 @@ def _dropbox_create_folder_if_needed(access_token, folder):
     req.add_header('Content-Type', 'application/json')
 
     try:
-        with urllib.request.urlopen(req, timeout=20):
+        with urllib.request.urlopen(req, timeout=10):
             pass
     except urllib.error.HTTPError as e:
         body = e.read().decode('utf-8', errors='replace')
@@ -9283,8 +9285,11 @@ def _upload_file_to_dropbox(access_token, folder, slot, local_path):
     req.add_header('Dropbox-API-Arg', api_arg)
     req.add_header('Content-Type', 'application/octet-stream')
 
+    file_size_mb = max(1.0, os.path.getsize(local_path) / (1024 * 1024))
+    upload_timeout = max(120, int(30 + (file_size_mb * 15)))
+
     try:
-        with urllib.request.urlopen(req, timeout=120):
+        with urllib.request.urlopen(req, timeout=upload_timeout):
             pass
     except urllib.error.HTTPError as e:
         body = e.read().decode('utf-8', errors='replace')
@@ -9342,11 +9347,11 @@ def periodic_dropbox_backups():
     while True:
         try:
             if not system_cfg.get('dropbox_backup_enabled', False):
-                time.sleep(60)
+                time.sleep(DROPBOX_BACKUP_CHECK_INTERVAL_SECONDS)
                 continue
 
             if not system_cfg.get('dropbox_access_token', '').strip():
-                time.sleep(60)
+                time.sleep(DROPBOX_BACKUP_CHECK_INTERVAL_SECONDS)
                 continue
 
             try:
@@ -9358,7 +9363,10 @@ def periodic_dropbox_backups():
 
             state = _load_dropbox_backup_state()
             now_epoch = int(time.time())
-            last_backup_epoch = int(state.get('last_backup_epoch', 0))
+            try:
+                last_backup_epoch = int(state.get('last_backup_epoch', 0))
+            except (TypeError, ValueError):
+                last_backup_epoch = 0
 
             if (now_epoch - last_backup_epoch) >= interval_seconds:
                 result = _perform_dropbox_backup(trigger='automatic')
@@ -9369,7 +9377,7 @@ def periodic_dropbox_backups():
         except Exception as e:
             print(f"[LOG] Dropbox backup scheduler error: {e}")
 
-        time.sleep(60)
+        time.sleep(DROPBOX_BACKUP_CHECK_INTERVAL_SECONDS)
 
 
 @app.route('/run_dropbox_backup', methods=['POST'])

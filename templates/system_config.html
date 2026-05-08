@@ -748,6 +748,9 @@
               <div style="margin-top: 12px;">
                 <label for="dropbox_access_token"><b>Dropbox Access Token</b></label><br>
                 <input type="password" id="dropbox_access_token" name="dropbox_access_token" value="" placeholder="Leave blank to keep existing token" style="width: 100%; margin-top: 5px;">
+                <div style="font-size:0.85em;color:#666;margin-top:4px;">
+                  Token configured: <b>{% if system_settings.get('dropbox_access_token', '') %}Yes{% else %}No{% endif %}</b>
+                </div>
               </div>
               <div style="margin-top: 12px;">
                 <label for="dropbox_backup_interval_hours"><b>Automatic Backup Interval (hours)</b></label><br>
