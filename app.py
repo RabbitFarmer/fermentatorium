@@ -9269,6 +9269,10 @@ def _dropbox_create_folder_if_needed(access_token, folder):
         # Existing folder is expected on subsequent backups.
         if e.code == 409 and ('path/conflict/folder' in body or 'conflict' in body):
             return
+        # Some tokens can upload to an existing folder but cannot create folders.
+        # Let upload proceed so backups still work when the folder already exists.
+        if e.code == 401:
+            return
         raise _DropboxError(f'Failed to create Dropbox folder (HTTP {e.code}). Check your access token and folder settings.')
     except urllib.error.URLError:
         raise _DropboxError('Cannot reach Dropbox. Check your network connection and try again.')

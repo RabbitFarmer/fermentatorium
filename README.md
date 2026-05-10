@@ -557,7 +557,7 @@ From the dashboard, open **⚙ gear → System Settings → Backup & Restore / U
 1. **Log in to Developer Console** — Visit the [Dropbox Developer Website](https://www.dropbox.com/developers) and log in.
 2. **Create App** — Click **Create App** and select **Scoped access**.
 3. **Configure Scopes** — Choose the app type (**App Folder**) and name it.
-4. **Set Permissions** — Navigate to the **Permissions** tab and select `files.content.read` and `files.content.write`.
+4. **Set Permissions** — Navigate to the **Permissions** tab and select `files.content.read`, `files.content.write`, and `files.metadata.write`.
 5. **Generate Token** — Go to the **Settings** tab, scroll to the **OAuth 2** section, and click **Generate** under "Generated access token".
 6. **Copy Token** — Save the generated token securely.
 
