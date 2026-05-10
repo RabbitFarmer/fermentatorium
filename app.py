@@ -9368,6 +9368,14 @@ def _dropbox_create_folder_if_needed(access_token, folder):
     return folder_candidates[-1]
 
 
+def _dropbox_metadata_string(metadata, keys, fallback=''):
+    for key in keys:
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return fallback
+
+
 def _upload_file_to_dropbox(access_token, folder, slot, local_path):
     filename = f'fermenter_backup_slot_{slot}.tar.gz'
     dropbox_path = f'/{filename}' if folder == '/' else f'{folder}/{filename}'
@@ -9416,15 +9424,8 @@ def _upload_file_to_dropbox(access_token, folder, slot, local_path):
     if not isinstance(metadata, dict):
         raise _DropboxError('Dropbox upload returned an invalid response. Check system logs and try again.')
 
-    uploaded_path = metadata.get('path_display')
-    if not isinstance(uploaded_path, str) or not uploaded_path.strip():
-        uploaded_path = metadata.get('path_lower')
-    if not isinstance(uploaded_path, str) or not uploaded_path.strip():
-        uploaded_path = dropbox_path
-
-    uploaded_name = metadata.get('name')
-    if not isinstance(uploaded_name, str) or not uploaded_name.strip():
-        uploaded_name = os.path.basename(dropbox_path)
+    uploaded_path = _dropbox_metadata_string(metadata, ('path_display', 'path_lower'), dropbox_path)
+    uploaded_name = _dropbox_metadata_string(metadata, ('name',), os.path.basename(dropbox_path))
 
     return {
         'path': uploaded_path,
