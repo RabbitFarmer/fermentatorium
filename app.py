@@ -9368,6 +9368,14 @@ def _dropbox_create_folder_if_needed(access_token, folder):
     return folder_candidates[-1]
 
 
+def _dropbox_metadata_string(metadata, keys, fallback=''):
+    for key in keys:
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return fallback
+
+
 def _upload_file_to_dropbox(access_token, folder, slot, local_path):
     filename = f'fermenter_backup_slot_{slot}.tar.gz'
     dropbox_path = f'/{filename}' if folder == '/' else f'{folder}/{filename}'
@@ -9396,15 +9404,43 @@ def _upload_file_to_dropbox(access_token, folder, slot, local_path):
         int(DROPBOX_UPLOAD_TIMEOUT_BASE_SECONDS + (file_size_mb * DROPBOX_UPLOAD_TIMEOUT_PER_MB_SECONDS))
     )
 
+    response_body = ''
     try:
-        with urllib.request.urlopen(req, timeout=upload_timeout):
-            pass
+        with urllib.request.urlopen(req, timeout=upload_timeout) as response:
+            response_body = response.read().decode('utf-8', errors='replace')
     except urllib.error.HTTPError as e:
         raise _DropboxError(f'Dropbox upload failed (HTTP {e.code}). Check your access token and folder settings.')
     except urllib.error.URLError:
         raise _DropboxError('Cannot reach Dropbox. Check your network connection and try again.')
 
-    return dropbox_path
+    if not response_body.strip():
+        raise _DropboxError('Dropbox upload returned an empty response. Check system logs and try again.')
+
+    try:
+        metadata = json.loads(response_body)
+    except json.JSONDecodeError:
+        raise _DropboxError('Dropbox upload returned an unreadable response. Check system logs and try again.')
+
+    if not isinstance(metadata, dict):
+        raise _DropboxError('Dropbox upload returned an invalid response. Check system logs and try again.')
+
+    uploaded_path = _dropbox_metadata_string(metadata, ('path_display', 'path_lower'), dropbox_path)
+    uploaded_name = _dropbox_metadata_string(metadata, ('name',), os.path.basename(dropbox_path))
+
+    return {
+        'path': uploaded_path,
+        'name': uploaded_name,
+        'id': metadata.get('id', ''),
+        'size': metadata.get('size', 0)
+    }
+
+
+def _dropbox_app_folder_hint(path):
+    normalized_path = _normalize_dropbox_folder(path)
+    return (
+        'If your Dropbox app uses App Folder permission, look under '
+        f'/Apps/[your-app-name]{normalized_path} in Dropbox.'
+    )
 
 
 def _perform_dropbox_backup(trigger='manual'):
@@ -9445,7 +9481,7 @@ def _perform_dropbox_backup(trigger='manual'):
                 backup_size_mb = backup_size / (1024 * 1024)
 
                 folder = _dropbox_create_folder_if_needed(access_token, configured_folder)
-                uploaded_path = _upload_file_to_dropbox(access_token, folder, slot, backup_full_path)
+                uploaded = _upload_file_to_dropbox(access_token, folder, slot, backup_full_path)
         except _DropboxError as e:
             return {
                 'success': False,
@@ -9469,16 +9505,22 @@ def _perform_dropbox_backup(trigger='manual'):
             'last_backup_epoch': now_epoch,
             'last_backup_utc': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
             'last_trigger': trigger,
-            'last_uploaded_path': uploaded_path
+            'last_uploaded_path': uploaded.get('path', '')
         })
         _save_dropbox_backup_state(state)
 
+        uploaded_path = uploaded.get('path', '')
+        app_folder_hint = _dropbox_app_folder_hint(uploaded_path)
         return {
             'success': True,
-            'message': f'Dropbox backup uploaded to slot {slot} ({uploaded_path}). Confirmed Dropbox folder setting: {folder}',
+            'message': (
+                f'Dropbox backup uploaded to slot {slot} ({uploaded_path}). '
+                f'Confirmed Dropbox folder setting: {folder}. {app_folder_hint}'
+            ),
             'slot': slot,
             'path': uploaded_path,
-            'size_mb': f'{backup_size_mb:.2f}'
+            'size_mb': f'{backup_size_mb:.2f}',
+            'app_folder_hint': app_folder_hint
         }
 
 
