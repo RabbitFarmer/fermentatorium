@@ -1039,7 +1039,11 @@
       })
       .then(({ response, data }) => {
         if (data.success) {
-          statusDiv.innerHTML = '<span style="color: green;">✓ ' + escapeHtml(data.message) + '<br>Size: ' + escapeHtml(data.size_mb || '?') + ' MB</span>';
+          let html = '<span style="color: green;">✓ ' + escapeHtml(data.message) + '<br>Size: ' + escapeHtml(data.size_mb || '?') + ' MB</span>';
+          if (data.app_folder_hint) {
+            html += '<br><span style="color: #555; font-size: 0.9em; font-weight: normal;">ℹ️ ' + escapeHtml(data.app_folder_hint) + '</span>';
+          }
+          statusDiv.innerHTML = html;
         } else {
           const fallback = response.ok ? 'Dropbox backup failed' : ('Dropbox backup failed (HTTP ' + response.status + ')');
           statusDiv.innerHTML = '<span style="color: red;">✗ ' + escapeHtml(data.message || fallback) + '</span>';
