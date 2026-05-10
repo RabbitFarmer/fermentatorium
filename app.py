@@ -9396,6 +9396,7 @@ def _upload_file_to_dropbox(access_token, folder, slot, local_path):
         int(DROPBOX_UPLOAD_TIMEOUT_BASE_SECONDS + (file_size_mb * DROPBOX_UPLOAD_TIMEOUT_PER_MB_SECONDS))
     )
 
+    response_body = ''
     try:
         with urllib.request.urlopen(req, timeout=upload_timeout) as response:
             response_body = response.read().decode('utf-8', errors='replace')
@@ -9415,7 +9416,7 @@ def _upload_file_to_dropbox(access_token, folder, slot, local_path):
     uploaded_path = metadata.get('path_display') or metadata.get('path_lower') or dropbox_path
     return {
         'path': uploaded_path,
-        'name': metadata.get('name', filename),
+        'name': metadata.get('name', os.path.basename(dropbox_path)),
         'id': metadata.get('id', ''),
         'size': metadata.get('size', 0)
     }
