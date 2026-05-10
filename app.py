@@ -9405,18 +9405,30 @@ def _upload_file_to_dropbox(access_token, folder, slot, local_path):
     except urllib.error.URLError:
         raise _DropboxError('Cannot reach Dropbox. Check your network connection and try again.')
 
+    if not response_body.strip():
+        raise _DropboxError('Dropbox upload returned an empty response. Check system logs and try again.')
+
     try:
-        metadata = json.loads(response_body) if response_body.strip() else {}
+        metadata = json.loads(response_body)
     except json.JSONDecodeError:
         raise _DropboxError('Dropbox upload returned an unreadable response. Check system logs and try again.')
 
     if not isinstance(metadata, dict):
         raise _DropboxError('Dropbox upload returned an invalid response. Check system logs and try again.')
 
-    uploaded_path = metadata.get('path_display') or metadata.get('path_lower') or dropbox_path
+    uploaded_path = metadata.get('path_display')
+    if not isinstance(uploaded_path, str) or not uploaded_path.strip():
+        uploaded_path = metadata.get('path_lower')
+    if not isinstance(uploaded_path, str) or not uploaded_path.strip():
+        uploaded_path = dropbox_path
+
+    uploaded_name = metadata.get('name')
+    if not isinstance(uploaded_name, str) or not uploaded_name.strip():
+        uploaded_name = os.path.basename(dropbox_path)
+
     return {
         'path': uploaded_path,
-        'name': metadata.get('name', os.path.basename(dropbox_path)),
+        'name': uploaded_name,
         'id': metadata.get('id', ''),
         'size': metadata.get('size', 0)
     }
