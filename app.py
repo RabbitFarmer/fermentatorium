@@ -9271,6 +9271,7 @@ def _dropbox_create_folder_if_needed(access_token, folder):
 
     for index, candidate in enumerate(folder_candidates):
         if candidate == '/':
+            # Dropbox app-folder tokens can upload directly to their root namespace.
             return candidate
 
         payload = json.dumps({
@@ -9365,6 +9366,7 @@ def _perform_dropbox_backup(trigger='manual'):
             }
 
         configured_folder = _normalize_dropbox_folder(system_cfg.get('dropbox_backup_folder', '/FermentatoriumBackups'))
+        # Keep track of the resolved folder in case we need to retry without an /Apps/<app name> prefix.
         folder = configured_folder
         state = _load_dropbox_backup_state()
         slot = state.get('next_slot', 1)
@@ -9394,6 +9396,7 @@ def _perform_dropbox_backup(trigger='manual'):
             }
 
         if folder != configured_folder:
+            # Persist the app-folder-safe path once Dropbox confirms the corrected location.
             system_cfg['dropbox_backup_folder'] = folder
             save_json(SYSTEM_CFG_FILE, system_cfg)
 
