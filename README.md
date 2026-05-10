@@ -453,6 +453,15 @@ Up to 3 independent controllers are supported. Each controller has:
 
 Configure in **⚙ gear → System Settings → PUSH/eMail tab**.
 
+#### Notification timers
+
+| Timer | Default | Description |
+|---|---:|---|
+| Loss of Signal timeout | 30 minutes | Time without Tilt readings before a **Loss of Signal Alert** is sent (`loss_of_signal_timeout_minutes`, configurable in PUSH/eMail tab). |
+| Fermentation completion window | 24 hours | Completion alert triggers when gravity remains stable (±0.002) across the ~24-hour check window. |
+| Notification deduplication delay | 10 seconds | Identical queued notifications are deduplicated during this delay before sending. |
+| Retry backoff | 5 minutes, then 30 minutes | Failed notifications are retried automatically (up to 3 total attempts including the initial send). |
+
 Two independent channels are available:
 
 #### ntfy (free, no account required — recommended)
