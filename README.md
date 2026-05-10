@@ -88,11 +88,11 @@ If you are not a computer person, don't worry — here is what you need to know 
 - 🔥 / ❄️ **Heating & Cooling Events** — optional alerts when plugs switch on or off
 - 🔌 **Kasa Plug Failure** — immediate notification if heating/cooling equipment goes offline
 - 🌡️ **Temperature notification trigger conditions**
-  - Sent only when temp control is active and temperature is **strictly below** `low_limit` (`temp < low_limit`) or **strictly above** `high_limit` (`temp > high_limit`)
+  - Sent only when the controller is switched ON (`temp_control_active = true`) and temperature is **strictly below** `low_limit` (`temp < low_limit`) or **strictly above** `high_limit` (`temp > high_limit`)
   - Equality (`temp == limit`) does not notify
   - Triggers are re-armed to prevent repeat alert spam
 - 🔌 **Kasa plug notification trigger conditions**
-  - Heating/cooling ON/OFF notifications send only after a **successful Kasa command with an actual state change** (for example OFF→ON)
+  - Heating/cooling ON/OFF notifications send only after a **successful Kasa command with an actual state change** (for example OFF→ON or ON→OFF)
   - Kasa failure notifications send when a plug command fails, with deduplication and periodic re-notification while the failure persists
 
 All notifications include smart deduplication and automatic retry with exponential backoff (up to 3 attempts).
