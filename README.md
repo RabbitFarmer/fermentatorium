@@ -561,6 +561,7 @@ From the dashboard, open **⚙ gear → System Settings → Backup & Restore / U
 5. **Generate Token** — Go to the **Settings** tab, scroll to the **OAuth 2** section, and click **Generate** under "Generated access token".
 6. **Copy Token** — Save the generated token securely.
 7. **Set the Dropbox Folder correctly** — In Fermentatorium, enter a path inside the app folder root, such as `/FermentatoriumBackups`. Do **not** enter `/Apps/<app name>/...`; App Folder tokens already operate inside that Dropbox app directory.
+8. **Find uploaded backups in Dropbox** — Fermentatorium reports App Folder paths relative to the app root. If your Dropbox app uses **App Folder** permission, browse to `/Apps/<your app name>/...` in Dropbox to see the uploaded backup files.
 
 USB backups are stored at your configured mount path (default `/media/usb`).
 
