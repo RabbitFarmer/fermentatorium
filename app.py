@@ -5481,7 +5481,9 @@ def update_system_config():
     # Handle Dropbox Access Token - only update if provided
     dropbox_access_token = data.get("dropbox_access_token", "")
     if dropbox_access_token:
-        system_cfg["dropbox_access_token"] = dropbox_access_token.strip()
+        sanitized_dropbox_token = _sanitize_dropbox_access_token(dropbox_access_token)
+        if sanitized_dropbox_token:
+            system_cfg["dropbox_access_token"] = sanitized_dropbox_token
 
     # Handle Kasa credentials — always store username; only overwrite password
     # if a non-empty value is submitted (so the stored password is preserved
@@ -9210,6 +9212,55 @@ def _normalize_dropbox_folder(folder):
     return folder
 
 
+def _sanitize_dropbox_access_token(token):
+    token = (token or '').strip()
+    if not token:
+        return ''
+
+    # Remove wrapping quotes that can appear from copy/paste.
+    previous = None
+    while token != previous:
+        previous = token
+        token = token.strip().strip('"').strip("'").strip()
+
+    # Allow users to paste a full Authorization header value.
+    if token.lower().startswith('authorization:'):
+        token = token.split(':', 1)[1].strip()
+
+    # Dropbox expects the raw oauth token in config; Bearer is added by code.
+    while token.lower().startswith('bearer '):
+        token = token[7:].strip()
+
+    # Remove accidental masking/prefix characters.
+    token = token.lstrip('*').rstrip('*').strip()
+    token = token.strip('"').strip("'").strip()
+    return token
+
+
+def _validate_dropbox_access_token(access_token):
+    req = urllib.request.Request(
+        'https://api.dropboxapi.com/2/users/get_current_account',
+        data=b'null',
+        method='POST'
+    )
+    req.add_header('Authorization', f'Bearer {access_token}')
+    req.add_header('Content-Type', 'application/json')
+
+    try:
+        with urllib.request.urlopen(req, timeout=10):
+            return
+    except urllib.error.HTTPError as e:
+        body = e.read().decode('utf-8', errors='replace')
+        lower_body = body.lower()
+        if e.code == 401 or 'invalid authorization' in lower_body:
+            raise _DropboxError(
+                'Dropbox authentication failed. Paste only the raw access token (no "Bearer", quotes, or asterisks).'
+            )
+        raise _DropboxError(f'Dropbox token validation failed (HTTP {e.code}). Check your access token.')
+    except urllib.error.URLError:
+        raise _DropboxError('Cannot reach Dropbox. Check your network connection and try again.')
+
+
 def _dropbox_folder_variants(folder):
     normalized = _normalize_dropbox_folder(folder)
     variants = [normalized]
@@ -9358,18 +9409,30 @@ def _upload_file_to_dropbox(access_token, folder, slot, local_path):
 
 def _perform_dropbox_backup(trigger='manual'):
     with _dropbox_backup_lock:
-        access_token = system_cfg.get('dropbox_access_token', '').strip()
+        stored_access_token = system_cfg.get('dropbox_access_token', '')
+        access_token = _sanitize_dropbox_access_token(stored_access_token)
         if not access_token:
             return {
                 'success': False,
                 'message': 'Dropbox access token is not configured. Save it in System Settings first.'
             }
+        if access_token != stored_access_token:
+            system_cfg['dropbox_access_token'] = access_token
+            save_json(SYSTEM_CFG_FILE, system_cfg)
 
         configured_folder = _normalize_dropbox_folder(system_cfg.get('dropbox_backup_folder', '/FermentatoriumBackups'))
         # Keep track of the resolved folder in case we need to retry without an /Apps/<app name> prefix.
         folder = configured_folder
         state = _load_dropbox_backup_state()
         slot = state.get('next_slot', 1)
+
+        try:
+            _validate_dropbox_access_token(access_token)
+        except _DropboxError as e:
+            return {
+                'success': False,
+                'message': str(e)
+            }
 
         import tempfile
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -9427,7 +9490,7 @@ def periodic_dropbox_backups():
                 time.sleep(DROPBOX_BACKUP_CHECK_INTERVAL_SECONDS)
                 continue
 
-            if not system_cfg.get('dropbox_access_token', '').strip():
+            if not _sanitize_dropbox_access_token(system_cfg.get('dropbox_access_token', '')):
                 time.sleep(DROPBOX_BACKUP_CHECK_INTERVAL_SECONDS)
                 continue
 
