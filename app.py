@@ -9406,7 +9406,7 @@ def _upload_file_to_dropbox(access_token, folder, slot, local_path):
         raise _DropboxError('Cannot reach Dropbox. Check your network connection and try again.')
 
     try:
-        metadata = json.loads(response_body) if response_body and response_body.strip() else {}
+        metadata = json.loads(response_body) if response_body.strip() else {}
     except json.JSONDecodeError:
         raise _DropboxError('Dropbox upload returned an unreadable response. Check system logs and try again.')
 
@@ -9426,7 +9426,7 @@ def _dropbox_app_folder_hint(path):
     normalized_path = _normalize_dropbox_folder(path)
     return (
         'If your Dropbox app uses App Folder permission, look under '
-        f'/Apps/<your Dropbox app name>{normalized_path} in Dropbox.'
+        f'/Apps/[your-app-name]{normalized_path} in Dropbox.'
     )
 
 
