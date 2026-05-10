@@ -9435,11 +9435,67 @@ def _upload_file_to_dropbox(access_token, folder, slot, local_path):
     }
 
 
-def _dropbox_app_folder_hint(path):
-    normalized_path = _normalize_dropbox_folder(path)
+def _dropbox_get_full_path(access_token, file_id, fallback_path):
+    """Attempt to resolve the full absolute Dropbox path for an uploaded file.
+
+    Queries file metadata using the home namespace so that App Folder relative
+    paths (e.g. /MyFolder/file.tar.gz) are returned as their true absolute path
+    (e.g. /Apps/MyApp/MyFolder/file.tar.gz).
+
+    Returns (resolved_path, is_app_folder) where:
+      - resolved_path is the absolute path when detection succeeded, else fallback_path
+      - is_app_folder is True when the file is confirmed to be inside a Dropbox App Folder
+    """
+    if not file_id:
+        return fallback_path, False
+
+    payload = json.dumps({'path': file_id}).encode('utf-8')
+    req = urllib.request.Request(
+        'https://api.dropboxapi.com/2/files/get_metadata',
+        data=payload,
+        method='POST'
+    )
+    req.add_header('Authorization', f'Bearer {access_token}')
+    req.add_header('Content-Type', 'application/json')
+    req.add_header('Dropbox-API-Path-Root', json.dumps({'.tag': 'home'}))
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            metadata = json.loads(response.read().decode('utf-8', errors='replace'))
+            if isinstance(metadata, dict):
+                full_path = _dropbox_metadata_string(metadata, ('path_display', 'path_lower'), fallback_path)
+                if full_path:
+                    is_app_folder = '/apps/' in full_path.lower()
+                    return full_path, is_app_folder
+    except (urllib.error.HTTPError, urllib.error.URLError):
+        # Any HTTP or network error means we cannot resolve the full path;
+        # fall through to hint-only mode so the backup is still reported as successful.
+        pass
+    except Exception:
+        pass
+
+    return fallback_path, False
+
+
+def _dropbox_app_folder_hint(uploaded_path, full_path=None):
+    """Return a user-facing note about where to find the backup in Dropbox.
+
+    When *full_path* is supplied and differs from *uploaded_path*, the file's
+    confirmed absolute location is displayed directly.  Otherwise a generic
+    App Folder note is shown that guides the user to look inside the Apps
+    sub-folder of their Dropbox.
+    """
+    if full_path and full_path != uploaded_path:
+        return (
+            f'Your file is confirmed at {full_path} in your Dropbox. '
+            'If you still cannot find it, open Dropbox and search for the filename above.'
+        )
+    normalized_path = _normalize_dropbox_folder(uploaded_path)
     return (
-        'If your Dropbox app uses App Folder permission, look under '
-        f'/Apps/[your-app-name]{normalized_path} in Dropbox.'
+        'Cannot find the file? If your Dropbox app uses App Folder access, '
+        'the file is stored under Apps -> [your-app-name]'
+        f'{normalized_path} — open Dropbox, go to Apps, then look inside '
+        'the app folder you created for this integration.'
     )
 
 
@@ -9510,15 +9566,29 @@ def _perform_dropbox_backup(trigger='manual'):
         _save_dropbox_backup_state(state)
 
         uploaded_path = uploaded.get('path', '')
-        app_folder_hint = _dropbox_app_folder_hint(uploaded_path)
+        file_id = uploaded.get('id', '')
+
+        # Try to resolve the real absolute path in Dropbox.  This succeeds for
+        # Full Access tokens (path is already absolute) and, for App Folder tokens,
+        # returns the /Apps/<name>/… path when Dropbox allows the home-namespace
+        # lookup.  If the resolution fails we fall back to the generic hint.
+        full_path, is_app_folder = _dropbox_get_full_path(access_token, file_id, uploaded_path)
+
+        if is_app_folder:
+            display_path = full_path
+        else:
+            display_path = uploaded_path
+
+        app_folder_hint = _dropbox_app_folder_hint(uploaded_path, full_path if is_app_folder else None)
+
         return {
             'success': True,
             'message': (
-                f'Dropbox backup uploaded to slot {slot} ({uploaded_path}). '
-                f'Confirmed Dropbox folder setting: {folder}. {app_folder_hint}'
+                f'Dropbox backup uploaded to slot {slot} ({display_path}). '
+                f'Confirmed Dropbox folder setting: {folder}.'
             ),
             'slot': slot,
-            'path': uploaded_path,
+            'path': display_path,
             'size_mb': f'{backup_size_mb:.2f}',
             'app_folder_hint': app_folder_hint
         }
