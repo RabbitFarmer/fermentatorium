@@ -9405,7 +9405,7 @@ def _upload_file_to_dropbox(access_token, folder, slot, local_path):
         raise _DropboxError('Cannot reach Dropbox. Check your network connection and try again.')
 
     try:
-        metadata = json.loads(response_body) if response_body else {}
+        metadata = json.loads(response_body) if response_body and response_body.strip() else {}
     except json.JSONDecodeError:
         raise _DropboxError('Dropbox upload returned an unreadable response. Check system logs and try again.')
 
@@ -9417,7 +9417,7 @@ def _upload_file_to_dropbox(access_token, folder, slot, local_path):
         'path': uploaded_path,
         'name': metadata.get('name', filename),
         'id': metadata.get('id', ''),
-        'size': metadata.get('size')
+        'size': metadata.get('size', 0)
     }
 
 
