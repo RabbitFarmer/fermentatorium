@@ -5523,7 +5523,7 @@ def update_system_config():
         "backup_path": data.get("backup_path", system_cfg.get("backup_path", "/media/usb")).strip() or "/media/usb",
         "dropbox_backup_enabled": 'dropbox_backup_enabled' in data,
         "dropbox_backup_interval_hours": int(data.get("dropbox_backup_interval_hours", system_cfg.get("dropbox_backup_interval_hours", 24))),
-        "dropbox_backup_folder": data.get("dropbox_backup_folder", system_cfg.get("dropbox_backup_folder", "/FermentatoriumBackups")).strip() or "/FermentatoriumBackups",
+        "dropbox_backup_folder": _normalize_dropbox_folder(data.get("dropbox_backup_folder", system_cfg.get("dropbox_backup_folder", "/FermentatoriumBackups"))),
         # Push notification provider settings
         "push_provider": data.get("push_provider", system_cfg.get("push_provider", "pushover")),
         "pushover_user_key": data.get("pushover_user_key", system_cfg.get("pushover_user_key", "")),
@@ -9210,6 +9210,28 @@ def _normalize_dropbox_folder(folder):
     return folder
 
 
+def _dropbox_folder_variants(folder):
+    normalized = _normalize_dropbox_folder(folder)
+    variants = [normalized]
+
+    parts = [part for part in normalized.split('/') if part]
+    if len(parts) >= 2 and parts[0].lower() == 'apps':
+        relative = '/' + '/'.join(parts[2:]) if len(parts) > 2 else '/'
+        relative = _normalize_dropbox_folder(relative)
+        if relative not in variants:
+            variants.append(relative)
+
+    return variants
+
+
+def _dropbox_is_app_folder_path_error(body):
+    lower_body = (body or '').lower()
+    return (
+        ('path/malformed' in lower_body or 'malformed_path' in lower_body or 'invalid_path' in lower_body)
+        and ('/apps/' in lower_body or 'app folder' in lower_body or 'should not include' in lower_body)
+    )
+
+
 class _DropboxError(Exception):
     """Raised for expected, user-facing Dropbox backup errors."""
 
@@ -9245,45 +9267,58 @@ def _save_dropbox_backup_state(state):
 
 
 def _dropbox_create_folder_if_needed(access_token, folder):
-    if folder == '/':
-        return
+    folder_candidates = _dropbox_folder_variants(folder)
 
-    payload = json.dumps({
-        'path': folder,
-        'autorename': False
-    }).encode('utf-8')
+    for index, candidate in enumerate(folder_candidates):
+        if candidate == '/':
+            return candidate
 
-    req = urllib.request.Request(
-        'https://api.dropboxapi.com/2/files/create_folder_v2',
-        data=payload,
-        method='POST'
-    )
-    req.add_header('Authorization', f'Bearer {access_token}')
-    req.add_header('Content-Type', 'application/json')
+        payload = json.dumps({
+            'path': candidate,
+            'autorename': False
+        }).encode('utf-8')
 
-    try:
-        with urllib.request.urlopen(req, timeout=10):
-            pass
-    except urllib.error.HTTPError as e:
-        body = e.read().decode('utf-8', errors='replace')
-        # Existing folder is expected on subsequent backups.
-        if e.code == 409 and ('path/conflict/folder' in body or 'conflict' in body):
-            return
-        # Tokens missing files.metadata.write can still upload into an existing folder.
-        # Let upload proceed only for scope-related auth failures.
-        if e.code == 401:
-            lower_body = body.lower()
-            if 'missing_scope' in lower_body or 'insufficient_scope' in lower_body:
-                print('[LOG] Dropbox create-folder skipped due to missing scope; continuing with upload attempt')
-                return
-            raise _DropboxError('Dropbox authentication failed while creating folder (invalid or expired token). Check your access token.')
-        raise _DropboxError(f'Failed to create Dropbox folder (HTTP {e.code}). Check your access token and folder settings.')
-    except urllib.error.URLError:
-        raise _DropboxError('Cannot reach Dropbox. Check your network connection and try again.')
+        req = urllib.request.Request(
+            'https://api.dropboxapi.com/2/files/create_folder_v2',
+            data=payload,
+            method='POST'
+        )
+        req.add_header('Authorization', f'Bearer {access_token}')
+        req.add_header('Content-Type', 'application/json')
+
+        try:
+            with urllib.request.urlopen(req, timeout=10):
+                return candidate
+        except urllib.error.HTTPError as e:
+            body = e.read().decode('utf-8', errors='replace')
+            # Existing folder is expected on subsequent backups.
+            if e.code == 409 and ('path/conflict/folder' in body or 'conflict' in body):
+                return candidate
+            # Tokens missing files.metadata.write can still upload into an existing folder.
+            # Let upload proceed only for scope-related auth failures.
+            if e.code == 401:
+                lower_body = body.lower()
+                if 'missing_scope' in lower_body or 'insufficient_scope' in lower_body:
+                    print('[LOG] Dropbox create-folder skipped due to missing scope; continuing with upload attempt')
+                    return candidate
+                raise _DropboxError('Dropbox authentication failed while creating folder (invalid or expired token). Check your access token.')
+            if (
+                e.code == 400
+                and index + 1 < len(folder_candidates)
+                and _dropbox_is_app_folder_path_error(body)
+            ):
+                print(f'[LOG] Dropbox folder path {candidate} included an app-folder prefix; retrying with {folder_candidates[index + 1]}')
+                continue
+            raise _DropboxError(f'Failed to create Dropbox folder (HTTP {e.code}). Check your access token and folder settings.')
+        except urllib.error.URLError:
+            raise _DropboxError('Cannot reach Dropbox. Check your network connection and try again.')
+
+    return folder_candidates[-1]
 
 
 def _upload_file_to_dropbox(access_token, folder, slot, local_path):
-    dropbox_path = f'{folder}/fermenter_backup_slot_{slot}.tar.gz'
+    filename = f'fermenter_backup_slot_{slot}.tar.gz'
+    dropbox_path = f'/{filename}' if folder == '/' else f'{folder}/{filename}'
     api_arg = json.dumps({
         'path': dropbox_path,
         'mode': 'overwrite',
@@ -9329,7 +9364,8 @@ def _perform_dropbox_backup(trigger='manual'):
                 'message': 'Dropbox access token is not configured. Save it in System Settings first.'
             }
 
-        folder = _normalize_dropbox_folder(system_cfg.get('dropbox_backup_folder', '/FermentatoriumBackups'))
+        configured_folder = _normalize_dropbox_folder(system_cfg.get('dropbox_backup_folder', '/FermentatoriumBackups'))
+        folder = configured_folder
         state = _load_dropbox_backup_state()
         slot = state.get('next_slot', 1)
 
@@ -9343,7 +9379,7 @@ def _perform_dropbox_backup(trigger='manual'):
                 backup_size = os.path.getsize(backup_full_path)
                 backup_size_mb = backup_size / (1024 * 1024)
 
-                _dropbox_create_folder_if_needed(access_token, folder)
+                folder = _dropbox_create_folder_if_needed(access_token, configured_folder)
                 uploaded_path = _upload_file_to_dropbox(access_token, folder, slot, backup_full_path)
         except _DropboxError as e:
             return {
@@ -9357,6 +9393,10 @@ def _perform_dropbox_backup(trigger='manual'):
                 'message': 'Backup failed due to an unexpected error. Check system logs.'
             }
 
+        if folder != configured_folder:
+            system_cfg['dropbox_backup_folder'] = folder
+            save_json(SYSTEM_CFG_FILE, system_cfg)
+
         now_epoch = int(time.time())
         state.update({
             'next_slot': 1 if slot >= DROPBOX_BACKUP_SLOT_COUNT else slot + 1,
@@ -9369,7 +9409,7 @@ def _perform_dropbox_backup(trigger='manual'):
 
         return {
             'success': True,
-            'message': f'Dropbox backup uploaded to slot {slot} ({uploaded_path})',
+            'message': f'Dropbox backup uploaded to slot {slot} ({uploaded_path}). Confirmed Dropbox folder setting: {folder}',
             'slot': slot,
             'path': uploaded_path,
             'size_mb': f'{backup_size_mb:.2f}'

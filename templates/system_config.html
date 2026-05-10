@@ -745,6 +745,9 @@
               </div>
               <label for="dropbox_backup_folder"><b>Dropbox Folder</b></label><br>
               <input type="text" id="dropbox_backup_folder" name="dropbox_backup_folder" value="{{ system_settings.get('dropbox_backup_folder', '/FermentatoriumBackups') }}" placeholder="/FermentatoriumBackups" style="width: 100%; margin-top: 5px;">
+              <div style="font-size:0.85em;color:#666;margin-top:4px;">
+                For App Folder tokens, use a folder inside the app folder root, such as <b>/FermentatoriumBackups</b>. Do not include <b>/Apps/&lt;app name&gt;</b>.
+              </div>
               <div style="margin-top: 12px;">
                 <label for="dropbox_access_token"><b>Dropbox Access Token</b></label><br>
                 <input type="password" id="dropbox_access_token" name="dropbox_access_token" value="" placeholder="Leave blank to keep existing token" style="width: 100%; margin-top: 5px;">
