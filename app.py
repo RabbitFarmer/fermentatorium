@@ -9276,7 +9276,7 @@ def _dropbox_create_folder_if_needed(access_token, folder):
             if 'missing_scope' in lower_body or 'insufficient_scope' in lower_body:
                 print('[LOG] Dropbox create-folder skipped due to missing scope; continuing with upload attempt')
                 return
-            raise _DropboxError('Dropbox authentication failed while creating folder. Check your access token.')
+            raise _DropboxError('Dropbox authentication failed while creating folder (invalid or expired token). Check your access token.')
         raise _DropboxError(f'Failed to create Dropbox folder (HTTP {e.code}). Check your access token and folder settings.')
     except urllib.error.URLError:
         raise _DropboxError('Cannot reach Dropbox. Check your network connection and try again.')
