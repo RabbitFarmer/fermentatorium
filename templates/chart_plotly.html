@@ -96,7 +96,6 @@
     const recipeFg = null;
     const actualOg = null;
     const fermentationComplete = false;
-    const batchStartDate = null;
     {% elif tilt_color %}
     const beerName = "{{ tilt_cfg[tilt_color].beer_name or 'Unknown' }}";
     const batchName = "{{ tilt_cfg[tilt_color].batch_name or 'Unknown' }}";
@@ -105,7 +104,6 @@
     const recipeFg = {{ tilt_cfg[tilt_color].get('recipe_fg') or 'null' }};
     const actualOg = {{ tilt_cfg[tilt_color].get('actual_og') or 'null' }};
     const fermentationComplete = {{ 'true' if tilt_cfg[tilt_color].get('notification_state', {}).get('fermentation_completion_datetime') else 'false' }};
-    const batchStartDate = "{{ tilt_cfg[tilt_color].get('ferm_start_date', '') or '' }}";
     {% else %}
     const beerName = "Unknown";
     const batchName = "Unknown";
@@ -114,7 +112,6 @@
     const recipeFg = null;
     const actualOg = null;
     const fermentationComplete = false;
-    const batchStartDate = null;
     {% endif %}
     
     async function loadData() {
@@ -290,36 +287,10 @@
           tempRange = [50, 80];
         }
         
-        // Calculate x-axis range
-        // rangeStart is anchored to the batch start date (ferm_start_date) so the chart
-        // always opens at the beginning of the batch rather than the first data point.
-        // If the batch start date is not set, today's date is used as the fallback.
-        // rangeEnd covers the full data range (plus padding for active fermentations).
-
-        // Resolve batch start date: prefer batchStartDate config value, fall back to today.
-        let resolvedBatchStart = null;
-        if (batchStartDate) {
-          const parsed = new Date(batchStartDate);
-          if (!isNaN(parsed.getTime())) {
-            // Treat the date as local midnight so it aligns with the batch calendar day.
-            const parts = batchStartDate.split('-');
-            if (parts.length === 3) {
-              resolvedBatchStart = new Date(
-                parseInt(parts[0], 10),
-                parseInt(parts[1], 10) - 1,
-                parseInt(parts[2], 10)
-              );
-            } else {
-              resolvedBatchStart = parsed;
-            }
-          }
-        }
-        if (!resolvedBatchStart) {
-          // No batch start date configured — use local midnight of today.
-          const now = new Date();
-          resolvedBatchStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        }
-
+        // Calculate x-axis range using the actual data extent so that any pre-fermentation
+        // temperature readings (recorded before ferm_start_date) are fully visible.
+        // For completed/archived fermentations: use actual data range.
+        // For active fermentations: add a small trailing padding.
         let xAxisRange = null;
         if (dataPoints.length > 0) {
           // Timestamps are already Date objects from normalization above
@@ -330,11 +301,11 @@
             return new Date(p.timestamp);
           }).filter(d => !isNaN(d.getTime()));
           if (timestamps.length > 0) {
+            const minDate = new Date(Math.min(...timestamps));
             const maxDate = new Date(Math.max(...timestamps));
 
-            // Always start from the batch start date so old data from a previous use
-            // of the same tilt colour cannot push the left edge back beyond this batch.
-            const rangeStart = resolvedBatchStart;
+            // Start from the very first data point so pre-fermentation readings are shown.
+            const rangeStart = minDate;
 
             // For active fermentations, add 5% padding to the end
             // For completed fermentations, use actual end date
@@ -344,7 +315,7 @@
             } else {
               // Add 5% time padding or 1 hour minimum, whichever is larger
               const paddingMs = Math.max(
-                (maxDate - rangeStart) * 0.05,  // 5% of data range
+                (maxDate - minDate) * 0.05,  // 5% of data range
                 60 * 60 * 1000  // 1 hour minimum
               );
               rangeEnd = new Date(maxDate.getTime() + paddingMs);
@@ -361,20 +332,6 @@
               const endStr = rangeEnd.toLocaleDateString('en-US', options);
               dateRangeEl.textContent = `${startStr} - ${endStr}`;
             }
-          }
-        } else {
-          // No data yet — show a range from batch start date to today so the chart
-          // has a sensible empty canvas rather than collapsing to a point.
-          const now = new Date();
-          const rangeEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1); // end of today
-          xAxisRange = [resolvedBatchStart, rangeEnd];
-
-          const dateRangeEl = document.getElementById('date-range');
-          if (dateRangeEl) {
-            const options = { year: 'numeric', month: 'long', day: 'numeric' };
-            const startStr = resolvedBatchStart.toLocaleDateString('en-US', options);
-            const endStr = rangeEnd.toLocaleDateString('en-US', options);
-            dateRangeEl.textContent = `${startStr} - ${endStr}`;
           }
         }
         
