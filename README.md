@@ -422,7 +422,9 @@ Each Tilt color entry has:
 |-------|-------------|
 | `beer_name` | Name of the beer being fermented |
 | `batch_name` | Batch identifier (e.g. `"Batch 42"`) |
-| `ferm_start_date` | Fermentation start date (`MM/DD/YYYY`) |
+| `batch_start_date` | Batch start date (`YYYY-MM-DD`) |
+| `ferm_start_date` | Fermentation start date (`YYYY-MM-DD`), system-derived unless manually overridden |
+| `ferm_start_date_manual_override` | Whether a user-edited fermentation start date should override the derived value |
 | `recipe_og` | Recipe original gravity |
 | `recipe_fg` | Recipe final gravity |
 | `recipe_abv` | Recipe target ABV |

@@ -546,6 +546,38 @@ def save_json(path, data):
         return False
 
 # --- New: Append batch metadata to batch jsonl ------------------------------
+def get_batch_start_date(cfg):
+    """Return the user-entered batch start date, with legacy fallback."""
+    if not isinstance(cfg, dict):
+        return ""
+    return (cfg.get("batch_start_date") or cfg.get("ferm_start_date") or "").strip()
+
+
+def get_derived_ferm_start_date(cfg):
+    """Return the system-derived fermentation start date."""
+    if not isinstance(cfg, dict):
+        return ""
+    notif_state = cfg.get("notification_state", {}) or {}
+    dt_raw = notif_state.get("fermentation_start_datetime")
+    if not dt_raw:
+        return ""
+    try:
+        return datetime.fromisoformat(str(dt_raw).replace("Z", "+00:00")).date().isoformat()
+    except Exception:
+        return str(dt_raw)[:10]
+
+
+def get_ferm_start_date(cfg):
+    """Return the effective fermentation start date, honoring manual overrides."""
+    if not isinstance(cfg, dict):
+        return ""
+    stored = (cfg.get("ferm_start_date") or "").strip()
+    if cfg.get("ferm_start_date_manual_override"):
+        return stored
+    derived = get_derived_ferm_start_date(cfg)
+    return derived or stored
+
+
 def append_batch_metadata_to_batch_jsonl(color, batch_entry):
     """Append a batch_metadata event to the relevant batch JSONL file."""
     brewid = batch_entry.get("brewid")
@@ -1108,22 +1140,54 @@ def cleanup_phantom_tilt_assignments():
 cleanup_phantom_tilt_assignments()
 
 def ensure_all_tilts():
+    changed = False
     try:
         for color in TILT_UUIDS.values():
             if color not in tilt_cfg:
                 tilt_cfg[color] = {
                     "beer_name": "",
                     "batch_name": "",
+                    "batch_start_date": "",
                     "ferm_start_date": "",
+                    "ferm_start_date_manual_override": False,
                     "recipe_og": "",
                     "recipe_fg": "",
                     "recipe_abv": "",
                     "actual_og": None,
                     "brewid": "",
-                    "og_confirmed": False
+                    "og_confirmed": False,
+                    "notification_state": {
+                        "fermentation_start_datetime": None,
+                        "fermentation_completion_datetime": None,
+                        "last_daily_report": None
+                    }
                 }
+                changed = True
+                continue
+            cfg = tilt_cfg[color]
+            if "batch_start_date" not in cfg:
+                cfg["batch_start_date"] = (cfg.get("ferm_start_date") or "").strip()
+                changed = True
+            if "ferm_start_date" not in cfg:
+                cfg["ferm_start_date"] = get_ferm_start_date(cfg)
+                changed = True
+            if "ferm_start_date_manual_override" not in cfg:
+                cfg["ferm_start_date_manual_override"] = False
+                changed = True
+            if "notification_state" not in cfg or not isinstance(cfg.get("notification_state"), dict):
+                cfg["notification_state"] = {
+                    "fermentation_start_datetime": None,
+                    "fermentation_completion_datetime": None,
+                    "last_daily_report": None
+                }
+                changed = True
     except Exception:
         pass
+    if changed:
+        try:
+            save_json(TILT_CONFIG_FILE, tilt_cfg)
+        except Exception as e:
+            print(f"[STARTUP] Could not persist tilt defaults: {e}")
 
 ensure_all_tilts()
 
@@ -1287,7 +1351,8 @@ def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=Fals
         "original_gravity": cfg.get("actual_og", 0),
         "mac_address": resolved_mac,
         "is_pro": is_pro,
-        "ferm_start_date": cfg.get("ferm_start_date", ""),
+        "batch_start_date": get_batch_start_date(cfg),
+        "ferm_start_date": get_ferm_start_date(cfg),
         "ferm_complete_date": ferm_complete_date,
         # Calibration
         "temp_variance":    temp_variance,
@@ -2916,6 +2981,8 @@ def save_notification_state_to_config(color, brewid):
         'fermentation_completion_datetime': state.get('fermentation_completion_datetime'),
         'last_daily_report': state.get('last_daily_report')
     }
+    if not tilt_cfg[color].get('ferm_start_date_manual_override'):
+        tilt_cfg[color]['ferm_start_date'] = get_derived_ferm_start_date(tilt_cfg[color])
     
     try:
         save_json(TILT_CONFIG_FILE, tilt_cfg)
@@ -3075,6 +3142,12 @@ Gravity now: {current_gravity:.3f}"""
         # This prevents duplicate notifications even if retry fails
         # Users can check logs/UI to see if notifications failed
         save_notification_state_to_config(color, brewid)
+        if color in tilt_cfg:
+            metadata_entry = dict(tilt_cfg[color])
+            metadata_entry['brewid'] = brewid
+            metadata_entry['batch_start_date'] = get_batch_start_date(metadata_entry)
+            metadata_entry['ferm_start_date'] = get_ferm_start_date(metadata_entry)
+            append_batch_metadata_to_batch_jsonl(color, metadata_entry)
         
         # Log the event to batch JSONL; send_notification() is called by log_event()
         log_event('fermentation_starting', body, tilt_color=color)
@@ -5902,18 +5975,21 @@ def batch_settings():
             return "No Tilt color selected", 400
         beer_name = data.get('beer_name', '').strip()
         batch_name = data.get('batch_name', '').strip()
-        start_date = data.get('ferm_start_date', '').strip()
+        batch_start_date = data.get('batch_start_date', data.get('ferm_start_date', '')).strip()
+        submitted_ferm_start_date = data.get('ferm_start_date', '').strip()
         existing = tilt_cfg.get(color, {})
         old_brew_id = existing.get('brewid')
         brew_id = existing.get('brewid')
         if not brew_id:
-            brew_id = generate_brewid(beer_name, batch_name, start_date)
+            brew_id = generate_brewid(beer_name, batch_name, batch_start_date)
         if old_brew_id and old_brew_id != brew_id:
             rotate_and_archive_old_history(color, old_brew_id, existing)
             tilt_cfg[color] = {
                 "beer_name": "",
                 "batch_name": "",
+                "batch_start_date": "",
                 "ferm_start_date": "",
+                "ferm_start_date_manual_override": False,
                 "recipe_og": "",
                 "recipe_fg": "",
                 "recipe_abv": "",
@@ -5957,7 +6033,8 @@ def batch_settings():
         batch_entry = {
             "beer_name": beer_name,
             "batch_name": batch_name,
-            "ferm_start_date": start_date,
+            "batch_start_date": batch_start_date,
+            "ferm_start_date": submitted_ferm_start_date,
             "recipe_og": data.get('recipe_og', '') or '',
             "recipe_fg": data.get('recipe_fg', '') or '',
             "recipe_abv": data.get('recipe_abv', '') or '',
@@ -6009,6 +6086,13 @@ def batch_settings():
                 "fermentation_completion_datetime": None,
                 "last_daily_report": None
             }
+        derived_ferm_start_date = get_derived_ferm_start_date(batch_entry)
+        batch_entry['ferm_start_date_manual_override'] = (submitted_ferm_start_date != (derived_ferm_start_date or ''))
+        batch_entry['ferm_start_date'] = (
+            submitted_ferm_start_date
+            if batch_entry['ferm_start_date_manual_override']
+            else (derived_ferm_start_date or submitted_ferm_start_date)
+        )
 
         # Load existing batches
         try:
@@ -6599,7 +6683,9 @@ def toggle_temp_control():
                 tilt_cfg[base_color] = {
                     "beer_name": old_cfg.get("beer_name", ""),
                     "batch_name": "",
+                    "batch_start_date": "",
                     "ferm_start_date": "",
+                    "ferm_start_date_manual_override": False,
                     "recipe_og": old_cfg.get("recipe_og", ""),
                     "recipe_fg": old_cfg.get("recipe_fg", ""),
                     "recipe_abv": old_cfg.get("recipe_abv", ""),
@@ -6638,7 +6724,9 @@ def toggle_temp_control():
                             if history:
                                 latest = history[-1]
                                 existing["brewid"] = latest.get("brewid", "")
+                                existing["batch_start_date"] = latest.get("batch_start_date", existing.get("batch_start_date", existing.get("ferm_start_date", "")))
                                 existing["ferm_start_date"] = latest.get("ferm_start_date", existing.get("ferm_start_date", ""))
+                                existing["ferm_start_date_manual_override"] = latest.get("ferm_start_date_manual_override", existing.get("ferm_start_date_manual_override", False))
                                 if existing.get("beer_name") is None:
                                     existing["beer_name"] = latest.get("beer_name", "")
                                 if existing.get("batch_name") is None:
@@ -6814,13 +6902,13 @@ def batch_history():
     # Define sorting function
     def apply_sort(batches, sort_order):
         if sort_order == 'newest':
-            return sorted(batches, key=lambda x: x.get('ferm_start_date', ''), reverse=True)
+            return sorted(batches, key=lambda x: x.get('batch_start_date') or x.get('ferm_start_date', ''), reverse=True)
         elif sort_order == 'oldest':
-            return sorted(batches, key=lambda x: x.get('ferm_start_date', ''))
+            return sorted(batches, key=lambda x: x.get('batch_start_date') or x.get('ferm_start_date', ''))
         elif sort_order == 'beer_name':
-            return sorted(batches, key=lambda x: (x.get('beer_name', '').lower(), x.get('ferm_start_date', '')))
+            return sorted(batches, key=lambda x: (x.get('beer_name', '').lower(), x.get('batch_start_date') or x.get('ferm_start_date', '')))
         elif sort_order == 'color':
-            return sorted(batches, key=lambda x: (x.get('color', ''), x.get('ferm_start_date', '')), reverse=True)
+            return sorted(batches, key=lambda x: (x.get('color', ''), x.get('batch_start_date') or x.get('ferm_start_date', '')), reverse=True)
         return batches
     
     # Apply sorting to both sections
@@ -7845,6 +7933,7 @@ def live_snapshot():
             "color_code": info.get("color_code"),
             "mac_address": info.get("mac_address", ""),
             "is_pro": info.get("is_pro", False),
+            "batch_start_date": info.get("batch_start_date", ""),
             "ferm_start_date": info.get("ferm_start_date", ""),
             "temp_variance": info.get("temp_variance", 0),
             "gravity_variance": info.get("gravity_variance", 0),
@@ -8316,11 +8405,13 @@ def log_management():
                     # Try to get batch info from tilt_cfg
                     beer_name = None
                     batch_name = None
+                    batch_start_date = None
                     ferm_start_date = None
                     for color, cfg in tilt_cfg.items():
                         if cfg.get('brewid') == brewid:
                             beer_name = cfg.get('beer_name')
                             batch_name = cfg.get('batch_name')
+                            batch_start_date = cfg.get('batch_start_date') or cfg.get('ferm_start_date')
                             ferm_start_date = cfg.get('ferm_start_date')
                             break
                     
@@ -8343,6 +8434,13 @@ def log_management():
                                             beer_name = payload.get('beer_name') or meta.get('beer_name')
                                         if not batch_name:
                                             batch_name = payload.get('batch_name') or meta.get('batch_name')
+                                        if not batch_start_date:
+                                            batch_start_date = (
+                                                payload.get('batch_start_date')
+                                                or meta.get('batch_start_date')
+                                                or payload.get('ferm_start_date')
+                                                or meta.get('ferm_start_date')
+                                            )
                                         if not ferm_start_date:
                                             ferm_start_date = payload.get('ferm_start_date') or meta.get('ferm_start_date')
                                         if beer_name and batch_name:
@@ -8362,6 +8460,7 @@ def log_management():
                         'brewid': brewid,
                         'beer_name': beer_name,
                         'batch_name': batch_name,
+                        'batch_start_date': batch_start_date,
                         'ferm_start_date': ferm_start_date,
                         'size': _format_file_size(size_bytes)
                     })
@@ -8369,7 +8468,7 @@ def log_management():
         # Sort batches by fermentation start date (most recent first)
         # Batches without a date or invalid date format appear at the end
         def sort_key(batch):
-            date_str = batch.get('ferm_start_date')
+            date_str = batch.get('batch_start_date') or batch.get('ferm_start_date')
             if date_str:
                 try:
                     # Parse date string (format: YYYY-MM-DD)
@@ -8884,7 +8983,9 @@ def close_batch():
             tilt_cfg[color] = {
                 "beer_name": "",
                 "batch_name": "",
+                "batch_start_date": "",
                 "ferm_start_date": "",
+                "ferm_start_date_manual_override": False,
                 "recipe_og": "",
                 "recipe_fg": "",
                 "recipe_abv": "",
@@ -10128,7 +10229,7 @@ def _load_all_batches_for_reports():
                     batches.append(b)
         except Exception as e:
             print(f"[REPORTS] Error reading {history_file}: {e}")
-    batches.sort(key=lambda x: x.get('ferm_start_date', ''), reverse=True)
+    batches.sort(key=lambda x: x.get('batch_start_date') or x.get('ferm_start_date', ''), reverse=True)
     return batches
 
 

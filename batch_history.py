@@ -1,9 +1,9 @@
 import json
 from datetime import datetime
 
-def generate_brewid(beer_name, batch_name, ferm_start_date):
+def generate_brewid(beer_name, batch_name, batch_start_date):
     import hashlib
-    id_str = f"{beer_name}-{batch_name}-{ferm_start_date}"
+    id_str = f"{beer_name}-{batch_name}-{batch_start_date}"
     return hashlib.sha256(id_str.encode('utf-8')).hexdigest()[:8]
 
 def save_batch_jsonl(color, batch_data, action):
@@ -25,7 +25,7 @@ def save_batch_jsonl(color, batch_data, action):
         entry["brewid"] = generate_brewid(
             entry.get("beer_name", ""),
             entry.get("batch_name", ""),
-            entry.get("ferm_start_date", "")
+            entry.get("batch_start_date", entry.get("ferm_start_date", ""))
         )
     filename = f'batches/batch_history_{color}.jsonl'
     with open(filename, 'a') as f:
