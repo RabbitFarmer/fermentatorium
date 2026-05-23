@@ -2,7 +2,9 @@
   "Red": {
     "beer_name": "",
     "batch_name": "",
+    "batch_start_date": "",
     "ferm_start_date": "",
+    "ferm_start_date_manual_override": false,
     "recipe_og": "",
     "recipe_fg": "",
     "recipe_abv": "",
@@ -18,7 +20,9 @@
   "Green": {
     "beer_name": "",
     "batch_name": "",
+    "batch_start_date": "",
     "ferm_start_date": "",
+    "ferm_start_date_manual_override": false,
     "recipe_og": "",
     "recipe_fg": "",
     "recipe_abv": "",
@@ -34,7 +38,9 @@
   "Black": {
     "beer_name": "",
     "batch_name": "",
+    "batch_start_date": "",
     "ferm_start_date": "",
+    "ferm_start_date_manual_override": false,
     "recipe_og": "",
     "recipe_fg": "",
     "recipe_abv": "",
@@ -50,7 +56,9 @@
   "Purple": {
     "beer_name": "",
     "batch_name": "",
+    "batch_start_date": "",
     "ferm_start_date": "",
+    "ferm_start_date_manual_override": false,
     "recipe_og": "",
     "recipe_fg": "",
     "recipe_abv": "",
@@ -66,7 +74,9 @@
   "Orange": {
     "beer_name": "",
     "batch_name": "",
+    "batch_start_date": "",
     "ferm_start_date": "",
+    "ferm_start_date_manual_override": false,
     "recipe_og": "",
     "recipe_fg": "",
     "recipe_abv": "",
@@ -82,7 +92,9 @@
   "Blue": {
     "beer_name": "",
     "batch_name": "",
+    "batch_start_date": "",
     "ferm_start_date": "",
+    "ferm_start_date_manual_override": false,
     "recipe_og": "",
     "recipe_fg": "",
     "recipe_abv": "",
@@ -98,7 +110,9 @@
   "Yellow": {
     "beer_name": "",
     "batch_name": "",
+    "batch_start_date": "",
     "ferm_start_date": "",
+    "ferm_start_date_manual_override": false,
     "recipe_og": "",
     "recipe_fg": "",
     "recipe_abv": "",
@@ -114,7 +128,9 @@
   "Pink": {
     "beer_name": "",
     "batch_name": "",
+    "batch_start_date": "",
     "ferm_start_date": "",
+    "ferm_start_date_manual_override": false,
     "recipe_og": "",
     "recipe_fg": "",
     "recipe_abv": "",

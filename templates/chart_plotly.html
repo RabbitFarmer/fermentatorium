@@ -92,6 +92,7 @@
     const beerName = "Temperature Control{% if tc_color %} — {{ tc_color }}{% endif %}";
     const batchName = "N/A";
     const brewId = "N/A";
+    const batchStartDate = "{% if tc_color %}{{ tilt_cfg[tc_color].get('batch_start_date') or tilt_cfg[tc_color].get('ferm_start_date') or '' }}{% else %}{% endif %}";
     const recipeOg = null;
     const recipeFg = null;
     const actualOg = null;
@@ -100,6 +101,7 @@
     const beerName = "{{ tilt_cfg[tilt_color].beer_name or 'Unknown' }}";
     const batchName = "{{ tilt_cfg[tilt_color].batch_name or 'Unknown' }}";
     const brewId = "{{ tilt_cfg[tilt_color].brewid or 'Unknown' }}";
+    const batchStartDate = "{{ tilt_cfg[tilt_color].get('batch_start_date') or tilt_cfg[tilt_color].get('ferm_start_date') or '' }}";
     const recipeOg = {{ tilt_cfg[tilt_color].get('recipe_og') or 'null' }};
     const recipeFg = {{ tilt_cfg[tilt_color].get('recipe_fg') or 'null' }};
     const actualOg = {{ tilt_cfg[tilt_color].get('actual_og') or 'null' }};
@@ -108,6 +110,7 @@
     const beerName = "Unknown";
     const batchName = "Unknown";
     const brewId = "Unknown";
+    const batchStartDate = "";
     const recipeOg = null;
     const recipeFg = null;
     const actualOg = null;
@@ -287,10 +290,8 @@
           tempRange = [50, 80];
         }
         
-        // Calculate x-axis range using the actual data extent so that any pre-fermentation
-        // temperature readings (recorded before ferm_start_date) are fully visible.
-        // For completed/archived fermentations: use actual data range.
-        // For active fermentations: add a small trailing padding.
+        // Calculate x-axis range using the configured batch start date when available.
+        // This keeps charts aligned to the batch timeline rather than the first sample.
         let xAxisRange = null;
         if (dataPoints.length > 0) {
           // Timestamps are already Date objects from normalization above
@@ -304,8 +305,13 @@
             const minDate = new Date(Math.min(...timestamps));
             const maxDate = new Date(Math.max(...timestamps));
 
-            // Start from the very first data point so pre-fermentation readings are shown.
-            const rangeStart = minDate;
+            let rangeStart = minDate;
+            if (batchStartDate) {
+              const parsedBatchStart = new Date(`${batchStartDate}T00:00:00`);
+              if (!isNaN(parsedBatchStart.getTime())) {
+                rangeStart = parsedBatchStart;
+              }
+            }
 
             // For active fermentations, add 5% padding to the end
             // For completed fermentations, use actual end date

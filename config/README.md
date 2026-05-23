@@ -43,7 +43,9 @@ Contains Tilt hydrometer assignments and batch information for each color.
 **Fields per tilt:**
 - `beer_name`: Name of the beer being fermented
 - `batch_name`: Batch identifier
-- `ferm_start_date`: Fermentation start date
+- `batch_start_date`: Batch start date
+- `ferm_start_date`: Fermentation start date (system-derived unless manually overridden)
+- `ferm_start_date_manual_override`: When true, the user-entered fermentation start date is preserved
 - `recipe_og`: Recipe original gravity
 - `recipe_fg`: Recipe final gravity
 - `recipe_abv`: Recipe ABV percentage
