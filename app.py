@@ -968,6 +968,28 @@ def _parse_plug_port(value):
         return None
 
 
+def _probe_plug_port(host, timeout=2.0):
+    """Check which Kasa TCP ports answer on *host*.
+
+    Returns {'open_ports': [...], 'recommended_port': None|80,
+             'protocol': 'legacy'|'klap'|'unknown'}.
+    9999 open -> legacy (recommended port None = default/auto).
+    9999 closed and 80 open -> KLAP (port 80, credentials required).
+    """
+    open_ports = []
+    for p in (9999, 80):
+        try:
+            with socket.create_connection((host, p), timeout=timeout):
+                open_ports.append(p)
+        except OSError:
+            pass
+    if 9999 in open_ports:
+        return {'open_ports': open_ports, 'recommended_port': None, 'protocol': 'legacy'}
+    if 80 in open_ports:
+        return {'open_ports': open_ports, 'recommended_port': 80, 'protocol': 'klap'}
+    return {'open_ports': open_ports, 'recommended_port': None, 'protocol': 'unknown'}
+
+
 def ensure_temp_defaults_for_controller(controller):
     """
     Ensure a single controller dict has all required default fields.
@@ -4654,7 +4676,8 @@ def check_heating_cooling_faults():
                     heating_plug = controller.get("heating_plug", "")
                     if heating_plug and kasa_manager and _is_valid_controller_id(controller_id):
                         print(f"[FAULT] Controller {controller_id}: Re-sending heating ON to recover from fault")
-                        kasa_manager.send(controller_id, 'heating', heating_plug, 'on')
+                        kasa_manager.send(controller_id, 'heating', heating_plug, 'on',
+                                          port=None if _FORCE_IOT_PORT else controller.get('heating_plug_port'))
                 else:
                     # Temperature rising — fault resolved
                     if controller.get("heating_fault_detected"):
@@ -4701,7 +4724,8 @@ def check_heating_cooling_faults():
                     cooling_plug = controller.get("cooling_plug", "")
                     if cooling_plug and kasa_manager and _is_valid_controller_id(controller_id):
                         print(f"[FAULT] Controller {controller_id}: Re-sending cooling ON to recover from fault")
-                        kasa_manager.send(controller_id, 'cooling', cooling_plug, 'on')
+                        kasa_manager.send(controller_id, 'cooling', cooling_plug, 'on',
+                                          port=None if _FORCE_IOT_PORT else controller.get('cooling_plug_port'))
                 else:
                     # Temperature dropping — fault resolved
                     if controller.get("cooling_fault_detected"):
@@ -7819,58 +7843,75 @@ def test_kasa_plugs():
     if not has_credentials and not _FORCE_IOT_PORT:
         results['credentials_warning'] = (
             'No TP-Link credentials configured. '
-            'Newer Kasa plugs (EP25 v2.6+ / KLAP) require your TP-Link account '
-            'email and password — add them in System Settings. '
-            'Legacy plugs (HS100, HS105, …) do not need credentials.'
+            'Newer Kasa plugs (KLAP, port 80, e.g. EP25 v2.6+ or an older plug whose '
+            'firmware was updated) require your TP-Link account email and password — '
+            'add them in System Settings > Kasa Account Credentials. '
+            'Legacy plugs (port 9999) do not need credentials.'
         )
 
-    TEST_TIMEOUT = 15  # seconds — enough for KLAP handshake + update
+    TEST_TIMEOUT = 15  # seconds — enough for discovery + KLAP handshake + update
+
+    def _save_detected_port(role, port):
+        for ctrl in temp_cfg.get('controllers', []):
+            if ctrl.get('controller_id', 0) == controller_id:
+                if ctrl.get(f'{role}_plug_port') != port:
+                    ctrl[f'{role}_plug_port'] = port
+                    save_json(TEMP_CFG_FILE, temp_cfg)
+                return
+
+    def _test_one(role, url, explicit_port):
+        probe = None
+        query_port = explicit_port
+        detected_port = explicit_port
+        if not _FORCE_IOT_PORT:
+            probe = _probe_plug_port(url)
+            if probe['protocol'] != 'unknown':
+                # Keep a user-entered port only if the plug really answers on it.
+                if explicit_port is None or explicit_port not in probe['open_ports']:
+                    detected_port = probe['recommended_port']
+                    if explicit_port is not None:
+                        query_port = detected_port
+            elif explicit_port is None:
+                detected_port = None
+        extra = {}
+        if probe is not None:
+            extra = {
+                'ports_open': probe['open_ports'],
+                'detected_port': detected_port,
+                'protocol': probe['protocol'],
+                'credentials_needed': probe['protocol'] == 'klap',
+            }
+            if probe['protocol'] == 'unknown':
+                extra['error'] = ('Plug not reachable: neither port 9999 nor port 80 is open. '
+                                  'Check the IP address and that the plug is powered and on the network.')
+        try:
+            if probe is not None and probe['protocol'] == 'klap' and not has_credentials:
+                return {'success': False, 'state': 'out of service',
+                        **extra,
+                        'error': ('This plug uses the newer encrypted protocol (port 80) and requires '
+                                  'your TP-Link/Kasa account email and password. Enter them in '
+                                  'System Settings > Kasa Account Credentials.')}
+            if kasa_manager is None or not kasa_manager.is_alive():
+                return {'success': False, 'state': 'out of service', **extra,
+                        'error': 'Kasa manager not running — restart the application'}
+            is_on, error = kasa_manager.query_sync(
+                url=url, controller_id=controller_id, role=role,
+                timeout=TEST_TIMEOUT, port=query_port,
+            )
+            if error is None:
+                _clear_kasa_error_for_plug(role, url)
+                if probe is not None:
+                    _save_detected_port(role, detected_port)
+                return {'success': True, 'error': None,
+                        'state': 'on' if is_on else 'off', **extra}
+            return {'success': False, 'state': 'out of service', **extra, 'error': error}
+        except Exception as e:
+            return {'success': False, 'state': 'out of service', **extra, 'error': str(e)}
 
     if heating_url:
-        try:
-            if kasa_manager is not None and kasa_manager.is_alive():
-                is_on, error = kasa_manager.query_sync(
-                    url=heating_url,
-                    controller_id=controller_id,
-                    role='heating',
-                    timeout=TEST_TIMEOUT,
-                    port=heating_port,
-                )
-                if error is None:
-                    results['heating'] = {
-                        'success': True, 'error': None,
-                        'state': 'on' if is_on else 'off',
-                    }
-                    _clear_kasa_error_for_plug('heating', heating_url)
-                else:
-                    results['heating'] = {'success': False, 'error': error, 'state': 'out of service'}
-            else:
-                results['heating'] = {'success': False, 'error': 'Kasa manager not running — restart the application', 'state': 'out of service'}
-        except Exception as e:
-            results['heating'] = {'success': False, 'error': str(e), 'state': 'out of service'}
-
+        results['heating'] = _test_one('heating', heating_url, heating_port)
     if cooling_url:
-        try:
-            if kasa_manager is not None and kasa_manager.is_alive():
-                is_on, error = kasa_manager.query_sync(
-                    url=cooling_url,
-                    controller_id=controller_id,
-                    role='cooling',
-                    timeout=TEST_TIMEOUT,
-                    port=cooling_port,
-                )
-                if error is None:
-                    results['cooling'] = {
-                        'success': True, 'error': None,
-                        'state': 'on' if is_on else 'off',
-                    }
-                    _clear_kasa_error_for_plug('cooling', cooling_url)
-                else:
-                    results['cooling'] = {'success': False, 'error': error, 'state': 'out of service'}
-            else:
-                results['cooling'] = {'success': False, 'error': 'Kasa manager not running — restart the application', 'state': 'out of service'}
-        except Exception as e:
-            results['cooling'] = {'success': False, 'error': str(e), 'state': 'out of service'}
+        results['cooling'] = _test_one('cooling', cooling_url, cooling_port)
 
     return jsonify(results)
 
@@ -10677,12 +10718,14 @@ def exit_system():
 
                     # Turn off heating plug if configured
                     if heating_plug and kasa_manager and _is_valid_controller_id(cid):
-                        kasa_manager.send(cid, 'heating', heating_plug, 'off')
+                        kasa_manager.send(cid, 'heating', heating_plug, 'off',
+                                          port=None if _FORCE_IOT_PORT else ctrl.get('heating_plug_port'))
                         time.sleep(PLUG_COMMAND_DELAY)
 
                     # Turn off cooling plug if configured
                     if cooling_plug and kasa_manager and _is_valid_controller_id(cid):
-                        kasa_manager.send(cid, 'cooling', cooling_plug, 'off')
+                        kasa_manager.send(cid, 'cooling', cooling_plug, 'off',
+                                          port=None if _FORCE_IOT_PORT else ctrl.get('cooling_plug_port'))
                         time.sleep(PLUG_COMMAND_DELAY)
             except Exception as e:
                 print(f"[LOG] Error turning off plugs during shutdown: {e}")
@@ -10959,6 +11002,10 @@ if __name__ == '__main__':
             else:
                 _kasa_user = system_cfg.get('kasa_username', '').strip()
                 _kasa_pass = system_cfg.get('kasa_password', '').strip()
+                log_kasa_diag('info', 'KasaManager starting with account credentials'
+                              if (_kasa_user and _kasa_pass) else
+                              'KasaManager starting without account credentials (legacy plugs only)',
+                              has_credentials=bool(_kasa_user and _kasa_pass))
                 kasa_manager.start(kasa_username=_kasa_user, kasa_password=_kasa_pass)
             print("[LOG] KasaManager started")
             log_kasa_diag('info', 'KasaManager worker subprocess started',

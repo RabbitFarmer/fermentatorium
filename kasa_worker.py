@@ -86,6 +86,8 @@ try:
 except Exception:
     HAS_DEVICE_CONNECT = False
 
+from kasa_manager._plug import _open_device as _shared_open_device, _friendly_error as _shared_friendly_error
+
 # Import application logger helpers if available (non-blocking)
 try:
     from logger import log_error, log_kasa_diag
@@ -310,22 +312,15 @@ async def kasa_query_state(url, credentials=None):
     needs_disconnect = False
     _connect_timeout = 6
     try:
-        if credentials is not None and HAS_DEVICE_CONNECT:
-            config = _DeviceConfig(host=url, credentials=credentials, timeout=_connect_timeout)
-            device = await asyncio.wait_for(_Device.connect(config=config),
-                                            timeout=_connect_timeout + 2)
-            needs_disconnect = True
-        elif PlugClass is not None:
-            device = PlugClass(url)
-        else:
-            return None, "kasa plug class not available"
+        # Shared helper detects the protocol (legacy 9999 vs KLAP 80) via discovery.
+        device, needs_disconnect = await _shared_open_device(url, credentials, _connect_timeout + 4)
         await asyncio.wait_for(device.update(), timeout=6)
         is_on = getattr(device, "is_on", None)
         if is_on is None:
             return None, "Unable to determine plug state"
         return is_on, None
     except Exception as e:
-        err = f"Failed to query plug at {url}: {e or type(e).__name__}"
+        err = f"Failed to query plug at {url}: {_shared_friendly_error(e, credentials)}"
         log_error(err)
         return None, err
     finally:
@@ -373,22 +368,14 @@ async def kasa_control(url, action, mode, credentials=None):
         needs_disconnect = False
         _connect_timeout = 6
         try:
-            if credentials is not None and HAS_DEVICE_CONNECT:
-                config = _DeviceConfig(host=url, credentials=credentials, timeout=_connect_timeout)
-                device = await asyncio.wait_for(_Device.connect(config=config),
-                                                timeout=_connect_timeout + 2)
-                needs_disconnect = True
-            elif PlugClass is not None:
-                device = PlugClass(url)
-            else:
-                last_error = "kasa plug class not available"
-                break
+            # Shared helper detects the protocol (legacy 9999 vs KLAP 80) via discovery.
+            device, needs_disconnect = await _shared_open_device(url, credentials, _connect_timeout + 4)
             # Update device state before sending the command - wakes the plug
             # and ensures we have a fresh baseline for state verification.
             await asyncio.wait_for(device.update(), timeout=6)
             
         except Exception as e:
-            last_error = f"Failed to contact plug at {url}: {e or type(e).__name__}"
+            last_error = f"Failed to contact plug at {url}: {_shared_friendly_error(e, credentials)}"
             if needs_disconnect and device is not None:
                 try:
                     await device.disconnect()

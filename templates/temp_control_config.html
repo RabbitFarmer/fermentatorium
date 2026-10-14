@@ -63,6 +63,15 @@
           resultsContent.appendChild(p);
         }
         
+        // Reflect detected ports in the form so Save does not overwrite them with a stale value.
+        ['heating', 'cooling'].forEach(function (role) {
+          const r = data[role];
+          const input = document.getElementById(role + '_plug_port');
+          if (r && r.success && input && r.detected_port !== undefined) {
+            input.value = (r.detected_port === null) ? '' : r.detected_port;
+          }
+        });
+
         if (data.heating) {
           _appendPlugResult(resultsContent, 'Heating', heatingUrl, data.heating, 'heating');
         }
@@ -123,6 +132,33 @@
         statusSpan.style.fontWeight = '600';
         statusLine.appendChild(statusSpan);
         wrap.appendChild(statusLine);
+      }
+
+      // Detected protocol / port
+      if (plugData.protocol) {
+        const protoLine = document.createElement('div');
+        protoLine.style.fontSize = '0.9em';
+        protoLine.style.marginBottom = '4px';
+        let desc;
+        if (plugData.protocol === 'legacy') {
+          desc = 'Legacy plug (port 9999)';
+        } else if (plugData.protocol === 'klap') {
+          desc = 'Newer encrypted plug (port 80) - requires Kasa account login';
+        } else {
+          desc = 'Protocol unknown - plug not reachable on port 9999 or 80';
+        }
+        protoLine.textContent = 'Detected: ' + desc;
+        if (plugData.success && plugData.protocol !== 'unknown') {
+          protoLine.textContent += '. Saved port: ' + (plugData.detected_port === null ? 'default (auto)' : plugData.detected_port);
+        }
+        wrap.appendChild(protoLine);
+        if (plugData.credentials_needed) {
+          const credLine = document.createElement('div');
+          credLine.style.fontSize = '0.9em';
+          credLine.style.color = '#b8860b';
+          credLine.textContent = 'Kasa account email and password are required (System Settings > Kasa Account Credentials).';
+          wrap.appendChild(credLine);
+        }
       }
 
       // Error detail
@@ -552,7 +588,7 @@
             {% if force_iot_port %}
             <span id="plug-mode-notice-tc" style="margin-left:8px; color:#b8860b; font-size:0.85em;">⚡ --plug mode: port 9999 forced (field ignored)</span>
             {% else %}
-            <span style="margin-left:8px; color:#666; font-size:0.85em;">Leave blank — auto-detected when credentials are set. Override only for non-standard configurations.</span>
+            <span style="margin-left:8px; color:#666; font-size:0.85em;">Leave blank for legacy plugs (port 9999). Click KASA Test to detect and fill this in automatically (80 for newer encrypted plugs).</span>
             {% endif %}
           </div>
 
@@ -569,7 +605,7 @@
             {% if force_iot_port %}
             <span style="margin-left:8px; color:#b8860b; font-size:0.85em;">⚡ --plug mode: port 9999 forced (field ignored)</span>
             {% else %}
-            <span style="margin-left:8px; color:#666; font-size:0.85em;">Leave blank — auto-detected when credentials are set. Override only for non-standard configurations.</span>
+            <span style="margin-left:8px; color:#666; font-size:0.85em;">Leave blank for legacy plugs (port 9999). Click KASA Test to detect and fill this in automatically (80 for newer encrypted plugs).</span>
             {% endif %}
           </div>
 

@@ -199,7 +199,7 @@ async def _async_main(cmd_queue, result_queue, query_result_queue, plug_query, p
         role          = cmd.get("role", "")
         request_id    = cmd.get("request_id", "")
         port          = cmd.get("port")     # int or None
-        timeout       = cmd.get("timeout", 7.0)  # per-request timeout (seconds)
+        timeout       = cmd.get("timeout", 10.0)  # per-request timeout (seconds)
 
         if not url:
             _put_error(result_queue, query_result_queue, cmd, "No URL provided")
