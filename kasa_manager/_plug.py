@@ -3,14 +3,14 @@
 All network operations are wrapped with asyncio.wait_for to prevent
 indefinite hangs when a plug accepts a TCP connection but never responds.
 
-Newer Kasa devices (e.g. EP25 hardware v2.6+) require TP-Link account
-credentials and use the KLAP protocol over port 80 instead of port 9999.
-When a Credentials object is supplied, Device.connect() is used so that
-python-kasa can auto-negotiate the correct protocol.  Older devices that
-do not need authentication continue to use IotPlug as before.
+Plugs may speak either the legacy IOT protocol (TCP 9999, no account) or,
+after a Kasa firmware update, the encrypted KLAP protocol (TCP 80, TP-Link
+account credentials required).  A bare DeviceConfig/Device.connect() always
+assumes the legacy protocol, so protocol detection is done with
+Discover.discover_single().  If discovery is unavailable or fails for a
+reason other than authentication, the legacy IotPlug path on port 9999 is
+used so old plugs keep working without credentials.
 """
-
-from __future__ import annotations
 
 import asyncio
 
@@ -30,49 +30,108 @@ try:
 except ImportError:
     HAS_DEVICE_CONNECT = False
 
+# Discover.discover_single detects the protocol (IOT vs KLAP) of a plug.
+try:
+    from kasa import Discover as _Discover  # type: ignore
+    HAS_DISCOVER = True
+except ImportError:
+    _Discover = None
+    HAS_DISCOVER = False
+
 KASA_AVAILABLE = PLUG_CLASS is not None or HAS_DEVICE_CONNECT
 
 # Retry delays (seconds) between consecutive attempts: immediate, then 1 s, then 2 s.
 _RETRY_DELAYS = [0, 1, 2]
 
 
+AUTH_REQUIRED_MESSAGE = (
+    "This plug appears to use the newer encrypted protocol (port 80) and requires "
+    "your TP-Link/Kasa account email and password. Enter them in System Settings > "
+    "Kasa Account Credentials."
+)
+AUTH_REJECTED_MESSAGE = (
+    "The plug rejected the TP-Link/Kasa account credentials. Check the email and "
+    "password in System Settings > Kasa Account Credentials."
+)
+
+
+def _is_auth_error(exc: BaseException) -> bool:
+    """True if *exc* looks like a python-kasa authentication/credentials failure."""
+    for e in (exc, getattr(exc, "__cause__", None)):
+        if e is None:
+            continue
+        name = type(e).__name__.lower()
+        if "authentication" in name or "credentials" in name:
+            return True
+        msg = str(e).lower()
+        if "credentials" in msg or "authentication" in msg or "login" in msg:
+            return True
+    return False
+
+
+def _friendly_error(exc: BaseException, credentials) -> str:
+    """Map an exception to a user-facing message (never includes credentials)."""
+    if _is_auth_error(exc):
+        return AUTH_REJECTED_MESSAGE if credentials is not None else AUTH_REQUIRED_MESSAGE
+    text = str(exc) or type(exc).__name__
+    if credentials is None and ":9999" in text and (
+            "Errno 111" in text or "refused" in text.lower() or "Connect call failed" in text):
+        text += " - " + AUTH_REQUIRED_MESSAGE.replace("appears to use", "may use")
+    return text
+
+
+async def _discover(url: str, credentials, timeout: float, port):
+    """Run Discover.discover_single, tolerating python-kasa API differences."""
+    inner = max(2, min(int(timeout) - 2, 6))
+    kwargs = {"credentials": credentials, "timeout": inner, "discovery_timeout": min(inner, 4)}
+    if port is not None:
+        kwargs["port"] = port
+    try:
+        import inspect
+        params = inspect.signature(_Discover.discover_single).parameters
+        if not any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+            kwargs = {k: v for k, v in kwargs.items() if k in params}
+    except (TypeError, ValueError):
+        pass
+    return await asyncio.wait_for(_Discover.discover_single(url, **kwargs), timeout=timeout)
+
+
 async def _open_device(url: str, credentials, timeout: float, port: int | None = None):
     """Open a connection to a plug and return (device, needs_disconnect).
 
-    When *credentials* is a kasa.Credentials object, Device.connect() is used
-    so that python-kasa can auto-negotiate the correct protocol (KLAP for new
-    devices, legacy encrypted for old ones).  The library handles port selection
-    automatically; *port* is only needed for non-standard network configurations.
-
-    Without credentials, IotPlug is used for backward-compatible, credential-free
-    access on port 9999.  Device.connect() without credentials cannot complete the
-    KLAP authentication handshake that newer devices require, so this path is not
-    attempted.
+    Discover.discover_single() is tried first, with or without credentials, so
+    the protocol (legacy IOT/9999 or KLAP/80) is detected.  An explicit *port*
+    is honoured; otherwise discovery decides.  If the plug needs authentication
+    and none was supplied (or it is rejected) an actionable error is raised.
+    If discovery fails for any other reason, the legacy IotPlug on port 9999 is
+    used so old plugs keep working exactly as before.
     """
-    if credentials is not None and HAS_DEVICE_CONNECT:
-        # Use DeviceConfig timeout slightly smaller than the outer asyncio.wait_for
-        # timeout so the inner per-operation timeout fires first.
-        config = _DeviceConfig(host=url, credentials=credentials,
-                               timeout=max(1, int(timeout) - 2),
-                               port_override=port)
-        device = await asyncio.wait_for(_Device.connect(config=config), timeout=timeout)
-        return device, True
+    if HAS_DISCOVER:
+        try:
+            device = await _discover(url, credentials, timeout, port)
+            if device is not None:
+                return device, True
+        except Exception as e:
+            if _is_auth_error(e):
+                raise RuntimeError(_friendly_error(e, credentials)) from e
+            # Fall through to the legacy path.
     if PLUG_CLASS is None:
         raise RuntimeError("kasa library not available")
-    # No credentials: use the legacy IotPlug/SmartPlug which operates on port 9999.
-    # Device.connect() without credentials cannot authenticate with KLAP devices,
-    # so we do not attempt it here regardless of the port setting.
+    if port is not None:
+        try:
+            return PLUG_CLASS(url, port=port), False
+        except TypeError:
+            pass
     return PLUG_CLASS(url), False
 
 
-async def plug_query(url: str, credentials=None, timeout: float = 7.0, port: int | None = None):
+async def plug_query(url: str, credentials=None, timeout: float = 10.0, port: int | None = None):
     """Query the current on/off state of a plug.
 
     Args:
         url: IP address or hostname of the plug.
         credentials: kasa.Credentials instance for devices that require
-            authentication (e.g. EP25 hardware v2.6+), or None for older
-            devices that use the unauthenticated protocol.
+            authentication (e.g. EP25 hardware v2.6+ or firmware-updated HS103), or None.
         timeout: Network operation timeout in seconds.
         port: Override the default port (9999 for old plugs, 80 for new KLAP
             plugs).  None uses the library default.
@@ -96,7 +155,7 @@ async def plug_query(url: str, credentials=None, timeout: float = 7.0, port: int
         return bool(is_on), None
     except Exception as e:
         plug_desc = f"{url}:{port}" if port is not None else url
-        return None, f"Failed to query plug at {plug_desc}: {str(e) or type(e).__name__}"
+        return None, f"Failed to query plug at {plug_desc}: {_friendly_error(e, credentials)}"
     finally:
         if needs_disconnect and device is not None:
             try:
@@ -110,7 +169,7 @@ async def plug_control(
     action: str,
     mode: str = "",
     credentials=None,
-    timeout_update: float = 6.0,
+    timeout_update: float = 10.0,
     timeout_cmd: float = 10.0,
     timeout_verify: float = 5.0,
     max_retries: int = 3,
@@ -154,7 +213,7 @@ async def plug_control(
             await asyncio.wait_for(device.update(), timeout=timeout_update)
         except Exception as e:
             plug_desc = f"{url}:{port}" if port is not None else url
-            last_error = f"Failed to contact plug at {plug_desc}: {str(e) or type(e).__name__}"
+            last_error = f"Failed to contact plug at {plug_desc}: {_friendly_error(e, credentials)}"
             if needs_disconnect and device is not None:
                 try:
                     await device.disconnect()
