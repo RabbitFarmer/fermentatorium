@@ -85,7 +85,7 @@ class KasaManager:
 
     # -- Lifecycle ---------------------------------------------------------
 
-    def start(self, kasa_username: str = "", kasa_password: str = ""):
+    def start(self, kasa_username=None, kasa_password=None):
         """Spawn the worker subprocess.  Call once from __main__ after
         multiprocessing.set_start_method('spawn') has been set.
 
@@ -99,10 +99,11 @@ class KasaManager:
             if self._proc is not None and self._proc.is_alive():
                 return  # already running
 
-            # Update stored credentials if new ones are provided.
-            if kasa_username:
+            # None keeps the stored value; an explicit string (even "")
+            # replaces it so cleared credentials do not linger in the worker.
+            if kasa_username is not None:
                 self._kasa_username = kasa_username
-            if kasa_password:
+            if kasa_password is not None:
                 self._kasa_password = kasa_password
 
             self._cmd_queue    = Queue()
@@ -135,14 +136,14 @@ class KasaManager:
             except Exception as exc:
                 log_error(f"KasaManager: error during worker stop: {exc}")
 
-    def restart(self, kasa_username: str = "", kasa_password: str = ""):
+    def restart(self, kasa_username=None, kasa_password=None):
         """Stop and restart the worker subprocess.
 
         Args:
-            kasa_username: Updated TP-Link account email (pass empty string to
-                keep the previously stored value).
-            kasa_password: Updated TP-Link account password (pass empty string
-                to keep the previously stored value).
+            kasa_username: Updated TP-Link account email (None keeps the
+                previously stored value; "" clears it).
+            kasa_password: Updated TP-Link account password (None keeps the
+                previously stored value; "" clears it).
         """
         log_kasa_diag("info", "KasaManager: restarting worker subprocess")
         old_pid = self._proc.pid if self._proc else None
@@ -152,6 +153,12 @@ class KasaManager:
         new_pid = self._proc.pid if self._proc else None
         log_kasa_diag("info", "KasaManager: worker restarted",
                       old_pid=old_pid, new_pid=new_pid)
+
+    def credentials_match(self, kasa_username: str, kasa_password: str) -> bool:
+        """True if the stored worker credentials equal the given ones."""
+        with self._lock:
+            return (self._kasa_username == kasa_username and
+                    self._kasa_password == kasa_password)
 
     def restart_if_dead(self):
         """Check whether the worker has died and restart it if so.
