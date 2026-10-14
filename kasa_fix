@@ -1,0 +1,135 @@
+For those of you who want to use Kasa smart plugs without a TP-Link account, I thought I'd share this script
+
+I recently took a dip into Home Assistant, in part because I wanted to de-cloud my home & I'm also sun-setting a well worn email address. When I went to adopt my in-wall plugs, HA still needed my kasa credentials for a few of my plugs & that made me shiver. So I took a gamble, because when I deleted my Kasa account, they were kind enough to factory reset my devices for me. I figured it was as good of a time as any to see if I could just cut the cord for good & what follows is the results. Maybe others have posted similar tools - but I figured rather than borrow I'd try to build something.
+
+The big challenge with a device that isn't setup is that it needs WiFi credentials, so that's the problem I solved. The script allows you to plug your Wi-Fi SSID & pass into a Kasa outlet without needing to install their app. Once you get your plug on your network...anything can control it... Home Assistant's TP-Link integration, python-kasa, or your own homebrew. Bottom line: no cloud, no login.
+
+Speaking of `python-kasa`, it has its own way of doing this, but the "suite" was just overkill for what I was looking for.  Instructions & script follow, I wanted to make this easy for people that aren't super comfortable with coding and such.
+
+## What you need
+
+- A Wi-Fi enabled device, running bash (Linux, macOS, or Windows via WSL).
+- Either [`uv`](https://docs.astral.sh/uv/) or `python3`. The script fetches
+  [python-kasa](https://github.com/python-kasa/python-kasa) on its own.
+- Plugs in setup mode: hold the plug's button about 10 seconds until it blinks amber.
+- A WPA2 Wi-Fi network with a password (the normal kind). Open or WPA3-only networks won't work.
+
+## Use
+
+```bash
+./kasa-provision.sh
+```
+
+1. It asks for your Wi-Fi name and password, once.
+2. It says "Waiting". On the device, join the plug's own network, named like `TP-LINK_Smart Plug_XXXX`.
+3. It finds the plug, sends the settings, and says **DONE**. Stay on the plug's network until then. It likely won't take but a few seconds.
+4. Switch the device back to your Wi-Fi, press Enter, and do the next plug.
+
+If you'd rather not type your credentials, just pass the details in the environment instead:
+`KASA_SSID="My Wi-Fi" KASA_WIFI_PASSWORD="..." ./kasa-provision.sh`
+
+## Things that could bite you:
+
+- **Windows jumps back to your home Wi-Fi** as soon as it sees the plug's network has no
+  internet, sometimes mid-push. Untick *Connect automatically* on your home network while you
+  work, and re-tick it after.
+- **Stay on the plug's network until DONE.** If you switch early the push is lost and the plug
+  keeps blinking.
+- python-kasa's `wifi join` **prompts for a key type if you don't pass one** and does nothing
+  useful with an empty answer. The script passes `3` (WPA2) for older plugs and `wpa2_psk` for
+  newer ones, trying each in turn.
+- A reset **turns every outlet on** and wipes the outlet names. Rename them in whatever you
+  control them with.
+- Tested on **Kasa KP200** in-wall double outlets. Other plugs python-kasa supports should behave the same; newer Tapo gear may need the default logins the script already tries.
+
+## Afterwards
+
+Add the plugs to Home Assistant by IP address (Settings → Devices & services → Add → TP-Link Smart Home). A reset plug needs no username or password. If you want them fully private, block their internet at your router - they have nothing to talk to out there any more.
+
+##THE SCRIPT
+
+
+    #!/usr/bin/env bash
+    # kasa-provision - put factory-reset Kasa smart plugs onto your Wi-Fi with no TP-Link account.
+    #
+    # How it works: a reset Kasa plug broadcasts its own Wi-Fi network ("TP-LINK_Smart Plug_XXXX")
+    # and listens at 192.168.0.1. Join that network from your laptop, and this script hands the
+    # plug your real Wi-Fi name and password. The plug then joins your network. Repeat per plug.
+    #
+    # Needs: bash, and either `uvx` (from uv) or python3 - it fetches python-kasa itself.
+    # Tested on Kasa KP200 in-wall outlets; should work for other python-kasa supported plugs.
+    
+    set -u
+
+    PLUG=192.168.0.1
+    SSID="${KASA_SSID:-}"
+    PW="${KASA_WIFI_PASSWORD:-}"
+    LOG="${KASA_PROVISION_LOG:-/tmp/kasa-provision.log}"
+    
+    # --- find or fetch python-kasa ---------------------------------------------------------------
+    if command -v kasa >/dev/null 2>&1; then KASA=(kasa)
+    elif command -v uvx >/dev/null 2>&1; then KASA=(uvx --from python-kasa kasa)
+    elif command -v python3 >/dev/null 2>&1; then
+      VENV="${TMPDIR:-/tmp}/kasa-provision-venv"
+      [ -x "$VENV/bin/kasa" ] || { echo "Installing python-kasa (one time)..."; python3 -m venv "$VENV" && "$VENV/bin/pip" -q install python-kasa; }
+      KASA=("$VENV/bin/kasa")
+    else
+      echo "Need either 'uvx' (https://docs.astral.sh/uv/) or python3 on this machine."; exit 1
+    fi
+    
+    # --- ask once ---------------------------------------------------------------------------------
+    [ -n "$SSID" ] || read -rp "Your Wi-Fi network name (exactly as it appears): " SSID
+    [ -n "$PW" ]   || { read -rsp "Your Wi-Fi password: " PW; echo; }
+    [ -n "$SSID" ] && [ -n "$PW" ] || { echo "Need both a network name and a password."; exit 1; }
+    
+    # --- the push --------------------------------------------------------------------------------
+    try() { # $1 = label, remaining args go before "wifi join"
+      local label=$1; shift
+      out=$(timeout 60 "${KASA[@]}" --host "$PLUG" "$@" wifi join "$SSID" --keytype "$KT" --password "$PW" </dev/null 2>&1)
+      printf '[%s] %s rc=%s :: %s\n' "$(date +%T)" "$label" "$?" "$out" >> "$LOG"
+      grep -q 'Response:' <<<"$out" && ! grep -qiE 'error|failed|exception' <<<"$out"
+    }
+    push() {
+      # Older Kasa plugs: no device login, key type is the number 3 (WPA2).
+      # Newer Kasa/Tapo: the built-in default logins, key type is the word wpa2_psk.
+      KT=3;        try no-login && return 0
+      KT=wpa2_psk; try kasa-default --username kasa@tp-link.net --password kasaSetup && return 0
+      KT=wpa2_psk; try tapo-default --username test@tp-link.net --password test && return 0
+      echo "The plug did not accept the settings. Last output:"; echo "$out" | tail -5; return 1
+    }
+    
+    reachable() { timeout 2 bash -c "echo > /dev/tcp/$PLUG/9999" 2>/dev/null || timeout 2 bash -c "echo > /dev/tcp/$PLUG/80" 2>/dev/null; }
+    
+    n=0
+    while :; do
+      echo; echo "== Plug $((n+1)) =="
+      echo "On this laptop, join the plug's own Wi-Fi network (TP-LINK_Smart Plug_xxxx). Waiting..."
+      until reachable; do sleep 2; done
+      echo "Plug found. Sending your Wi-Fi settings - STAY on the plug's network until you see DONE (up to 2 minutes)..."
+      if push; then n=$((n+1)); echo "DONE - plug $n is joining '$SSID'. You can switch this laptop back to your own Wi-Fi now."
+      else echo "Switch back to your own Wi-Fi and check the log: $LOG"; fi
+      echo "Press Enter for the next plug, or Ctrl-C if you're finished."
+      read -r _ </dev/tty
+    done
+
+    ## License
+    
+    > Copyright (c) 2026 dynastyuserdude
+    > 
+    > Permission is hereby granted, free of charge, to any person obtaining a copy
+    > of this software and associated documentation files (the "Software"), to deal
+    > in the Software without restriction, including without limitation the rights
+    > to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    > copies of the Software, and to permit persons to whom the Software is
+    > furnished to do so, subject to the following conditions:
+    > 
+    > The above copyright notice and this permission notice shall be included in all
+    > copies or substantial portions of the Software.
+    > 
+    > THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    > IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    > FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    > AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    > LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    > SOFTWARE.
