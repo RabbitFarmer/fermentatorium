@@ -5592,6 +5592,10 @@ def update_system_config():
     system_cfg["kasa_username"] = new_kasa_username
     if new_kasa_password:
         system_cfg["kasa_password"] = new_kasa_password
+    log_kasa_diag('info', 'Settings save: Kasa credentials',
+                  username_present=bool(new_kasa_username),
+                  password_submitted=bool(new_kasa_password),
+                  password_stored=bool(system_cfg.get('kasa_password')))
     # Restart the kasa worker if credentials changed so it picks up new values.
     _kasa_creds_changed = (
         new_kasa_username != old_kasa_username or
@@ -5667,11 +5671,14 @@ def update_system_config():
 
     # Restart the kasa worker if credentials changed so it picks up new values.
     # In --plug mode credentials are never used, so restart is not needed.
-    if _kasa_creds_changed and kasa_manager is not None and kasa_manager.is_alive() and not _FORCE_IOT_PORT:
+    if kasa_manager is not None and kasa_manager.is_alive() and not _FORCE_IOT_PORT and (
+            _kasa_creds_changed or not kasa_manager.credentials_match(
+                system_cfg.get('kasa_username', '').strip(),
+                system_cfg.get('kasa_password', '').strip())):
         try:
             kasa_manager.restart(
-                kasa_username=system_cfg.get('kasa_username', ''),
-                kasa_password=system_cfg.get('kasa_password', '')
+                kasa_username=system_cfg.get('kasa_username', '').strip(),
+                kasa_password=system_cfg.get('kasa_password', '').strip()
             )
             log_kasa_diag('info', 'KasaManager restarted after credential change')
         except Exception as _km_restart_exc:
@@ -7838,6 +7845,22 @@ def test_kasa_plugs():
         system_cfg.get('kasa_username', '').strip() and
         system_cfg.get('kasa_password', '').strip()
     )
+
+    # Make sure the worker uses the same saved credentials as this route;
+    # restart it if it is running with stale/blank values.
+    if not _FORCE_IOT_PORT and kasa_manager is not None and kasa_manager.is_alive():
+        _cfg_user = system_cfg.get('kasa_username', '').strip()
+        _cfg_pass = system_cfg.get('kasa_password', '').strip()
+        _in_sync = kasa_manager.credentials_match(_cfg_user, _cfg_pass)
+        log_kasa_diag('info', 'KASA Test: credential check',
+                      config_has_credentials=has_credentials,
+                      worker_in_sync=_in_sync)
+        if not _in_sync:
+            try:
+                kasa_manager.restart(kasa_username=_cfg_user, kasa_password=_cfg_pass)
+                log_kasa_diag('info', 'KasaManager restarted: worker credentials were out of sync with saved config')
+            except Exception as _km_exc:
+                log_kasa_diag('error', f'KasaManager restart for credential sync failed: {_km_exc}')
 
     results = {}
     if not has_credentials and not _FORCE_IOT_PORT:
