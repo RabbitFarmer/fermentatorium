@@ -96,6 +96,32 @@ async def _discover(url: str, credentials, timeout: float, port):
     return await asyncio.wait_for(_Discover.discover_single(url, **kwargs), timeout=timeout)
 
 
+def _credential_variants(credentials):
+    """Yield credential sets to try, most likely first.
+
+    KLAP plugs hash the account email exactly as the plug stored it, which is
+    usually the lower-case form even if the user typed capitals.  Whitespace
+    pasted into the settings form also breaks the hash.  If the credentials as
+    entered are rejected, the cleaned and lower-cased email are tried too.
+    """
+    yield credentials
+    if credentials is None:
+        return
+    user = getattr(credentials, "username", None)
+    pw = getattr(credentials, "password", None)
+    if not isinstance(user, str) or not isinstance(pw, str):
+        return
+    seen = {(user, pw)}
+    for u in (user.strip(), user.strip().lower()):
+        if (u, pw) in seen:
+            continue
+        seen.add((u, pw))
+        try:
+            yield type(credentials)(u, pw)
+        except Exception:
+            return
+
+
 async def _open_device(url: str, credentials, timeout: float, port: int | None = None):
     """Open a connection to a plug and return (device, needs_disconnect).
 
@@ -107,14 +133,20 @@ async def _open_device(url: str, credentials, timeout: float, port: int | None =
     used so old plugs keep working exactly as before.
     """
     if HAS_DISCOVER:
-        try:
-            device = await _discover(url, credentials, timeout, port)
-            if device is not None:
-                return device, True
-        except Exception as e:
-            if _is_auth_error(e):
-                raise RuntimeError(_friendly_error(e, credentials)) from e
-            # Fall through to the legacy path.
+        last_auth_exc = None
+        for creds in _credential_variants(credentials):
+            try:
+                device = await _discover(url, creds, timeout, port)
+                if device is not None:
+                    return device, True
+                break
+            except Exception as e:
+                if _is_auth_error(e):
+                    last_auth_exc = e
+                    continue  # try next credential variant
+                break  # fall through to the legacy path
+        if last_auth_exc is not None:
+            raise RuntimeError(_friendly_error(last_auth_exc, credentials)) from last_auth_exc
     if PLUG_CLASS is None:
         raise RuntimeError("kasa library not available")
     if port is not None:

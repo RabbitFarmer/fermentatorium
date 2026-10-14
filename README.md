@@ -667,6 +667,7 @@ Replace `Red` with the Tilt color you want to associate with the imported batch,
 - Find the plug's IP address in your router's DHCP table. Assign it a static lease to prevent the IP from changing.
 - If the plug model requires a TP-Link account, ensure credentials are entered in **System Settings → Kasa Credentials**.
 - Use the **Scan for Kasa Plugs** button in the dashboard to test connectivity.
+- **"Plug rejected the credentials"** (KLAP plugs such as EP25/KP125M): use the exact email and password of the TP-Link/Kasa account the plug is registered to. Fermentatorium trims whitespace and automatically retries with a lower-case email, which is how the plug stores it. If it still fails, in the Kasa app enable **Me → Third-Party Services → Third-Party Compatibility**, then re-save the credentials. Passwords with special characters should be re-typed rather than pasted.
 
 ### Port 5001 already in use
 
