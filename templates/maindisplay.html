@@ -668,7 +668,7 @@
             {% if _tc == color or _tc.split(':')[0] == color %}{% set is_assigned.value = true %}{% endif %}
           {% endfor %}
           {% if not is_assigned.value %}
-            {% set safe = color.replace(' ', '_') %}
+            {% set safe = color.replace(' ', '_').replace(':', '_') %}
             {% set use_dark_text = tilt.color_code in ['#ffff00','#ffc0cb','#00ff00'] %}
             <article class="tilt-card" data-tilt="{{ color }}">
 
@@ -678,7 +678,7 @@
                    data-tilt-color="{{ color | e }}"
                    {% if tilt.brewid %}data-brewid="{{ tilt.brewid | e }}" title="View fermentation chart"{% endif %}>
                 <div class="beer-name">{{ tilt.beer_name or 'Unnamed Beer' }}</div>
-                <div class="tilt-batch-name">Batch: {{ tilt.batch_name or 'Unnamed Batch' }}</div>
+                <div class="tilt-batch-name">Batch: {{ tilt.batch_name or 'Unnamed Batch' }}{% if ':' in color %} &nbsp;({{ tilt.device_label }}){% endif %}</div>
               </div>
 
               <div class="tilt-body">
@@ -980,7 +980,7 @@
 
 
     /* Convert tilt colour name to a safe DOM id fragment (spaces → underscores) */
-    function safeIdColor(color) { return color.replace(/\s+/g, '_'); }
+    function safeIdColor(color) { return color.replace(/[\s:]+/g, '_'); }
 
     /* ── Build a tilt card dynamically (for tilts appearing after page load) ── */
     function createTiltCard(color, tilt) {
@@ -1046,7 +1046,7 @@
              style="background-color:${colorCode};color:${textColor};"
              data-tilt-color="${color}" ${brewAttr}>
           <div class="beer-name">${beerName}</div>
-          <div class="tilt-batch-name">Batch: ${batchName}</div>
+          <div class="tilt-batch-name">Batch: ${batchName}${color.indexOf(':') >= 0 ? ' &nbsp;(' + (tilt.device_label || color) + ')' : ''}</div>
         </div>
         <div class="tilt-body">
           <table class="tilt-metrics restore">
@@ -1451,7 +1451,7 @@
         const card = e.target.closest('article.tilt-card[data-tilt]');
         if (!card) return;
         const tiltColor = card.getAttribute('data-tilt');
-        if (tiltColor) { window.location.href = '/chart_plotly/' + encodeURIComponent(tiltColor); }
+        if (tiltColor) { window.location.href = '/chart_plotly/' + encodeURIComponent(tiltColor.split(':')[0]); }
       });
 
       /* ── Temp-control toggle switches ── */

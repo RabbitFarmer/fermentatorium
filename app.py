@@ -1570,6 +1570,23 @@ def get_active_tilt_devices():
     devices.sort(key=lambda d: (d['color'], d['mac']))
     return devices
 
+def get_dashboard_tilts():
+    """
+    Active tilts to show on the main display, keyed by device key: the plain color
+    for each color's primary device and "Color:MAC" for any additional same-color
+    devices.  Tilts whose batch is closed are excluded.
+    """
+    result = {}
+    for d in get_active_tilt_devices():
+        key = d['key']
+        if (tilt_cfg.get(key, {}) or {}).get('is_active', True) is False:
+            continue
+        info = dict(d['data'])
+        info['device_label'] = d['label']
+        result[key] = info
+    return result
+
+
 def _find_controller_by_tilt(color, mac=None):
     """
     Return the controller whose tilt matches *color* (and optionally *mac*), or ``None``.
@@ -5663,10 +5680,7 @@ def ble_loop():
 @app.route('/')
 def dashboard():
     # Only show active tilts on the main display
-    active_tilts = {
-        c: t for c, t in get_active_tilts().items()
-        if tilt_cfg.get(c, {}).get('is_active', True) is not False
-    }
+    active_tilts = get_dashboard_tilts()
 
     # Pass controllers array to template
     controllers = temp_cfg.get('controllers', [])
@@ -8143,9 +8157,10 @@ def live_snapshot():
         "warning_mode": system_cfg.get('warning_mode')
     }
     # Only include active tilts (those that have sent data recently)
-    active_tilts = get_active_tilts()
+    active_tilts = get_dashboard_tilts()
     for color, info in active_tilts.items():
         snapshot["live_tilts"][color] = {
+            "device_label": info.get("device_label", color),
             "gravity": info.get("gravity"),
             "temp_f": info.get("temp_f"),
             "timestamp": info.get("timestamp"),
