@@ -51,7 +51,7 @@ If you are not a computer person, don't worry — here is what you need to know 
    - [Temperature Control](#temperature-control)
    - [Notifications](#notifications)
    - [External Logging](#external-logging)
-9. [Compatible Kasa Smart Plugs](#compatible-kasa-smart-plugs)
+9. [Kasa Smart Plugs](#compatible-kasa-smart-plugs)
 10. [Updating](#updating)
 11. [Backup and Restore](#backup-and-restore)
 12. [Utilities](#utilities)
@@ -513,7 +513,7 @@ Test the connection with the **Test External Logging** button before starting a 
 
 ---
 
-## Compatible Kasa Smart Plugs
+## Kasa Smart Plugs
 
 Fermentatorium controls heaters and coolers through TP-Link Kasa smart plugs on your local network.
 
@@ -529,7 +529,7 @@ These models use the older local IoT protocol (port 9999) and respond to command
 | **HS110** | Single outlet with energy monitoring |
 | **KP115** | Single outlet with energy monitoring — **firmware 1.x only**; updating firmware may switch the device to KLAP (requires login) |
 
-> **Tip:** If you own one of the models above, disable automatic firmware updates in the Kasa app before first use to prevent the device from upgrading to KLAP firmware that requires credentials. If you elect to update the firmware to include KLAP protocol, then set up the older plug following the "TP-Link Username /Password setup below."
+> **Tip:** If you own one of the models above, disable automatic firmware updates in the Kasa app before first use to prevent the device from upgrading to KLAP firmware that requires credentials. However, if you elect to update the firmware to include KLAP protocol, then set up the older plug following the "TP-Link Username /Password setup below."
 
 ### Plugs that REQUIRE a TP-Link username/password
 
@@ -543,7 +543,7 @@ These models use the newer KLAP protocol. Enter your TP-Link account email and p
 
 Download and install the Kasa program on your cell phone or mobile device from [Google Play](https://play.google.com/store/apps/details?id=com.tplink.kasa_android). If you have not done so, open an account using your email address and a password. Open the Kasa program, click on "Me" in the lower right corner, then "Settings", then turn ON "Third-Party Compatibility." Now exit the program and return to Fermentatorium.
 
-Click on the Gear Icon, then System Settings, scroll down to Kasa Account Email and enter your email address. Enter the Kasa password you used in the Kasa Account Password box. After this, Fermentatorium will automatically switch between the two protocols as necessary based on the Kasa firmware installed on your plugs.
+In Fermentatorium, click on the Gear Icon, then System Settings, scroll down to Kasa Account Email and enter your email address. Enter the Kasa password you used in the Kasa Account Password box. After this, Fermentatorium will automatically switch between the two protocols as necessary based on the Kasa firmware installed on your plugs.
 
 Use the **Scan for Kasa Plugs** button in the dashboard to discover plugs on your network, then paste their IP addresses into the temperature control configuration.
 
