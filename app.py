@@ -6121,6 +6121,8 @@ def batch_settings():
             "temp_variance": temp_variance,
             "gravity_variance": gravity_variance,
         }
+        # Record the physical Tilt identity (color + MAC) so reopening can detect conflicts
+        batch_entry["tilt_mac"] = normalized_tilt_mac or normalize_mac(existing.get("tilt_mac", "")) or ""
 
         # Parse external logging (batch-level setting; up to 2 slots).
         # The simplified UI presents only the configured saved_loggers as choices.
@@ -9137,14 +9139,28 @@ def reopen_batch():
         if not re.match(r'^[a-zA-Z0-9\-_]+$', brewid):
             return jsonify({'success': False, 'error': 'Invalid batch ID format'}), 400
         
-        # Refuse to reopen if this Tilt color already has a different active batch
+        # Refuse to reopen if the same physical Tilt (color + MAC) is already
+        # assigned to a different active batch.
         cur = tilt_cfg.get(color, {}) or {}
         cur_brewid = cur.get('brewid')
         if cur_brewid and cur_brewid != brewid and cur.get('is_active', True) is not False:
-            name = cur.get('beer_name') or cur_brewid
-            return jsonify({'success': False, 'error':
-                f'The {color} Tilt is currently active in another batch ("{name}"). '
-                f'Close that batch first before reopening this one.'}), 409
+            def _identity_mac(cfg_entry):
+                m = (cfg_entry or {}).get('tilt_mac') or _batch_review_tilt_mac(color) or ''
+                return normalize_mac(m) if m else ''
+            reopen_entry = None
+            try:
+                with open(f'batches/batch_history_{color}.json', 'r') as f:
+                    for b in json.load(f):
+                        if b.get('brewid') == brewid:
+                            reopen_entry = b
+                            break
+            except Exception:
+                pass
+            if _identity_mac(cur) == _identity_mac(reopen_entry):
+                name = cur.get('beer_name') or cur_brewid
+                return jsonify({'success': False, 'error':
+                    f'The {color} Tilt (same device) is currently active in another batch ("{name}"). '
+                    f'Close that batch first before reopening this one.'}), 409
 
         # Load batch history for this color
         batch_history_file = f'batches/batch_history_{color}.json'
