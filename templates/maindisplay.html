@@ -580,7 +580,7 @@
               </footer>
 
             </article>
-          {% elif tilt_color %}
+          {% elif tilt_color and tilt_cfg.get(tilt_base, {}).get('brewid') and tilt_cfg.get(tilt_base, {}).get('is_active', True) is not false %}
             {# Assigned tilt is temporarily offline — render a placeholder so the TC card
                can anchor correctly below it and the user can see it is expected to be here. #}
             {% set safe   = tilt_base.replace(' ', '_') %}

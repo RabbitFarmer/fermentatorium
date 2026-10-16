@@ -33,6 +33,10 @@
 <body class="page-bg">
   <div class="page-container">
     <header class="site-header"><h1 class="dashboard-title">LOG & DATA MANAGEMENT</h1></header>
+    <div class="page-controls">
+      <button type="button" onclick="window.location='/'" class="btn-action">Return</button>
+      <button type="button" onclick="window.location='/system_config?tab=backup-restore'" class="btn-action">Backup/Restore</button>
+    </div>
     <div class="management-container">
       {% if success_message %}
       <div class="status-message status-success">✓ {{ success_message }}</div>
@@ -176,10 +180,6 @@
         {% endif %}
       </div>
 
-      <div style="text-align:center; margin-top:30px;">
-        <button type="button" onclick="window.location='/'" class="btn-action">Return</button>
-        <button type="button" onclick="window.location='/system_config?tab=backup-restore'" class="btn-action">Backup/Restore</button>
-      </div>
     </div>
   </div>
 </body>

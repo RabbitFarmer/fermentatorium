@@ -71,6 +71,11 @@
     </div>
 
     <form action="{{ url_for('update_system_config') }}" method="post" class="temp-config-form">
+      <div class="page-controls">
+        <button type="submit" class="btn-primary">Save</button>
+        <button type="button" class="btn-secondary" onclick="this.form.reset()">Clear</button>
+        <button type="button" class="btn-action" onclick="window.location='/'">Return</button>
+      </div>
       <!-- Hidden field to track which tab is active when form is submitted -->
       <input type="hidden" id="active_tab" name="active_tab" value="{{ active_tab }}">
       
@@ -216,11 +221,6 @@
           </tr>
         </table>
 
-        <div style="text-align:center; margin-top:20px;">
-          <button type="button" onclick="window.location='/'" class="btn-action">Return</button>
-          <button type="submit" class="btn-primary" style="margin-left:16px;">Save</button>
-          <button type="button" onclick="window.location='/system_config'" class="btn-secondary" style="margin-left:16px;">Cancel</button>
-        </div>
       </div>
 
       <!-- PUSH/eMail Tab -->
@@ -516,12 +516,6 @@
           <div id="test-result" style="margin-top: 15px; font-weight: bold;"></div>
         </div>
 
-        <div style="text-align:center; margin-top:20px;">
-          <button type="button" onclick="window.location='/'" class="btn-action">Return</button>
-          <button type="button" onclick="switchToTab('main-settings')" class="btn-action" style="margin-left:16px;">Back</button>
-          <button type="submit" class="btn-primary" style="margin-left:16px;">Save</button>
-          <button type="button" onclick="window.location='/system_config'" class="btn-secondary" style="margin-left:16px;">Cancel</button>
-        </div>
       </div>
 
       <!-- Logging Integrations Tab -->
@@ -690,12 +684,6 @@
                        min="1" max="60" style="width:100px;"></td>
           </tr>
         </table>
-        <div style="text-align:center; margin-top:20px;">
-          <button type="button" onclick="window.location='/'" class="btn-action">Return</button>
-          <button type="button" onclick="switchToTab('main-settings')" class="btn-action" style="margin-left:16px;">Back</button>
-          <button type="submit" class="btn-primary" style="margin-left:16px;">Save</button>
-          <button type="button" onclick="window.location='/system_config'" class="btn-secondary" style="margin-left:16px;">Cancel</button>
-        </div>
       </div>
 
       <!-- Backup / Restore / Update Tab -->
@@ -792,12 +780,6 @@
           </tr>
         </table>
         
-        <div style="text-align:center; margin-top:20px;">
-          <button type="button" onclick="window.location='/'" class="btn-action">Return</button>
-          <button type="button" onclick="switchToTab('main-settings')" class="btn-action" style="margin-left:16px;">Back</button>
-          <button type="submit" class="btn-primary" style="margin-left:16px;">Save</button>
-          <button type="button" onclick="window.location='/system_config'" class="btn-secondary" style="margin-left:16px;">Cancel</button>
-        </div>
       </div>
 
     </form>

@@ -369,6 +369,12 @@
       <h1 class="dashboard-title">TEMPERATURE CONTROL SETTINGS</h1>
     </header>
 
+    <div class="page-controls" style="max-width:1100px; margin:8px auto;">
+      <button type="submit" form="tempConfigForm" class="btn-primary">Save</button>
+      <button type="button" class="btn-secondary" onclick="document.getElementById('tempConfigForm').reset()">Clear</button>
+      <button type="button" class="btn-action" onclick="window.location='/'">Return</button>
+    </div>
+
     <main style="max-width:1100px; margin: 12px auto;">
       
       <!-- Controller Selector -->
@@ -859,12 +865,6 @@
         {% endif %}
       </div>
 
-      <!-- Action buttons at bottom -->
-      <div style="text-align:center; margin-top:30px; margin-bottom:20px;">
-        <button type="button" onclick="window.location='/'" class="btn-action">Return</button>
-        <button type="submit" form="tempConfigForm" class="btn-primary" style="margin-left:16px;">Save</button>
-        <button type="button" onclick="window.location='/temp_config?controller_id={{ controller_id }}'" class="btn-secondary" style="margin-left:16px;">Cancel</button>
-      </div>
 
       <footer style="margin-top:20px; color:#666; font-size:0.9em;">
         <div>ThreeControl — Temperature control settings</div>

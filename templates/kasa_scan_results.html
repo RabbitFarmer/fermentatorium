@@ -54,6 +54,9 @@
 <body>
     <div class="page-container">
         <h1 class="dashboard-title">KASA PLUG SCAN RESULTS</h1>
+        <div class="page-controls">
+      <a href="/temp_config?controller_id={{ controller_id }}" class="btn-action">Return</a>
+    </div>
         <div class="kasa-container">
             <div id="successMessage" class="success-message"></div>
             {% if error %}
@@ -88,9 +91,6 @@
             {% else %}
                 <p style="color:#666; font-style:italic;">No Kasa plugs found on your network.</p>
             {% endif %}
-            <div style="margin-top:24px;">
-                <a href="/temp_config?controller_id={{ controller_id }}" class="btn-action">← Back to Temperature Control Config</a>
-            </div>
         </div>
     </div>
 </body>

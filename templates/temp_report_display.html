@@ -33,6 +33,9 @@
 <body>
   <div class="page-container">
     <h1 class="dashboard-title">TEMPERATURE REPORT</h1>
+    <div class="page-controls">
+      <a href="{{ url_for('temp_config') }}" class="btn-action">Return</a>
+    </div>
     <div class="report-container">
       <div class="controls small">
         Page {{ page }}{% if total_pages %} of {{ total_pages }}{% endif %} &middot;
@@ -41,8 +44,6 @@
         <a href="{{ url_for('temp_report') }}?tilt_color={{ color|urlencode }}&page={{ (page + 1) if not at_end else page }}">Next</a>
         &nbsp;|&nbsp;
         <a href="{{ url_for('temp_report') }}">Select another tilt</a>
-        &nbsp;|&nbsp;
-        <a href="{{ url_for('temp_config') }}">Return to Configuration</a>
       </div>
       <h2 style="margin-top:0; font-size:1.3em; color:#333;">Temp Report for {{ color }}</h2>
       <pre>

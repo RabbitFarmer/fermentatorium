@@ -60,10 +60,12 @@
 <body>
   <div class="page-container">
     <header class="site-header"><h1 class="dashboard-title">BATCH HISTORY</h1></header>
+    <div class="page-controls">
+      <a href="/" class="btn-action">Return</a>
+    </div>
     <div class="history-container">
       <div class="controls">
         <div>
-          <button type="button" onclick="window.location='/'" class="btn-action">Return</button>
           <button type="button" onclick="cleanupDuplicates()" class="btn-cleanup">🧹 Cleanup Duplicates</button>
         </div>
         <div style="display:flex; align-items:center; gap:8px;">

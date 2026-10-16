@@ -3332,6 +3332,46 @@ Loss of Signal -- Receiving no tilt readings"""
                 # Log the event to the batch JSONL so it appears in Notifications & Events
                 log_to_batch_log('loss_of_signal', body, color)
 
+_APP_START_TIME = datetime.utcnow()
+_offline_batch_alerted = {}  # color -> brewid already alerted while offline
+
+
+def check_offline_active_batches():
+    """
+    Send an error notification (via the selected channels) when a Tilt that has
+    an active (not closed, not paused) batch is not active on the main display.
+    One alert is sent per outage; the flag clears when the Tilt returns or the
+    batch is closed.
+    """
+    timeout_minutes = int(system_cfg.get('tilt_inactivity_timeout_minutes', 30))
+    now = datetime.utcnow()
+    if (now - _APP_START_TIME).total_seconds() / 60.0 < timeout_minutes:
+        return  # grace period after startup while Tilts are being discovered
+    active_colors = set(get_active_tilts().keys())
+    for color, cfg in list(tilt_cfg.items()):
+        brewid = (cfg or {}).get('brewid')
+        batch_open = bool(brewid) and cfg.get('is_active', True) is not False and not cfg.get('tracking_paused')
+        if not batch_open or color in active_colors:
+            _offline_batch_alerted.pop(color, None)
+            continue
+        if _offline_batch_alerted.get(color) == brewid:
+            continue
+        _offline_batch_alerted[color] = brewid
+        brewery_name = system_cfg.get('brewery_name', 'Unknown Brewery')
+        subject = f"{brewery_name} - ERROR: {color} Tilt offline with active batch"
+        body = f"""Brewery Name: {brewery_name}
+Tilt Color: {color}
+Brew Name: {cfg.get('beer_name', 'Unknown Beer')}
+Date/Time: {now.strftime('%Y-%m-%d %H:%M:%S')}
+
+ERROR: The {color} Tilt is not active on the main display but its batch is still active.
+Check the Tilt, or close the batch in Batch Settings if it is finished."""
+        queue_pending_notification(
+            notification_type='tilt_offline_active_batch',
+            subject=subject, body=body, brewid=brewid, color=color)
+        log_to_batch_log('loss_of_signal', body, color)
+
+
 def queue_notification_retry(notification_type, subject, body, brewid, color):
     """
     Queue a failed notification for retry with exponential backoff.
@@ -5409,6 +5449,7 @@ def periodic_batch_monitoring():
         try:
             # Check for signal loss every 5 minutes
             check_signal_loss()
+            check_offline_active_batches()
             
             # Process pending notifications (10-second delay for deduplication)
             process_pending_notifications()
@@ -5510,7 +5551,10 @@ def ble_loop():
 @app.route('/')
 def dashboard():
     # Only show active tilts on the main display
-    active_tilts = get_active_tilts()
+    active_tilts = {
+        c: t for c, t in get_active_tilts().items()
+        if tilt_cfg.get(c, {}).get('is_active', True) is not False
+    }
 
     # Pass controllers array to template
     controllers = temp_cfg.get('controllers', [])
@@ -9123,6 +9167,17 @@ def reopen_batch():
         except Exception as e:
             return jsonify({'success': False, 'error': f'Error saving batch history: {e}'}), 500
         
+        # Restore the batch to the tilt slot if no other batch occupies it
+        if color in tilt_cfg and not tilt_cfg[color].get('brewid'):
+            for batch in batches:
+                if batch.get('brewid') == brewid:
+                    tilt_cfg[color] = dict(batch)
+                    break
+            try:
+                save_json(TILT_CONFIG_FILE, tilt_cfg)
+            except Exception as e:
+                print(f"[LOG] Error restoring tilt config: {e}")
+
         return jsonify({'success': True, 'message': f'Batch {brewid} reopened successfully'})
     except Exception as e:
         print(f"[LOG] Error reopening batch: {e}")
