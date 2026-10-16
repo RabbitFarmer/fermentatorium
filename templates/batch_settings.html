@@ -89,19 +89,27 @@
     {% if selected_tilt %}
       <div class="selector-wrap" style="margin-top:16px;">
         <div class="heading">Editing: {{ selected_tilt }}</div>
-        {% set _cur_brewid = selected_config.brewid or '' %}
-        {% if _cur_brewid %}
+        {% set ns = namespace(bid='', closed=false) %}
+        {% if selected_config.brewid %}
+          {% set ns.bid = selected_config.brewid %}
+        {% else %}
+          {% for b in batch_history %}
+            {% if b.get('is_active', true) is false and b.brewid %}{% set ns.bid = b.brewid %}{% set ns.closed = true %}{% endif %}
+          {% endfor %}
+        {% endif %}
+        {% if ns.bid %}
         <div class="batch-state-toggle">
-          <span class="bst-label on-active" id="bstActive">Active</span>
-          <label class="bst-switch" title="Slide to close this batch">
-            <input type="checkbox" id="batchStateSlider" onchange="closeCurrentBatch(this)">
+          <span class="bst-label {% if not ns.closed %}on-active{% endif %}">Active</span>
+          <label class="bst-switch" title="Slide to close or reopen this batch">
+            <input type="checkbox" id="batchStateSlider" {% if ns.closed %}checked{% endif %}
+                   data-brewid="{{ ns.bid }}" onchange="toggleBatchState(this)">
             <span class="bst-slider"></span>
           </label>
-          <span class="bst-label" id="bstClosed">Closed</span>
+          <span class="bst-label {% if ns.closed %}on-closed{% endif %}">Closed</span>
         </div>
-        <p class="small-note" style="margin-top:-6px;">Closing a batch removes it from the main display and moves it to Batch History. It can be reopened from the batch's review page.</p>
+        <p class="small-note" style="margin-top:-6px;">Closing a batch removes it from the main display and moves it to Batch History. Slide back to Active to reopen it (also available on the batch review page).</p>
         {% else %}
-        <p class="small-note">No active batch for this Tilt. Enter batch details below and Save to start one.</p>
+        <p class="small-note">No batch for this Tilt. Enter batch details below and Save to start one.</p>
         {% endif %}
         <form id="batchForm" method="post" action="/batch_settings">
           <input type="hidden" name="tilt_color" value="{{ selected_tilt }}">
@@ -336,18 +344,21 @@
       f.querySelectorAll('select').forEach(function (sel) { sel.selectedIndex = 0; });
       updateCalibAdj();
     }
-    function closeCurrentBatch(el) {
-      if (!el.checked) return;
-      if (!confirm('Close this batch? It will be removed from the main display and moved to Batch History.')) { el.checked = false; return; }
-      fetch('/close_batch', {
+    function toggleBatchState(el) {
+      var closing = el.checked;
+      var msg = closing
+        ? 'Close this batch? It will be removed from the main display and moved to Batch History.'
+        : 'Reopen this batch and return it to the main display?';
+      if (!confirm(msg)) { el.checked = !closing; return; }
+      fetch(closing ? '/close_batch' : '/reopen_batch', {
         method: 'POST',
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: 'brewid=' + encodeURIComponent('{{ selected_config.brewid if selected_config else "" }}') +
+        body: 'brewid=' + encodeURIComponent(el.dataset.brewid) +
               '&color=' + encodeURIComponent('{{ selected_tilt }}')
       }).then(r => r.json()).then(d => {
         if (d.success) { window.location.reload(); }
-        else { el.checked = false; alert('Error: ' + (d.error || 'Unknown error')); }
-      }).catch(e => { el.checked = false; alert('Error: ' + e); });
+        else { el.checked = !closing; alert('Error: ' + (d.error || 'Unknown error')); }
+      }).catch(e => { el.checked = !closing; alert('Error: ' + e); });
     }
     function pauseTracking(color) {
       if (!confirm('Stop recording for ' + color + '? Temperature control will keep running. You can resume at any time.')) return;
