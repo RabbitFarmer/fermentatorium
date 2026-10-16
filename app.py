@@ -9137,6 +9137,15 @@ def reopen_batch():
         if not re.match(r'^[a-zA-Z0-9\-_]+$', brewid):
             return jsonify({'success': False, 'error': 'Invalid batch ID format'}), 400
         
+        # Refuse to reopen if this Tilt color already has a different active batch
+        cur = tilt_cfg.get(color, {}) or {}
+        cur_brewid = cur.get('brewid')
+        if cur_brewid and cur_brewid != brewid and cur.get('is_active', True) is not False:
+            name = cur.get('beer_name') or cur_brewid
+            return jsonify({'success': False, 'error':
+                f'The {color} Tilt is currently active in another batch ("{name}"). '
+                f'Close that batch first before reopening this one.'}), 409
+
         # Load batch history for this color
         batch_history_file = f'batches/batch_history_{color}.json'
         batches = []

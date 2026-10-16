@@ -96,6 +96,10 @@
       if (end && end.trim()) { url += (url.includes('?') ? '&' : '?') + 'end=' + encodeURIComponent(end); }
       window.location.href = url;
     }
+    function resetBatchSlider() {
+      var el = document.getElementById('batchStateSlider');
+      if (el) el.checked = {{ 'false' if batch.get('is_active', true) else 'true' }};
+    }
     function toggleBatchState(el) {
       var closing = el.checked;
       if (!confirm(closing ? 'Close this batch? It will be removed from the main display.' : 'Reopen this batch?')) {
@@ -110,8 +114,8 @@
         body: 'brewid={{ batch.brewid }}&color={{ color }}'
       }).then(r => r.json()).then(data => {
         if (data.success) { window.location.reload(); }
-        else { alert('Error closing batch: ' + (data.error || 'Unknown error')); }
-      }).catch(err => { alert('Error: ' + err); });
+        else { resetBatchSlider(); alert('Error closing batch: ' + (data.error || 'Unknown error')); }
+      }).catch(err => { resetBatchSlider(); alert('Error: ' + err); });
     }
     function reopenBatch(skipConfirm) {
       if (!skipConfirm && !confirm('Reopen this batch and move it back to Current Activity?')) return;
@@ -120,8 +124,8 @@
         body: 'brewid={{ batch.brewid }}&color={{ color }}'
       }).then(r => r.json()).then(data => {
         if (data.success) { window.location.reload(); }
-        else { alert('Error reopening batch: ' + (data.error || 'Unknown error')); }
-      }).catch(err => { alert('Error: ' + err); });
+        else { resetBatchSlider(); alert('Warning: ' + (data.error || 'Unknown error')); }
+      }).catch(err => { resetBatchSlider(); alert('Error: ' + err); });
     }
   </script>
 </head>
