@@ -5752,7 +5752,10 @@ def dashboard():
     active_tilts = get_dashboard_tilts()
 
     # Pass controllers array to template
+    # Skip controllers whose tilt batch is closed (inactive).
     controllers = [dict(c, card_key=controller_card_key(c)) for c in temp_cfg.get('controllers', [])]
+    controllers = [c for c in controllers
+                   if (tilt_cfg.get(c['card_key'], {}) or {}).get('is_active', True) is not False]
 
     # now_ts is used in the template to append a cache-busting query string
     # to the stylesheet URL so the browser always fetches the latest CSS.
