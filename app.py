@@ -1459,6 +1459,48 @@ def get_active_tilts():
     
     return active_tilts
 
+def get_active_tilt_devices():
+    """
+    Return a list of active physical Tilt devices (identity = color + MAC), so two
+    Tilts of the same color appear separately.  Each item is a dict with 'color',
+    'mac' (normalized, may be ''), 'label' and the live data under 'data'.
+    """
+    timeout_minutes = int(system_cfg.get('tilt_inactivity_timeout_minutes', 30))
+    now = datetime.utcnow()
+
+    def _is_active(info):
+        ts = info.get('timestamp')
+        if not ts:
+            return False
+        try:
+            return (now - datetime.fromisoformat(ts.rstrip('Z'))).total_seconds() / 60.0 < timeout_minutes
+        except Exception:
+            return False
+
+    devices = []
+    macs_by_color = {}
+    for key, info in live_tilts.items():
+        if ':' in key and _is_active(info):
+            color = key.split(':', 1)[0]
+            macs_by_color.setdefault(color, []).append((normalize_mac(info.get('mac_address', '')), info))
+    for key, info in live_tilts.items():
+        if ':' in key or not _is_active(info):
+            continue
+        if key not in macs_by_color:
+            devices.append({'color': key, 'mac': normalize_mac(info.get('mac_address', '')) or '', 'data': info})
+    for color, items in macs_by_color.items():
+        for mac, info in items:
+            devices.append({'color': color, 'mac': mac or '', 'data': info})
+    count = {}
+    for d in devices:
+        count[d['color']] = count.get(d['color'], 0) + 1
+    for d in devices:
+        d['label'] = d['color']
+        if count[d['color']] > 1 and d['mac']:
+            d['label'] = f"{d['color']} ·{d['mac'][-5:]}"
+    devices.sort(key=lambda d: (d['color'], d['mac']))
+    return devices
+
 def _find_controller_by_tilt(color, mac=None):
     """
     Return the controller whose tilt matches *color* (and optionally *mac*), or ``None``.
@@ -6094,7 +6136,11 @@ def batch_settings():
             except ValueError:
                 return 0.0
 
-        tilt_mac = live_tilts.get(color, {}).get("mac_address", "")
+        posted_mac = normalize_mac(data.get('tilt_mac', '')) if data.get('tilt_mac') else ''
+        if posted_mac and f"{color}:{posted_mac}" in live_tilts:
+            tilt_mac = live_tilts[f"{color}:{posted_mac}"].get("mac_address", "")
+        else:
+            tilt_mac = live_tilts.get(color, {}).get("mac_address", "")
         normalized_tilt_mac = normalize_mac(tilt_mac)
         if normalized_tilt_mac and normalized_tilt_mac in tilt_table:
             mac_tv, mac_gv = get_device_variances(tilt_table, mac=tilt_mac)
@@ -6207,7 +6253,6 @@ def batch_settings():
             print(f"[LOG] Could not save tilt_config in batch_settings: {e}")
         # Persist variances to tilt_table keyed by MAC so calibration follows the
         # physical device even if it is later reassigned to a different color slot.
-        tilt_mac = live_tilts.get(color, {}).get("mac_address", "")
         if tilt_mac:
             set_device_variances(tilt_table, mac=tilt_mac,
                                  temp_variance=temp_variance,
@@ -6218,7 +6263,8 @@ def batch_settings():
                 print(f"[LOG] Could not save tilt_table in batch_settings: {e}")
         # --- PATCH: Append batch_metadata to .jsonl whenever batch is edited
         append_batch_metadata_to_batch_jsonl(color, batch_entry)
-        return redirect(f"/batch_settings?tilt_color={color}")
+        _mac_q = f"&mac={normalized_tilt_mac}" if normalized_tilt_mac else ""
+        return redirect(f"/batch_settings?tilt_color={color}{_mac_q}")
 
     selected = request.args.get('tilt_color')
     action = request.args.get('action')
@@ -6234,7 +6280,12 @@ def batch_settings():
     active_tilts = get_active_tilts()
     active_colors = list(active_tilts.keys())
     # Live reading for the selected tilt (used in calibration section)
-    selected_live = live_tilts.get(selected, {}) if selected else {}
+    selected_mac = normalize_mac(request.args.get('mac', '')) if request.args.get('mac') else ''
+    if selected_mac and f"{selected}:{selected_mac}" in live_tilts:
+        selected_live = live_tilts[f"{selected}:{selected_mac}"]
+    else:
+        selected_live = live_tilts.get(selected, {}) if selected else {}
+        selected_mac = normalize_mac(selected_live.get('mac_address', '')) if selected_live else ''
 
     # Prefer MAC-keyed variances over color-keyed when the tilt is active and its MAC is known.
     # The tilt_table is the authoritative source for calibration, since it follows the physical
@@ -6276,6 +6327,8 @@ def batch_settings():
         tilt_colors=all_colors,
         active_colors=active_colors,
         live_tilts=active_tilts,
+        active_devices=get_active_tilt_devices(),
+        selected_mac=selected_mac,
         selected_tilt=selected,
         selected_config=config,
         selected_live=selected_live,
