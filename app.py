@@ -8280,8 +8280,11 @@ def chart_plotly_for(tilt_color):
     if tilt_color and tilt_color != "TempControl" and tilt_key_base(tilt_color) not in tilt_cfg:
         abort(404)
     # Resolve composite keys to base color so tilt_cfg[tilt_color] works in the template.
-    if tilt_color and tilt_color != "TempControl":
-        tilt_color = tilt_key_base(tilt_color)
+    # Device keys ("Color:MAC") are kept so each same-color Tilt shows its own batch;
+    # chart_cfg is that device's batch config (empty if it has none yet).
+    chart_cfg = tilt_cfg.get(tilt_color) if tilt_color and tilt_color != "TempControl" else None
+    if chart_cfg is None and tilt_color and tilt_color != "TempControl":
+        chart_cfg = {}
     # For TempControl charts, an optional tc_color query param filters to one controller.
     # Validate it against known tilt colours to prevent injection.
     tc_color = request.args.get('tc_color', '').strip()
@@ -8294,6 +8297,7 @@ def chart_plotly_for(tilt_color):
         tilt_color=tilt_color,
         tc_color=tc_color,
         tilt_cfg=tilt_cfg,
+        chart_cfg=chart_cfg or {},
         system_settings=system_cfg
     )
 
@@ -8447,7 +8451,7 @@ def chart_data_for(tilt_color):
     if tilt_color and _tc_base not in tilt_cfg:
         return jsonify({"tilt_color": tilt_color, "points": [], "truncated": False, "matched": 0})
 
-    brewid = tilt_cfg.get(_tc_base, {}).get('brewid')
+    brewid = tilt_cfg.get(tilt_color, {}).get('brewid')
     
     # Sanitize brewid to prevent directory traversal attacks
     # Only allow alphanumeric characters, hyphens, and underscores

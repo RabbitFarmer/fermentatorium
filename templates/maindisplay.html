@@ -1451,7 +1451,7 @@
         const card = e.target.closest('article.tilt-card[data-tilt]');
         if (!card) return;
         const tiltColor = card.getAttribute('data-tilt');
-        if (tiltColor) { window.location.href = '/chart_plotly/' + encodeURIComponent(tiltColor.split(':')[0]); }
+        if (tiltColor) { window.location.href = '/chart_plotly/' + encodeURIComponent(tiltColor); }
       });
 
       /* ── Temp-control toggle switches ── */
