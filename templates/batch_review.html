@@ -96,45 +96,63 @@
       if (end && end.trim()) { url += (url.includes('?') ? '&' : '?') + 'end=' + encodeURIComponent(end); }
       window.location.href = url;
     }
-    function closeBatch() {
-      if (!confirm('Mark this batch as complete and move it to Batch History?')) return;
+    function resetBatchSlider() {
+      var el = document.getElementById('batchStateSlider');
+      if (el) el.checked = {{ 'false' if batch.get('is_active', true) else 'true' }};
+    }
+    function toggleBatchState(el) {
+      var closing = el.checked;
+      if (!confirm(closing ? 'Close this batch? It will be removed from the main display.' : 'Reopen this batch?')) {
+        el.checked = !closing; return;
+      }
+      if (closing) { closeBatch(true); } else { reopenBatch(true); }
+    }
+    function closeBatch(skipConfirm) {
+      if (!skipConfirm && !confirm('Mark this batch as complete and move it to Batch History?')) return;
       fetch('/close_batch', {
         method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
         body: 'brewid={{ batch.brewid }}&color={{ color }}'
       }).then(r => r.json()).then(data => {
         if (data.success) { window.location.reload(); }
-        else { alert('Error closing batch: ' + (data.error || 'Unknown error')); }
-      }).catch(err => { alert('Error: ' + err); });
+        else { resetBatchSlider(); alert('Error closing batch: ' + (data.error || 'Unknown error')); }
+      }).catch(err => { resetBatchSlider(); alert('Error: ' + err); });
     }
-    function reopenBatch() {
-      if (!confirm('Reopen this batch and move it back to Current Activity?')) return;
+    function reopenBatch(skipConfirm) {
+      if (!skipConfirm && !confirm('Reopen this batch and move it back to Current Activity?')) return;
       fetch('/reopen_batch', {
         method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
         body: 'brewid={{ batch.brewid }}&color={{ color }}'
       }).then(r => r.json()).then(data => {
         if (data.success) { window.location.reload(); }
-        else { alert('Error reopening batch: ' + (data.error || 'Unknown error')); }
-      }).catch(err => { alert('Error: ' + err); });
+        else { resetBatchSlider(); alert('Warning: ' + (data.error || 'Unknown error')); }
+      }).catch(err => { resetBatchSlider(); alert('Error: ' + err); });
     }
   </script>
 </head>
 <body>
   <div class="page-container">
     <div class="review-container">
-      {# ── Top navigation bar ── #}
-      <div class="no-print" style="margin-bottom:20px; display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
-        <button type="button" onclick="window.location='{{ return_url }}'" class="btn-action">← Return</button>
-        <button type="button" onclick="window.print()" class="btn-print">Print / Export PDF</button>
-        {% if batch.get('is_active', true) %}
-          <button type="button" onclick="closeBatch()" class="btn-action" style="background-color:#6D4C41; margin-left:auto;">🔒 Close / Complete This Batch</button>
-        {% else %}
-          <button type="button" onclick="reopenBatch()" class="btn-action" style="background-color:#546E7A; margin-left:auto;">🔓 Reopen Batch</button>
-        {% endif %}
-      </div>
-
       {# ── Heading and status badge ── #}
       <div class="heading">{{ batch.beer_name or 'Unnamed Beer' }}</div>
       <div style="font-size:1.2em; color:#666; margin-bottom:10px;">{{ batch.batch_name or 'Batch' }}</div>
+
+      {# ── Page controls ── #}
+      <div class="no-print page-controls">
+        <button type="button" onclick="window.location='{{ return_url }}'" class="btn-action">Return</button>
+        <button type="button" onclick="window.print()" class="btn-print">Print / Export PDF</button>
+      </div>
+
+      {# ── Active / Closed slider ── #}
+      {% set _batch_open = batch.get('is_active', true) %}
+      <div class="no-print batch-state-toggle">
+        <span class="bst-label {% if _batch_open %}on-active{% endif %}">Active</span>
+        <label class="bst-switch" title="Slide to close or reopen this batch">
+          <input type="checkbox" id="batchStateSlider" {% if not _batch_open %}checked{% endif %}
+                 onchange="toggleBatchState(this)">
+          <span class="bst-slider"></span>
+        </label>
+        <span class="bst-label {% if not _batch_open %}on-closed{% endif %}">Closed</span>
+      </div>
       {% if stats.ferm_status %}
         {% set fs = stats.ferm_status %}
         {% if 'Active' in fs %}
@@ -352,11 +370,6 @@
       <p style="color:#999; font-style:italic;">No fermentation data found for this batch.</p>
       {% endif %}
 
-      {# ── Bottom navigation ── #}
-      <div class="no-print" style="margin-top:30px; display:flex; gap:8px; flex-wrap:wrap;">
-        <button type="button" onclick="window.location='{{ return_url }}'" class="btn-action">← Return</button>
-        <button type="button" onclick="window.print()" class="btn-print">Print / Export PDF</button>
-      </div>
     </div>
   </div>
 </body>

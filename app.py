@@ -57,6 +57,22 @@ except Exception:
     TILT_UUIDS = {}
     COLOR_MAP = {}
 
+
+class _DeviceColorMap(dict):
+    """COLOR_MAP that also resolves device keys ('Color:MAC') to their base color."""
+    def get(self, key, default=None):
+        if isinstance(key, str) and ':' in key:
+            key = key.split(':', 1)[0]
+        return super().get(key, default)
+
+    def __getitem__(self, key):
+        if isinstance(key, str) and ':' in key:
+            key = key.split(':', 1)[0]
+        return super().__getitem__(key)
+
+
+COLOR_MAP = _DeviceColorMap(COLOR_MAP)
+
 from tilt_table import (
     load_tilt_table, save_tilt_table,
     upsert_device_from_reading,
@@ -1330,12 +1346,87 @@ def tilt_display_label(tilt_key: str, live_info: dict = None) -> str:
             type_label = ' (Standard)'
     return f"{base}{type_label} \u2014 {mac}"
 
+def resolve_device_key(color, mac=None):
+    """
+    Return the storage key for a physical Tilt device: the plain color for the
+    "primary" device of that color, or "Color:MAC" for any additional device of
+    the same color.  The primary is the device recorded as ``tilt_mac`` on
+    ``tilt_cfg[color]``; if none is recorded, the lowest MAC seen live for that
+    color.  Devices without a known MAC always use the plain color.
+    """
+    if not color or ':' in color:
+        return color
+    mac_n = normalize_mac(mac) if mac else ''
+    if not mac_n:
+        return color
+    owner = normalize_mac((tilt_cfg.get(color, {}) or {}).get('tilt_mac', '') or '')
+    if owner:
+        return color if owner == mac_n else f"{color}:{mac_n}"
+    seen = set()
+    for k, v in live_tilts.items():
+        if k.startswith(color + ':'):
+            m = normalize_mac(v.get('mac_address', '') or '')
+            if m:
+                seen.add(m)
+    seen.add(mac_n)
+    return color if mac_n == min(seen) else f"{color}:{mac_n}"
+
+
+_DEVICE_MAC_RE = re.compile(r'^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$')
+
+
+def valid_device_key(key):
+    """
+    Validate a device key ('Color' or 'Color:MAC') against the known Tilt colors and a
+    strict MAC format.  Returns the normalized key, or None if invalid.  The returned
+    value is built from the allow-list of colors, never from the raw input.
+    """
+    if not isinstance(key, str) or not key:
+        return None
+    base, sep, mac = key.partition(':')
+    color = next((c for c in TILT_UUIDS.values() if c == base), None)
+    if color is None:
+        return None
+    if not sep:
+        return color
+    if not _DEVICE_MAC_RE.match(mac):
+        return None
+    return f"{color}:{mac.upper()}"
+
+
+def batch_history_path(key):
+    """Batch history file for a device key ('Color' or 'Color:MAC').
+
+    Raises ValueError for an invalid key so untrusted input can never reach a file path.
+    """
+    safe_key = valid_device_key(key)
+    if safe_key is None:
+        raise ValueError(f"Invalid Tilt device key: {key!r}")
+    return f"batches/batch_history_{safe_key.replace(':', '_')}.json"
+
+
+def all_history_keys():
+    """Base Tilt colors plus device keys ('Color:MAC') that have a batch history file."""
+    keys = list(TILT_UUIDS.values())
+    try:
+        for fn in sorted(os.listdir(BATCHES_DIR)):
+            if fn.startswith('batch_history_') and fn.endswith('.json'):
+                stem = fn[len('batch_history_'):-len('.json')]
+                base, sep, mac = stem.partition('_')
+                if sep and base in TILT_UUIDS.values():
+                    keys.append(f"{base}:{mac.replace('_', ':')}")
+    except Exception:
+        pass
+    return keys
+
+
 def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=False):
     global _tilt_table_last_saved
-    cfg = tilt_cfg.get(color, {})
     # Preserve existing MAC address if a new (non-None, non-empty) one is not provided
     existing_mac = live_tilts.get(color, {}).get("mac_address", "")
     resolved_mac = mac_address if mac_address else existing_mac
+    dev_key = resolve_device_key(color, resolved_mac)
+    cfg = tilt_cfg.get(dev_key, {})
 
     # Apply calibration variances — prefer MAC-keyed tilt_table (survives color reassignment),
     # fall back to color-keyed tilt_cfg for backwards compat.
@@ -1383,8 +1474,12 @@ def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=Fals
         "adj_gravity":      adj_gravity,
     }
 
-    # Write to the plain color key (backward compatibility, used when no MAC qualifier set)
-    live_tilts[color] = tilt_entry
+    tilt_entry["device_key"] = dev_key
+
+    # Write to the plain color key (backward compatibility, used when no MAC qualifier set).
+    # Additional same-color devices must not overwrite the primary device's entry.
+    if dev_key == color:
+        live_tilts[color] = tilt_entry
 
     # Also write to the MAC-qualified composite key so controllers that reference a
     # specific physical device (e.g. tilt_color = "Black:AA:BB:CC:DD:EE:FF") can
@@ -1458,6 +1553,108 @@ def get_active_tilts():
             print(f"[LOG] Error parsing timestamp for {color}: {e}, excluding from active tilts")
     
     return active_tilts
+
+def get_active_tilt_devices():
+    """
+    Return a list of active physical Tilt devices (identity = color + MAC), so two
+    Tilts of the same color appear separately.  Each item is a dict with 'color',
+    'mac' (normalized, may be ''), 'label' and the live data under 'data'.
+    """
+    timeout_minutes = int(system_cfg.get('tilt_inactivity_timeout_minutes', 30))
+    now = datetime.utcnow()
+
+    def _is_active(info):
+        ts = info.get('timestamp')
+        if not ts:
+            return False
+        try:
+            return (now - datetime.fromisoformat(ts.rstrip('Z'))).total_seconds() / 60.0 < timeout_minutes
+        except Exception:
+            return False
+
+    devices = []
+    macs_by_color = {}
+    for key, info in live_tilts.items():
+        if ':' in key and _is_active(info):
+            color = key.split(':', 1)[0]
+            macs_by_color.setdefault(color, []).append((normalize_mac(info.get('mac_address', '')), info))
+    for key, info in live_tilts.items():
+        if ':' in key or not _is_active(info):
+            continue
+        if key not in macs_by_color:
+            devices.append({'color': key, 'mac': normalize_mac(info.get('mac_address', '')) or '', 'data': info})
+    for color, items in macs_by_color.items():
+        for mac, info in items:
+            devices.append({'color': color, 'mac': mac or '', 'data': info})
+    count = {}
+    for d in devices:
+        count[d['color']] = count.get(d['color'], 0) + 1
+    for d in devices:
+        d['key'] = resolve_device_key(d['color'], d['mac'])
+        d['label'] = d['color']
+        if count[d['color']] > 1 and d['mac']:
+            d['label'] = f"{d['color']} ·{d['mac'][-5:]}"
+    devices.sort(key=lambda d: (d['color'], d['mac']))
+    return devices
+
+def get_mac_assignment_prompts():
+    """
+    Colors whose plain (color-only) batch record has no recorded device MAC while more
+    than one Tilt of that color is currently active.  The user must say which physical
+    Tilt the existing record belongs to.  Returns [{'color', 'beer_name', 'devices': [...]}].
+    """
+    by_color = {}
+    for d in get_active_tilt_devices():
+        if d['mac']:
+            by_color.setdefault(d['color'], []).append(d)
+    prompts = []
+    for color, devs in by_color.items():
+        cfg = tilt_cfg.get(color, {}) or {}
+        if len(devs) < 2 or not cfg.get('brewid') or cfg.get('tilt_mac'):
+            continue
+        prompts.append({
+            'color': color,
+            'beer_name': cfg.get('beer_name', ''),
+            'batch_name': cfg.get('batch_name', ''),
+            'devices': [{
+                'mac': d['mac'],
+                'temp_f': d['data'].get('temp_f'),
+                'gravity': d['data'].get('gravity'),
+                'timestamp': d['data'].get('timestamp'),
+                'is_pro': d['data'].get('is_pro', False),
+            } for d in sorted(devs, key=lambda x: x['mac'])],
+        })
+    return prompts
+
+
+def controller_card_key(controller):
+    """
+    Main-display card key for the Tilt a controller is assigned to: the plain color
+    when it is that color's primary device (or the controller has no MAC), otherwise
+    the "Color:MAC" device key.
+    """
+    tc = (controller or {}).get('tilt_color', '') or ''
+    if ':' not in tc:
+        return tc
+    return resolve_device_key(tilt_key_base(tc), tilt_key_mac(tc))
+
+
+def get_dashboard_tilts():
+    """
+    Active tilts to show on the main display, keyed by device key: the plain color
+    for each color's primary device and "Color:MAC" for any additional same-color
+    devices.  Tilts whose batch is closed are excluded.
+    """
+    result = {}
+    for d in get_active_tilt_devices():
+        key = d['key']
+        if (tilt_cfg.get(key, {}) or {}).get('is_active', True) is False:
+            continue
+        info = dict(d['data'])
+        info['device_label'] = d['label']
+        result[key] = info
+    return result
+
 
 def _find_controller_by_tilt(color, mac=None):
     """
@@ -1688,7 +1885,8 @@ def log_tilt_reading(color, gravity, temp_f, rssi, mac="", is_pro=False):
         mac: Bluetooth MAC address of the Tilt device
         is_pro: True if this is a Tilt Pro or Tilt mini-pro (high-precision format)
     """
-    cfg = tilt_cfg.get(color, {})
+    dev_key = resolve_device_key(color, mac)
+    cfg = tilt_cfg.get(dev_key, {})
     brewid = cfg.get('brewid', '')
     
     # All tilt devices (TEMPERATURE + GRAVITY) are logged at tilt_logging_interval_minutes.
@@ -1749,13 +1947,13 @@ def log_tilt_reading(color, gravity, temp_f, rssi, mac="", is_pro=False):
     
     # Log to batch-specific jsonl
     if brewid:
-        append_sample_to_batch_jsonl(color, brewid, payload)
+        append_sample_to_batch_jsonl(dev_key, brewid, payload)
     
     # Forward to third-party if configured
     forward_to_third_party_if_configured(payload)
     
     # Track batch notification state and check triggers
-    check_batch_notifications(color, gravity, temp_f, brewid, cfg)
+    check_batch_notifications(dev_key, gravity, temp_f, brewid, cfg)
 
 def detection_callback(device, advertisement_data):
     try:
@@ -3331,6 +3529,46 @@ Loss of Signal -- Receiving no tilt readings"""
                 )
                 # Log the event to the batch JSONL so it appears in Notifications & Events
                 log_to_batch_log('loss_of_signal', body, color)
+
+_APP_START_TIME = datetime.utcnow()
+_offline_batch_alerted = {}  # color -> brewid already alerted while offline
+
+
+def check_offline_active_batches():
+    """
+    Send an error notification (via the selected channels) when a Tilt that has
+    an active (not closed, not paused) batch is not active on the main display.
+    One alert is sent per outage; the flag clears when the Tilt returns or the
+    batch is closed.
+    """
+    timeout_minutes = int(system_cfg.get('tilt_inactivity_timeout_minutes', 30))
+    now = datetime.utcnow()
+    if (now - _APP_START_TIME).total_seconds() / 60.0 < timeout_minutes:
+        return  # grace period after startup while Tilts are being discovered
+    active_colors = {d['key'] for d in get_active_tilt_devices()}
+    for color, cfg in list(tilt_cfg.items()):
+        brewid = (cfg or {}).get('brewid')
+        batch_open = bool(brewid) and cfg.get('is_active', True) is not False and not cfg.get('tracking_paused')
+        if not batch_open or color in active_colors:
+            _offline_batch_alerted.pop(color, None)
+            continue
+        if _offline_batch_alerted.get(color) == brewid:
+            continue
+        _offline_batch_alerted[color] = brewid
+        brewery_name = system_cfg.get('brewery_name', 'Unknown Brewery')
+        subject = f"{brewery_name} - ERROR: {color} Tilt offline with active batch"
+        body = f"""Brewery Name: {brewery_name}
+Tilt Color: {color}
+Brew Name: {cfg.get('beer_name', 'Unknown Beer')}
+Date/Time: {now.strftime('%Y-%m-%d %H:%M:%S')}
+
+ERROR: The {color} Tilt is not active on the main display but its batch is still active.
+Check the Tilt, or close the batch in Batch Settings if it is finished."""
+        queue_pending_notification(
+            notification_type='tilt_offline_active_batch',
+            subject=subject, body=body, brewid=brewid, color=color)
+        log_to_batch_log('loss_of_signal', body, color)
+
 
 def queue_notification_retry(notification_type, subject, body, brewid, color):
     """
@@ -5409,6 +5647,7 @@ def periodic_batch_monitoring():
         try:
             # Check for signal loss every 5 minutes
             check_signal_loss()
+            check_offline_active_batches()
             
             # Process pending notifications (10-second delay for deduplication)
             process_pending_notifications()
@@ -5510,10 +5749,10 @@ def ble_loop():
 @app.route('/')
 def dashboard():
     # Only show active tilts on the main display
-    active_tilts = get_active_tilts()
+    active_tilts = get_dashboard_tilts()
 
     # Pass controllers array to template
-    controllers = temp_cfg.get('controllers', [])
+    controllers = [dict(c, card_key=controller_card_key(c)) for c in temp_cfg.get('controllers', [])]
 
     # now_ts is used in the template to append a cache-busting query string
     # to the stylesheet URL so the browser always fetches the latest CSS.
@@ -5525,6 +5764,7 @@ def dashboard():
         tilt_status=tilt_status,
         controllers=controllers,
         live_tilts=active_tilts,
+        mac_prompts=get_mac_assignment_prompts(),
         now_ts=int(time.time())
     )
 
@@ -5946,10 +6186,14 @@ def test_external_logging():
 @app.route('/tilt_config', methods=['GET', 'POST'])
 def tilt_config():
     selected = request.args.get('tilt_color') or request.form.get('tilt_color')
+    if selected:
+        selected = valid_device_key(selected)
+        if not selected:
+            return "Invalid Tilt", 400
     batch_history = []
     if selected:
         try:
-            with open(f'batches/batch_history_{selected}.json', 'r') as f:
+            with open(batch_history_path(selected), 'r') as f:
                 batch_history = json.load(f)
         except Exception:
             batch_history = []
@@ -6004,6 +6248,9 @@ def batch_settings():
         color = data.get('tilt_color')
         if not color:
             return "No Tilt color selected", 400
+        color = valid_device_key(color)
+        if not color:
+            return "Invalid Tilt", 400
         beer_name = data.get('beer_name', '').strip()
         batch_name = data.get('batch_name', '').strip()
         batch_start_date = data.get('batch_start_date', data.get('ferm_start_date', '')).strip()
@@ -6050,7 +6297,8 @@ def batch_settings():
             except ValueError:
                 return 0.0
 
-        tilt_mac = live_tilts.get(color, {}).get("mac_address", "")
+        # `color` is the device key: "Color" (primary device) or "Color:MAC".
+        tilt_mac = live_tilts.get(color, {}).get("mac_address", "") or tilt_key_mac(color) or ""
         normalized_tilt_mac = normalize_mac(tilt_mac)
         if normalized_tilt_mac and normalized_tilt_mac in tilt_table:
             mac_tv, mac_gv = get_device_variances(tilt_table, mac=tilt_mac)
@@ -6077,6 +6325,8 @@ def batch_settings():
             "temp_variance": temp_variance,
             "gravity_variance": gravity_variance,
         }
+        # Record the physical Tilt identity (color + MAC) so reopening can detect conflicts
+        batch_entry["tilt_mac"] = normalized_tilt_mac or normalize_mac(existing.get("tilt_mac", "")) or ""
 
         # Parse external logging (batch-level setting; up to 2 slots).
         # The simplified UI presents only the configured saved_loggers as choices.
@@ -6127,7 +6377,7 @@ def batch_settings():
 
         # Load existing batches
         try:
-            with open(f'batches/batch_history_{color}.json', 'r') as f:
+            with open(batch_history_path(color), 'r') as f:
                 batches = json.load(f)
         except Exception:
             batches = []
@@ -6147,7 +6397,7 @@ def batch_settings():
             batches.append(batch_entry)
         
         try:
-            with open(f'batches/batch_history_{color}.json', 'w') as f:
+            with open(batch_history_path(color), 'w') as f:
                 json.dump(batches, f, indent=2)
         except Exception as e:
             print(f"[LOG] Could not save batch history for {color}: {e}")
@@ -6161,7 +6411,6 @@ def batch_settings():
             print(f"[LOG] Could not save tilt_config in batch_settings: {e}")
         # Persist variances to tilt_table keyed by MAC so calibration follows the
         # physical device even if it is later reassigned to a different color slot.
-        tilt_mac = live_tilts.get(color, {}).get("mac_address", "")
         if tilt_mac:
             set_device_variances(tilt_table, mac=tilt_mac,
                                  temp_variance=temp_variance,
@@ -6175,12 +6424,16 @@ def batch_settings():
         return redirect(f"/batch_settings?tilt_color={color}")
 
     selected = request.args.get('tilt_color')
+    if selected:
+        selected = valid_device_key(selected)
+        if not selected:
+            return "Invalid Tilt", 400
     action = request.args.get('action')
     config = tilt_cfg.get(selected, {}) if selected else {}
     batch_history = []
     if selected:
         try:
-            with open(f'batches/batch_history_{selected}.json', 'r') as f:
+            with open(batch_history_path(selected), 'r') as f:
                 batch_history = json.load(f)
         except Exception:
             batch_history = []
@@ -6188,7 +6441,10 @@ def batch_settings():
     active_tilts = get_active_tilts()
     active_colors = list(active_tilts.keys())
     # Live reading for the selected tilt (used in calibration section)
+    # `selected` is a device key: "Color" (primary device) or "Color:MAC".
     selected_live = live_tilts.get(selected, {}) if selected else {}
+    selected_mac = normalize_mac(selected_live.get('mac_address', '') or tilt_key_mac(selected) or '') if selected else ''
+    selected_label = tilt_display_label(selected, selected_live) if selected else ''
 
     # Prefer MAC-keyed variances over color-keyed when the tilt is active and its MAC is known.
     # The tilt_table is the authoritative source for calibration, since it follows the physical
@@ -6230,6 +6486,10 @@ def batch_settings():
         tilt_colors=all_colors,
         active_colors=active_colors,
         live_tilts=active_tilts,
+        active_devices=get_active_tilt_devices(),
+        mac_prompts=get_mac_assignment_prompts(),
+        selected_mac=selected_mac,
+        selected_label=selected_label,
         selected_tilt=selected,
         selected_config=config,
         selected_live=selected_live,
@@ -6909,9 +7169,9 @@ def batch_history():
     active_batches = []
     closed_batches = []
     
-    # Check each color for batch history
-    for color in TILT_UUIDS.values():
-        batch_history_file = f'batches/batch_history_{color}.json'
+    # Check each color / device for batch history
+    for color in all_history_keys():
+        batch_history_file = batch_history_path(color)
         if os.path.exists(batch_history_file):
             try:
                 with open(batch_history_file, 'r') as f:
@@ -6966,8 +7226,8 @@ def batch_review(brewid):
     batch_info = None
     color = None
     
-    for c in TILT_UUIDS.values():
-        batch_history_file = f'batches/batch_history_{c}.json'
+    for c in all_history_keys():
+        batch_history_file = batch_history_path(c)
         if os.path.exists(batch_history_file):
             try:
                 with open(batch_history_file, 'r') as f:
@@ -7388,8 +7648,8 @@ def batch_data_view(brewid):
     batch_info = None
     color = None
     
-    for c in TILT_UUIDS.values():
-        batch_history_file = f'batches/batch_history_{c}.json'
+    for c in all_history_keys():
+        batch_history_file = batch_history_path(c)
         if os.path.exists(batch_history_file):
             try:
                 with open(batch_history_file, 'r') as f:
@@ -7478,8 +7738,8 @@ def export_batch_data_csv(brewid):
     batch_info = None
     color = None
     
-    for c in TILT_UUIDS.values():
-        batch_history_file = f'batches/batch_history_{c}.json'
+    for c in all_history_keys():
+        batch_history_file = batch_history_path(c)
         if os.path.exists(batch_history_file):
             try:
                 with open(batch_history_file, 'r') as f:
@@ -7952,6 +8212,7 @@ def live_snapshot():
             "low_limit": controller.get("low_limit"),
             "high_limit": controller.get("high_limit"),
             "tilt_color": tilt_color,
+            "card_key": controller_card_key(controller),
             "tilt_color_code": get_tilt_color_hex(tilt_color),
             "heater_on": controller.get("heater_on"),
             "cooler_on": controller.get("cooler_on"),
@@ -7979,9 +8240,10 @@ def live_snapshot():
         "warning_mode": system_cfg.get('warning_mode')
     }
     # Only include active tilts (those that have sent data recently)
-    active_tilts = get_active_tilts()
+    active_tilts = get_dashboard_tilts()
     for color, info in active_tilts.items():
         snapshot["live_tilts"][color] = {
+            "device_label": info.get("device_label", color),
             "gravity": info.get("gravity"),
             "temp_f": info.get("temp_f"),
             "timestamp": info.get("timestamp"),
@@ -8101,20 +8363,25 @@ def chart_plotly_for(tilt_color):
     if tilt_color and tilt_color != "TempControl" and tilt_key_base(tilt_color) not in tilt_cfg:
         abort(404)
     # Resolve composite keys to base color so tilt_cfg[tilt_color] works in the template.
-    if tilt_color and tilt_color != "TempControl":
-        tilt_color = tilt_key_base(tilt_color)
+    # Device keys ("Color:MAC") are kept so each same-color Tilt shows its own batch;
+    # chart_cfg is that device's batch config (empty if it has none yet).
+    chart_cfg = tilt_cfg.get(tilt_color) if tilt_color and tilt_color != "TempControl" else None
+    if chart_cfg is None and tilt_color and tilt_color != "TempControl":
+        chart_cfg = {}
     # For TempControl charts, an optional tc_color query param filters to one controller.
     # Validate it against known tilt colours to prevent injection.
     tc_color = request.args.get('tc_color', '').strip()
     if tc_color:
-        tc_color = tilt_key_base(tc_color)  # strip composite suffix if present
-        if tc_color not in tilt_cfg:
+        # Keep a composite "Color:MAC" key so a specific physical device can be charted;
+        # the base colour must still be a known Tilt colour.
+        if tilt_key_base(tc_color) not in tilt_cfg:
             tc_color = ''  # ignore unknown colours; fall back to all-controller view
     return render_template(
         'chart_plotly.html',
         tilt_color=tilt_color,
         tc_color=tc_color,
         tilt_cfg=tilt_cfg,
+        chart_cfg=chart_cfg or {},
         system_settings=system_cfg
     )
 
@@ -8160,7 +8427,24 @@ def chart_data_for(tilt_color):
     # Handle "TempControl" as temperature control monitor data
     if tilt_color == "TempControl":
         # Optional tc_color param restricts data to one controller's log file.
-        tc_color_filter = tilt_key_base(request.args.get('tc_color', '').strip())
+        tc_color_filter = request.args.get('tc_color', '').strip()
+        tc_base_filter = tilt_key_base(tc_color_filter)
+        # A plain colour matches only plain-colour entries when a controller is bound to
+        # a specific device of that colour (so same-colour Tilts are not mixed);
+        # otherwise it matches every entry of that colour (legacy behaviour).
+        _composite_ctrl_bases = {
+            tilt_key_base(c.get('tilt_color', ''))
+            for c in temp_cfg.get('controllers', []) if ':' in (c.get('tilt_color', '') or '')
+        }
+
+        def _tc_entry_matches(entry_color):
+            if not tc_color_filter:
+                return True
+            if ':' in tc_color_filter:
+                return (entry_color or '').upper() == tc_color_filter.upper()
+            if tc_base_filter in _composite_ctrl_bases:
+                return (entry_color or '') == tc_color_filter
+            return tilt_key_base(entry_color or '') == tc_base_filter
 
         # Collect all data points (file events + in-memory readings)
         all_points = []
@@ -8169,7 +8453,7 @@ def chart_data_for(tilt_color):
         # First, read event-based entries from the relevant log file(s).
         # When tc_color_filter is set, only read that colour's log; otherwise read all.
         if tc_color_filter:
-            _candidate_paths = [_get_control_log_path(tc_color_filter)]
+            _candidate_paths = [_get_control_log_path(tc_base_filter)]
         else:
             _candidate_paths = _list_all_control_log_files()
         for _log_path in _candidate_paths:
@@ -8197,6 +8481,8 @@ def chart_data_for(tilt_color):
                         if event == "SAMPLE":
                             continue
                         
+                        if not _tc_entry_matches(obj.get('tilt_color', '')):
+                            continue
                         matched += 1
                         ts = obj.get('timestamp')
                         tf = obj.get('temp_f') if obj.get('temp_f') is not None else obj.get('current_temp')
@@ -8233,8 +8519,7 @@ def chart_data_for(tilt_color):
         
         # Add in-memory periodic readings (filter by tc_color_filter if set)
         for reading in temp_reading_buffer:
-            reading_color = tilt_key_base(reading.get('tilt_color', ''))
-            if tc_color_filter and reading_color != tc_color_filter:
+            if not _tc_entry_matches(reading.get('tilt_color', '')):
                 continue
             matched += 1
             all_points.append(reading)
@@ -8268,7 +8553,7 @@ def chart_data_for(tilt_color):
     if tilt_color and _tc_base not in tilt_cfg:
         return jsonify({"tilt_color": tilt_color, "points": [], "truncated": False, "matched": 0})
 
-    brewid = tilt_cfg.get(_tc_base, {}).get('brewid')
+    brewid = tilt_cfg.get(tilt_color, {}).get('brewid')
     
     # Sanitize brewid to prevent directory traversal attacks
     # Only allow alphanumeric characters, hyphens, and underscores
@@ -8994,6 +9279,41 @@ def archive_batch():
         return redirect(url_for('log_management', error=f'Error archiving batch: {str(e)}'))
 
 
+@app.route('/assign_tilt_mac', methods=['POST'])
+def assign_tilt_mac():
+    """Record which physical Tilt (MAC) a color-only batch record belongs to."""
+    color = (request.form.get('color') or '').strip()
+    mac = normalize_mac(request.form.get('mac') or '')
+    if color not in TILT_UUIDS.values() or color not in tilt_cfg or not mac:
+        return jsonify({'success': False, 'error': 'Invalid Tilt color or MAC'}), 400
+    if mac not in {d['mac'] for d in get_active_tilt_devices() if d['color'] == color}:
+        return jsonify({'success': False, 'error': 'That device is not currently active'}), 400
+    brewid = tilt_cfg[color].get('brewid')
+    tilt_cfg[color]['tilt_mac'] = mac
+    # Correct the batch history record too
+    path = batch_history_path(color)
+    try:
+        with open(path, 'r') as f:
+            batches = json.load(f)
+        for b in batches:
+            if b.get('brewid') == brewid:
+                b['tilt_mac'] = mac
+        with open(path, 'w') as f:
+            json.dump(batches, f, indent=2)
+    except Exception as e:
+        print(f"[LOG] Could not update batch history MAC for {color}: {e}")
+    try:
+        save_json(TILT_CONFIG_FILE, tilt_cfg)
+    except Exception as e:
+        print(f"[LOG] Could not save tilt_config in assign_tilt_mac: {e}")
+        return jsonify({'success': False, 'error': 'Could not save the assignment'}), 500
+    # Re-point the plain-color live entry at the chosen device right away
+    chosen = live_tilts.get(f"{color}:{mac}")
+    if chosen:
+        live_tilts[color] = dict(chosen, device_key=color)
+    return jsonify({'success': True})
+
+
 @app.route('/close_batch', methods=['POST'])
 def close_batch():
     """
@@ -9006,6 +9326,10 @@ def close_batch():
         
         if not brewid or not color:
             return jsonify({'success': False, 'error': 'Missing brewid or color'}), 400
+
+        color = valid_device_key(color)
+        if not color:
+            return jsonify({'success': False, 'error': 'Invalid Tilt'}), 400
         
         # Security: validate brewid format
         import re
@@ -9013,7 +9337,7 @@ def close_batch():
             return jsonify({'success': False, 'error': 'Invalid batch ID format'}), 400
         
         # Load batch history for this color
-        batch_history_file = f'batches/batch_history_{color}.json'
+        batch_history_file = batch_history_path(color)
         batches = []
         if os.path.exists(batch_history_file):
             try:
@@ -9087,14 +9411,41 @@ def reopen_batch():
         
         if not brewid or not color:
             return jsonify({'success': False, 'error': 'Missing brewid or color'}), 400
+
+        color = valid_device_key(color)
+        if not color:
+            return jsonify({'success': False, 'error': 'Invalid Tilt'}), 400
         
         # Security: validate brewid format
         import re
         if not re.match(r'^[a-zA-Z0-9\-_]+$', brewid):
             return jsonify({'success': False, 'error': 'Invalid batch ID format'}), 400
         
+        # Refuse to reopen if the same physical Tilt (color + MAC) is already
+        # assigned to a different active batch.
+        cur = tilt_cfg.get(color, {}) or {}
+        cur_brewid = cur.get('brewid')
+        if cur_brewid and cur_brewid != brewid and cur.get('is_active', True) is not False:
+            def _identity_mac(cfg_entry):
+                m = (cfg_entry or {}).get('tilt_mac') or _batch_review_tilt_mac(color) or ''
+                return normalize_mac(m) if m else ''
+            reopen_entry = None
+            try:
+                with open(batch_history_path(color), 'r') as f:
+                    for b in json.load(f):
+                        if b.get('brewid') == brewid:
+                            reopen_entry = b
+                            break
+            except Exception:
+                pass
+            if _identity_mac(cur) == _identity_mac(reopen_entry):
+                name = cur.get('beer_name') or cur_brewid
+                return jsonify({'success': False, 'error':
+                    f'The {color} Tilt (same device) is currently active in another batch ("{name}"). '
+                    f'Close that batch first before reopening this one.'}), 409
+
         # Load batch history for this color
-        batch_history_file = f'batches/batch_history_{color}.json'
+        batch_history_file = batch_history_path(color)
         batches = []
         if os.path.exists(batch_history_file):
             try:
@@ -9123,6 +9474,17 @@ def reopen_batch():
         except Exception as e:
             return jsonify({'success': False, 'error': f'Error saving batch history: {e}'}), 500
         
+        # Restore the batch to the tilt slot if no other batch occupies it
+        if color in tilt_cfg and not tilt_cfg[color].get('brewid'):
+            for batch in batches:
+                if batch.get('brewid') == brewid:
+                    tilt_cfg[color] = dict(batch)
+                    break
+            try:
+                save_json(TILT_CONFIG_FILE, tilt_cfg)
+            except Exception as e:
+                print(f"[LOG] Error restoring tilt config: {e}")
+
         return jsonify({'success': True, 'message': f'Batch {brewid} reopened successfully'})
     except Exception as e:
         print(f"[LOG] Error reopening batch: {e}")
@@ -9186,7 +9548,7 @@ def cleanup_batch_duplicates():
         
         # Check each color for batch history
         for color in TILT_UUIDS.values():
-            batch_history_file = f'batches/batch_history_{color}.json'
+            batch_history_file = batch_history_path(color)
             if not os.path.exists(batch_history_file):
                 continue
             
@@ -10282,8 +10644,8 @@ def utilities():
 def _load_all_batches_for_reports():
     """Return a list of all batches (active + closed) across all colors, sorted newest first."""
     batches = []
-    for color in TILT_UUIDS.values():
-        history_file = os.path.join(BATCHES_DIR, f'batch_history_{color}.json')
+    for color in all_history_keys():
+        history_file = os.path.join(BATCHES_DIR, os.path.basename(batch_history_path(color)))
         if not os.path.exists(history_file):
             continue
         try:
@@ -10532,8 +10894,8 @@ def reports_view():
     # Find batch info
     batch_info = None
     color = None
-    for c in TILT_UUIDS.values():
-        history_file = os.path.join(BATCHES_DIR, f'batch_history_{c}.json')
+    for c in all_history_keys():
+        history_file = os.path.join(BATCHES_DIR, os.path.basename(batch_history_path(c)))
         if not os.path.exists(history_file):
             continue
         try:
@@ -10614,8 +10976,8 @@ def reports_export_csv():
     # Find batch info
     batch_info = None
     color = None
-    for c in TILT_UUIDS.values():
-        history_file = os.path.join(BATCHES_DIR, f'batch_history_{c}.json')
+    for c in all_history_keys():
+        history_file = os.path.join(BATCHES_DIR, os.path.basename(batch_history_path(c)))
         if not os.path.exists(history_file):
             continue
         try:

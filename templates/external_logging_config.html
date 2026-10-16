@@ -10,10 +10,16 @@
   <div class="page-container">
     <h1 class="dashboard-title">EXTERNAL LOGGING INTEGRATIONS</h1>
 
+    <div class="page-controls" style="max-width:700px; margin:8px auto;">
+      <button type="submit" form="extLogForm" class="btn-primary">Save</button>
+      <button type="button" class="btn-secondary" onclick="document.getElementById('extLogForm').reset()">Clear</button>
+      <button type="button" class="btn-action" onclick="window.location='/system_config'">Return</button>
+    </div>
+
     <div style="max-width:700px; margin:0 auto; background:#fff; border-radius:8px; padding:24px; box-shadow:0 1px 6px rgba(0,0,0,0.04);">
       <p style="color:#555; text-align:center; margin-bottom:20px;">Configure external logging services</p>
 
-      <form action="/update_external_logging_config" method="post">
+      <form id="extLogForm" action="/update_external_logging_config" method="post">
         <table class="config-table" style="width: 100%;">
           <tr>
             <td><label for="external_refresh_rate"><b>External Post Interval (minutes)</b></label></td>
@@ -33,15 +39,8 @@
           {% endfor %}
         </table>
 
-        <div style="text-align:center; margin-top:24px;">
-          <button type="submit" class="btn-primary">Save</button>
-          <button type="button" class="btn-secondary" style="margin-left:16px;" onclick="window.location.href='/system_config'">Cancel</button>
-        </div>
       </form>
 
-      <div style="text-align:center; margin-top:16px;">
-        <a href="/system_config" class="btn-action">Return to System Config</a>
-      </div>
     </div>
   </div>
 </body>

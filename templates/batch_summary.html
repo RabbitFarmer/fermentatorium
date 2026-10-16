@@ -15,10 +15,13 @@
 <body>
   <div class="page-container">
     <nav class="config-ribbon">
-      <a href="/">Return</a>
-      <a href="/chart/{{ color }}">Chart</a>
     </nav>
     <h1 class="dashboard-title">{{ color }} Tilt — Batch Summary</h1>
+    <div class="page-controls">
+      <a href="/" class="btn-action">Return</a>
+      <a href="/chart/{{ color }}" class="btn-action">Chart</a>
+    </div>
+
     <div class="summary-container">
       <table class="summary-table">
         <tr><td>Beer Name</td><td>{{ batch.beer_name }}</td></tr>
@@ -30,9 +33,6 @@
         <tr><td>Last Reading Date</td><td>{{ batch.last_current_gravity_reading_date }}</td></tr>
         <tr><td>Stall Days</td><td>{{ batch.stall_days_counter }}</td></tr>
       </table>
-      <div style="text-align:center; margin-top:20px;">
-        <a href="/" class="btn-action">Return</a>
-      </div>
     </div>
   </div>
 </body>

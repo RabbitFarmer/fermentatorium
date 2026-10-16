@@ -56,18 +56,26 @@
 <body>
   <div class="page-container">
     <header class="site-header"><h1 class="dashboard-title">BATCH SETTINGS</h1></header>
+    <div class="page-controls" style="max-width:1000px; margin:8px auto;">
+      {% if selected_tilt %}
+      <button type="submit" form="batchForm" class="btn-primary">Save</button>
+      <button type="button" class="btn-secondary" onclick="clearBatchForm()">Clear</button>
+      {% endif %}
+      <button type="button" onclick="window.location='/'" class="btn-action">Return</button>
+    </div>
+    {% include "_mac_prompt.html" %}
     <div class="selector-wrap">
       <div class="heading">Active Tilts</div>
-      {% if live_tilts %}
+      {% if active_devices %}
         <div class="active-tilt-grid">
-          {% for color, tdata in live_tilts.items() %}
-            {% set cc = tdata.color_code or color_map.get(color, '#333') %}
+          {% for dev in active_devices %}
+            {% set cc = dev.data.color_code or color_map.get(dev.color, '#333') %}
             {% set dark = cc in ['#ffff00','#ffc0cb','#00ff00'] %}
             <a class="active-tilt-card"
-               style="background-color:{{ cc }};color:{% if dark %}#222{% else %}#fff{% endif %};"
-               href="{{ url_for('batch_settings') }}?tilt_color={{ color|urlencode }}">
-              {{ color }}
-              <span class="atc-label">{{ tdata.beer_name or 'No batch' }}</span>
+               style="background-color:{{ cc }};color:{% if dark %}#222{% else %}#fff{% endif %};{% if dev.key == selected_tilt %}outline:3px solid #000;{% endif %}"
+               href="{{ url_for('batch_settings') }}?tilt_color={{ dev.key|urlencode }}">
+              {{ dev.label }}
+              <span class="atc-label">{{ dev.data.beer_name or 'No batch' }}</span>
             </a>
           {% endfor %}
         </div>
@@ -77,15 +85,34 @@
       <div class="inactive-banner">
         ℹ️ If your tilt is not shown above, make sure it is powered on and within Bluetooth range, then refresh.
       </div>
-      <div style="text-align:center; margin-top:20px;">
-        <button type="button" onclick="window.location='/'" class="btn-action">Return</button>
-      </div>
     </div>
 
     {% if selected_tilt %}
       <div class="selector-wrap" style="margin-top:16px;">
-        <div class="heading">Editing: {{ selected_tilt }}</div>
-        <form method="post" action="/batch_settings">
+        <div class="heading">Editing: {{ selected_label or selected_tilt }}</div>
+        {% set ns = namespace(bid='', closed=false) %}
+        {% if selected_config.brewid %}
+          {% set ns.bid = selected_config.brewid %}
+        {% else %}
+          {% for b in batch_history %}
+            {% if b.get('is_active', true) is false and b.brewid %}{% set ns.bid = b.brewid %}{% set ns.closed = true %}{% endif %}
+          {% endfor %}
+        {% endif %}
+        {% if ns.bid %}
+        <div class="batch-state-toggle">
+          <span class="bst-label {% if not ns.closed %}on-active{% endif %}">Active</span>
+          <label class="bst-switch" title="Slide to close or reopen this batch">
+            <input type="checkbox" id="batchStateSlider" {% if ns.closed %}checked{% endif %}
+                   data-brewid="{{ ns.bid }}" onchange="toggleBatchState(this)">
+            <span class="bst-slider"></span>
+          </label>
+          <span class="bst-label {% if ns.closed %}on-closed{% endif %}">Closed</span>
+        </div>
+        <p class="small-note" style="margin-top:-6px;">Closing a batch removes it from the main display and moves it to Batch History. Slide back to Active to reopen it (also available on the batch review page).</p>
+        {% else %}
+        <p class="small-note">No batch for this Tilt. Enter batch details below and Save to start one.</p>
+        {% endif %}
+        <form id="batchForm" method="post" action="/batch_settings">
           <input type="hidden" name="tilt_color" value="{{ selected_tilt }}">
           <div style="margin-bottom:8px;">
             <label>Beer Name</label>
@@ -240,12 +267,6 @@
           </div>
           <!-- ── End External Logging ── -->
 
-
-          <div style="text-align:center; margin-top:20px;">
-            <button type="button" onclick="window.location='/'" class="btn-action" style="margin-right:16px;">Return</button>
-            <button type="submit" class="btn-primary" style="margin-right:16px;">Save</button>
-            <button type="button" onclick="window.location='/batch_settings'" class="btn-secondary">Cancel</button>
-          </div>
         </form>
 
         {# ── Archive / Resume recording ── #}
@@ -316,6 +337,29 @@
           ? (LIVE_GRAVITY + gv).toFixed(3)
           : '--';
       }
+    }
+    function clearBatchForm() {
+      var f = document.getElementById('batchForm');
+      if (!f) return;
+      f.querySelectorAll('input[type="text"], input[type="number"], input[type="date"]').forEach(function (i) { i.value = ''; });
+      f.querySelectorAll('select').forEach(function (sel) { sel.selectedIndex = 0; });
+      updateCalibAdj();
+    }
+    function toggleBatchState(el) {
+      var closing = el.checked;
+      var msg = closing
+        ? 'Close this batch? It will be removed from the main display and moved to Batch History.'
+        : 'Reopen this batch and return it to the main display?';
+      if (!confirm(msg)) { el.checked = !closing; return; }
+      fetch(closing ? '/close_batch' : '/reopen_batch', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'brewid=' + encodeURIComponent(el.dataset.brewid) +
+              '&color=' + encodeURIComponent('{{ selected_tilt }}')
+      }).then(r => r.json()).then(d => {
+        if (d.success) { window.location.reload(); }
+        else { el.checked = !closing; alert('Error: ' + (d.error || 'Unknown error')); }
+      }).catch(e => { el.checked = !closing; alert('Error: ' + e); });
     }
     function pauseTracking(color) {
       if (!confirm('Stop recording for ' + color + '? Temperature control will keep running. You can resume at any time.')) return;

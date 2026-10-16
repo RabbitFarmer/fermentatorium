@@ -50,8 +50,8 @@
   <div class="rpt-container">
 
     <!-- Action bar (hidden when printing) -->
-    <div class="action-bar no-print">
-      <button class="btn-back" onclick="window.location='{{ url_for('reports') }}'">← Back to Reports</button>
+    <div class="action-bar no-print" style="justify-content:flex-end;">
+      <button class="btn-back" onclick="window.location='{{ url_for('reports') }}'">Return</button>
       <button class="btn-print" onclick="window.print()">🖨 Print / Save PDF</button>
       <a class="btn-csv" href="{{ csv_url }}">⬇ Export CSV</a>
     </div>
@@ -124,12 +124,6 @@
     <p style="color:#999; font-style:italic;">No data available for this report.</p>
     {% endif %}
 
-    <!-- ── Bottom action bar ── -->
-    <div class="action-bar no-print" style="margin-top:24px; margin-bottom:0;">
-      <button class="btn-back" onclick="window.location='{{ url_for('reports') }}'">← Back to Reports</button>
-      <button class="btn-print" onclick="window.print()">🖨 Print / Save PDF</button>
-      <a class="btn-csv" href="{{ csv_url }}">⬇ Export CSV</a>
-    </div>
 
   </div><!-- /.rpt-container -->
 </div>
