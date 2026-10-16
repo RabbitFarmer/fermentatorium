@@ -529,7 +529,7 @@ These models use the older local IoT protocol (port 9999) and respond to command
 | **HS110** | Single outlet with energy monitoring |
 | **KP115** | Single outlet with energy monitoring — **firmware 1.x only**; updating firmware may switch the device to KLAP (requires login) |
 
-> **Tip:** If you own one of the models above, disable automatic firmware updates in the Kasa app before first use to prevent the device from upgrading to KLAP firmware that requires credentials.
+> **Tip:** If you own one of the models above, disable automatic firmware updates in the Kasa app before first use to prevent the device from upgrading to KLAP firmware that requires credentials. If you elect to update the firmware to include KLAP protocol, then set up the older plug following the "TP-Link Username /Password setup below."
 
 ### Plugs that REQUIRE a TP-Link username/password
 
@@ -540,6 +540,8 @@ These models use the newer KLAP protocol. Enter your TP-Link account email and p
 | **EP25** (firmware v2.6+) | Most common "new" Kasa outlet; earlier firmware may still work without credentials |
 | **KP125M** | Matter-compatible outlet, always requires login |
 | **KP400** | Outdoor double outlet, always requires login |
+
+Download and install the Kasa program on your cell phone or mobile device from [Google Play](https://play.google.com/store/apps/details?id=com.tplink.kasa_android). If you have not done so, open an account using your email address and a password. Open the Kasa program, click on "Me" in the lower right corner, then "Settings", then turn ON "Third-Party Compatibility." Now exit the program and return to Fermentatorium.
 
 Use the **Scan for Kasa Plugs** button in the dashboard to discover plugs on your network, then paste their IP addresses into the temperature control configuration.
 
