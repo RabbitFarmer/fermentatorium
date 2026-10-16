@@ -92,7 +92,7 @@
     const beerName = "Temperature Control{% if tc_color %} — {{ tc_color }}{% endif %}";
     const batchName = "N/A";
     const brewId = "N/A";
-    const batchStartDate = "{% if tc_color %}{{ tilt_cfg[tc_color].get('batch_start_date') or tilt_cfg[tc_color].get('ferm_start_date') or '' }}{% else %}{% endif %}";
+    const batchStartDate = "{% if tc_color %}{% set _tcc = tilt_cfg.get(tc_color) or tilt_cfg.get(tc_color.split(':')[0]) or {} %}{{ _tcc.get('batch_start_date') or _tcc.get('ferm_start_date') or '' }}{% else %}{% endif %}";
     const recipeOg = null;
     const recipeFg = null;
     const actualOg = null;
@@ -190,7 +190,7 @@
           // - Otherwise, infer from the most recent data point (original behaviour).
           let activeTiltColor = null;
           if (tcColor) {
-            activeTiltColor = tcColor;
+            activeTiltColor = tcColor.split(':')[0];
           } else if (validDataPoints.length > 0) {
             activeTiltColor = validDataPoints[validDataPoints.length - 1].tilt_color;
             // Strip any composite MAC suffix so matching works
@@ -208,6 +208,9 @@
             // NORMAL PATH: We have tilt_color data, show only the active tilt.
             // Strip composite key suffix when comparing so "Orange:AA:BB" matches activeTiltColor "Orange".
             displayData = validDataPoints.filter(p => {
+              if (tcColor && tcColor.includes(':')) {
+                return (p.tilt_color || '').toUpperCase() === tcColor.toUpperCase();
+              }
               const base = (p.tilt_color || '').split(':')[0];
               return base === activeTiltColor;
             });

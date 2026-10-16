@@ -840,7 +840,7 @@
                     </span>
                   </div>
                   <a class="chart-pill tc-chart-pill"
-                     href="{{ url_for('chart_plotly_for', tilt_color='TempControl') }}?tc_color={{ tilt_base | urlencode }}"
+                     href="{{ url_for('chart_plotly_for', tilt_color='TempControl') }}?tc_color={{ tilt_color | urlencode }}"
                      style="color:{{ color_code }};">CHART</a>
                      {# tilt_base is the plain colour used to filter the per-controller TC chart #}
                 </div>
@@ -1158,7 +1158,7 @@
               </label>
               <span class="toggle-label" id="toggle_label_${cid}">Temp Control OFF</span>
             </div>
-            <a class="chart-pill tc-chart-pill" href="/chart_plotly/TempControl?tc_color=${encodeURIComponent(tiltBase)}"
+            <a class="chart-pill tc-chart-pill" href="/chart_plotly/TempControl?tc_color=${encodeURIComponent(tc.tilt_color || tiltBase)}"
                style="color:${colorCode};">CHART</a>
           </div>
           <div class="tc-ftr-ts">Last: <span id="tc_ftr_ts_${cid}">--</span></div>

@@ -8289,8 +8289,9 @@ def chart_plotly_for(tilt_color):
     # Validate it against known tilt colours to prevent injection.
     tc_color = request.args.get('tc_color', '').strip()
     if tc_color:
-        tc_color = tilt_key_base(tc_color)  # strip composite suffix if present
-        if tc_color not in tilt_cfg:
+        # Keep a composite "Color:MAC" key so a specific physical device can be charted;
+        # the base colour must still be a known Tilt colour.
+        if tilt_key_base(tc_color) not in tilt_cfg:
             tc_color = ''  # ignore unknown colours; fall back to all-controller view
     return render_template(
         'chart_plotly.html',
@@ -8343,7 +8344,24 @@ def chart_data_for(tilt_color):
     # Handle "TempControl" as temperature control monitor data
     if tilt_color == "TempControl":
         # Optional tc_color param restricts data to one controller's log file.
-        tc_color_filter = tilt_key_base(request.args.get('tc_color', '').strip())
+        tc_color_filter = request.args.get('tc_color', '').strip()
+        tc_base_filter = tilt_key_base(tc_color_filter)
+        # A plain colour matches only plain-colour entries when a controller is bound to
+        # a specific device of that colour (so same-colour Tilts are not mixed);
+        # otherwise it matches every entry of that colour (legacy behaviour).
+        _composite_ctrl_bases = {
+            tilt_key_base(c.get('tilt_color', ''))
+            for c in temp_cfg.get('controllers', []) if ':' in (c.get('tilt_color', '') or '')
+        }
+
+        def _tc_entry_matches(entry_color):
+            if not tc_color_filter:
+                return True
+            if ':' in tc_color_filter:
+                return (entry_color or '').upper() == tc_color_filter.upper()
+            if tc_base_filter in _composite_ctrl_bases:
+                return (entry_color or '') == tc_color_filter
+            return tilt_key_base(entry_color or '') == tc_base_filter
 
         # Collect all data points (file events + in-memory readings)
         all_points = []
@@ -8352,7 +8370,7 @@ def chart_data_for(tilt_color):
         # First, read event-based entries from the relevant log file(s).
         # When tc_color_filter is set, only read that colour's log; otherwise read all.
         if tc_color_filter:
-            _candidate_paths = [_get_control_log_path(tc_color_filter)]
+            _candidate_paths = [_get_control_log_path(tc_base_filter)]
         else:
             _candidate_paths = _list_all_control_log_files()
         for _log_path in _candidate_paths:
@@ -8380,6 +8398,8 @@ def chart_data_for(tilt_color):
                         if event == "SAMPLE":
                             continue
                         
+                        if not _tc_entry_matches(obj.get('tilt_color', '')):
+                            continue
                         matched += 1
                         ts = obj.get('timestamp')
                         tf = obj.get('temp_f') if obj.get('temp_f') is not None else obj.get('current_temp')
@@ -8416,8 +8436,7 @@ def chart_data_for(tilt_color):
         
         # Add in-memory periodic readings (filter by tc_color_filter if set)
         for reading in temp_reading_buffer:
-            reading_color = tilt_key_base(reading.get('tilt_color', ''))
-            if tc_color_filter and reading_color != tc_color_filter:
+            if not _tc_entry_matches(reading.get('tilt_color', '')):
                 continue
             matched += 1
             all_points.append(reading)
