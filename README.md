@@ -543,6 +543,8 @@ These models use the newer KLAP protocol. Enter your TP-Link account email and p
 
 Download and install the Kasa program on your cell phone or mobile device from [Google Play](https://play.google.com/store/apps/details?id=com.tplink.kasa_android). If you have not done so, open an account using your email address and a password. Open the Kasa program, click on "Me" in the lower right corner, then "Settings", then turn ON "Third-Party Compatibility." Now exit the program and return to Fermentatorium.
 
+Click on the Gear Icon, then System Settings, scroll down to Kasa Account Email and enter your email address. Enter the Kasa password you used in the Kasa Account Password box. After this, Fermentatorium will automatically switch between the two protocols as necessary based on the Kasa firmware installed on your plugs.
+
 Use the **Scan for Kasa Plugs** button in the dashboard to discover plugs on your network, then paste their IP addresses into the temperature control configuration.
 
 ---
