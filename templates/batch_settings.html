@@ -71,8 +71,8 @@
             {% set cc = dev.data.color_code or color_map.get(dev.color, '#333') %}
             {% set dark = cc in ['#ffff00','#ffc0cb','#00ff00'] %}
             <a class="active-tilt-card"
-               style="background-color:{{ cc }};color:{% if dark %}#222{% else %}#fff{% endif %};{% if dev.color == selected_tilt and dev.mac == selected_mac %}outline:3px solid #000;{% endif %}"
-               href="{{ url_for('batch_settings') }}?tilt_color={{ dev.color|urlencode }}{% if dev.mac %}&mac={{ dev.mac|urlencode }}{% endif %}">
+               style="background-color:{{ cc }};color:{% if dark %}#222{% else %}#fff{% endif %};{% if dev.key == selected_tilt %}outline:3px solid #000;{% endif %}"
+               href="{{ url_for('batch_settings') }}?tilt_color={{ dev.key|urlencode }}">
               {{ dev.label }}
               <span class="atc-label">{{ dev.data.beer_name or 'No batch' }}</span>
             </a>
@@ -88,7 +88,7 @@
 
     {% if selected_tilt %}
       <div class="selector-wrap" style="margin-top:16px;">
-        <div class="heading">Editing: {{ selected_tilt }}</div>
+        <div class="heading">Editing: {{ selected_label or selected_tilt }}</div>
         {% set ns = namespace(bid='', closed=false) %}
         {% if selected_config.brewid %}
           {% set ns.bid = selected_config.brewid %}
@@ -113,7 +113,6 @@
         {% endif %}
         <form id="batchForm" method="post" action="/batch_settings">
           <input type="hidden" name="tilt_color" value="{{ selected_tilt }}">
-          <input type="hidden" name="tilt_mac" value="{{ selected_mac or '' }}">
           <div style="margin-bottom:8px;">
             <label>Beer Name</label>
             <input name="beer_name" type="text" value="{{ selected_config.beer_name or '' }}" maxlength="100" placeholder="e.g. Pale Ale">
