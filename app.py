@@ -1372,10 +1372,37 @@ def resolve_device_key(color, mac=None):
     return color if mac_n == min(seen) else f"{color}:{mac_n}"
 
 
+_DEVICE_MAC_RE = re.compile(r'^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$')
+
+
+def valid_device_key(key):
+    """
+    Validate a device key ('Color' or 'Color:MAC') against the known Tilt colors and a
+    strict MAC format.  Returns the normalized key, or None if invalid.  The returned
+    value is built from the allow-list of colors, never from the raw input.
+    """
+    if not isinstance(key, str) or not key:
+        return None
+    base, sep, mac = key.partition(':')
+    color = next((c for c in TILT_UUIDS.values() if c == base), None)
+    if color is None:
+        return None
+    if not sep:
+        return color
+    if not _DEVICE_MAC_RE.match(mac):
+        return None
+    return f"{color}:{mac.upper()}"
+
+
 def batch_history_path(key):
-    """Batch history file for a device key ('Color' or 'Color:MAC')."""
-    safe = (key or '').replace(':', '_')
-    return f'batches/batch_history_{safe}.json'
+    """Batch history file for a device key ('Color' or 'Color:MAC').
+
+    Raises ValueError for an invalid key so untrusted input can never reach a file path.
+    """
+    safe_key = valid_device_key(key)
+    if safe_key is None:
+        raise ValueError(f"Invalid Tilt device key: {key!r}")
+    return f"batches/batch_history_{safe_key.replace(':', '_')}.json"
 
 
 def all_history_keys():
@@ -6159,6 +6186,10 @@ def test_external_logging():
 @app.route('/tilt_config', methods=['GET', 'POST'])
 def tilt_config():
     selected = request.args.get('tilt_color') or request.form.get('tilt_color')
+    if selected:
+        selected = valid_device_key(selected)
+        if not selected:
+            return "Invalid Tilt", 400
     batch_history = []
     if selected:
         try:
@@ -6217,6 +6248,9 @@ def batch_settings():
         color = data.get('tilt_color')
         if not color:
             return "No Tilt color selected", 400
+        color = valid_device_key(color)
+        if not color:
+            return "Invalid Tilt", 400
         beer_name = data.get('beer_name', '').strip()
         batch_name = data.get('batch_name', '').strip()
         batch_start_date = data.get('batch_start_date', data.get('ferm_start_date', '')).strip()
@@ -6390,6 +6424,10 @@ def batch_settings():
         return redirect(f"/batch_settings?tilt_color={color}")
 
     selected = request.args.get('tilt_color')
+    if selected:
+        selected = valid_device_key(selected)
+        if not selected:
+            return "Invalid Tilt", 400
     action = request.args.get('action')
     config = tilt_cfg.get(selected, {}) if selected else {}
     batch_history = []
@@ -9267,7 +9305,8 @@ def assign_tilt_mac():
     try:
         save_json(TILT_CONFIG_FILE, tilt_cfg)
     except Exception as e:
-        return jsonify({'success': False, 'error': f'Could not save: {e}'}), 500
+        print(f"[LOG] Could not save tilt_config in assign_tilt_mac: {e}")
+        return jsonify({'success': False, 'error': 'Could not save the assignment'}), 500
     # Re-point the plain-color live entry at the chosen device right away
     chosen = live_tilts.get(f"{color}:{mac}")
     if chosen:
@@ -9287,6 +9326,10 @@ def close_batch():
         
         if not brewid or not color:
             return jsonify({'success': False, 'error': 'Missing brewid or color'}), 400
+
+        color = valid_device_key(color)
+        if not color:
+            return jsonify({'success': False, 'error': 'Invalid Tilt'}), 400
         
         # Security: validate brewid format
         import re
@@ -9368,6 +9411,10 @@ def reopen_batch():
         
         if not brewid or not color:
             return jsonify({'success': False, 'error': 'Missing brewid or color'}), 400
+
+        color = valid_device_key(color)
+        if not color:
+            return jsonify({'success': False, 'error': 'Invalid Tilt'}), 400
         
         # Security: validate brewid format
         import re
