@@ -490,6 +490,7 @@
 
     <!-- ══ Tilt card grid ══ -->
     <section class="tiltcards-wrapper" aria-label="Active Tilts">
+      {% include "_mac_prompt.html" %}
       <div class="tiltcard-container">
 
         {# ── 1. Tilts WITH a temperature controller (active TC first, then inactive) ── #}
@@ -498,12 +499,13 @@
           {# Support composite keys like "Orange:AA:BB:CC:DD:EE:FF" by falling back
              to the plain base colour when the full key is not in live_tilts. #}
           {% set tilt_base = tilt_color.split(':')[0] if tilt_color and ':' in tilt_color else tilt_color %}
-          {% set tilt = live_tilts.get(tilt_color) or live_tilts.get(tilt_base) %}
+          {% set card_key = controller.card_key or tilt_base %}
+          {% set tilt = live_tilts.get(card_key) %}
           {% if tilt_color and tilt %}
-            {% set safe   = tilt_base.replace(' ', '_') %}
+            {% set safe   = card_key.replace(' ', '_').replace(':', '_') %}
             {% set cid    = controller.controller_id %}
             {% set use_dark_text = tilt.color_code in ['#ffff00','#ffc0cb','#00ff00'] %}
-            <article class="tilt-card" data-tilt="{{ tilt_base }}" data-controller="{{ cid }}">
+            <article class="tilt-card" data-tilt="{{ card_key }}" data-controller="{{ cid }}">
 
               <!-- Tilt banner: beer name + batch name -->
               <div class="tilt-banner"
@@ -580,15 +582,15 @@
               </footer>
 
             </article>
-          {% elif tilt_color and tilt_cfg.get(tilt_base, {}).get('brewid') and tilt_cfg.get(tilt_base, {}).get('is_active', True) is not false %}
+          {% elif tilt_color and tilt_cfg.get(card_key, {}).get('brewid') and tilt_cfg.get(card_key, {}).get('is_active', True) is not false %}
             {# Assigned tilt is temporarily offline — render a placeholder so the TC card
                can anchor correctly below it and the user can see it is expected to be here. #}
-            {% set safe   = tilt_base.replace(' ', '_') %}
+            {% set safe   = card_key.replace(' ', '_').replace(':', '_') %}
             {% set cid    = controller.controller_id %}
-            {% set off_cfg = tilt_cfg.get(tilt_base, {}) %}
+            {% set off_cfg = tilt_cfg.get(card_key, {}) %}
             {% set off_color = COLOR_MAP.get(tilt_base, '#888888') %}
             {% set use_dark_text = off_color in ['#ffff00','#ffc0cb','#00ff00'] %}
-            <article class="tilt-card tilt-card-offline" data-tilt="{{ tilt_base }}" data-controller="{{ cid }}">
+            <article class="tilt-card tilt-card-offline" data-tilt="{{ card_key }}" data-controller="{{ cid }}">
 
               <div class="tilt-banner"
                    style="background-color:{{ off_color }};color:{% if use_dark_text %}black{% else %}white{% endif %};"
@@ -665,7 +667,7 @@
           {% for controller in controllers %}
             {# Match both plain-colour keys ("Orange") and composite keys ("Orange:AA:BB:CC") #}
             {% set _tc = controller.tilt_color or '' %}
-            {% if _tc == color or _tc.split(':')[0] == color %}{% set is_assigned.value = true %}{% endif %}
+            {% if (controller.card_key or _tc) == color %}{% set is_assigned.value = true %}{% endif %}
           {% endfor %}
           {% if not is_assigned.value %}
             {% set safe = color.replace(' ', '_').replace(':', '_') %}
@@ -752,7 +754,8 @@
           {% set tilt_color = controller.tilt_color or '' %}
           {# Support composite keys like "Orange:AA:BB:CC:DD:EE:FF" — fall back to base colour #}
           {% set tilt_base = tilt_color.split(':')[0] if tilt_color and ':' in tilt_color else tilt_color %}
-          {% set tilt = live_tilts.get(tilt_color) or live_tilts.get(tilt_base) %}
+          {% set card_key = controller.card_key or tilt_base %}
+          {% set tilt = live_tilts.get(card_key) %}
           {# Render the TC card whenever a tilt is assigned, even if it is temporarily
              offline (tilt=None).  Use COLOR_MAP for the banner colour in that case so
              the card still looks correct and the user can see the controller status. #}
@@ -762,7 +765,7 @@
             {% set use_dark_text = color_code in ['#ffff00','#ffc0cb','#00ff00'] %}
             <article class="tilt-card temp-ctrl-card"
                      data-controller="{{ cid }}"
-                     data-for-tilt="{{ tilt_base }}">
+                     data-for-tilt="{{ card_key }}">
 
               <!-- Coloured header (mirrors the tilt banner colour; clickable → temp summary) -->
               <div class="tc-header"
@@ -1101,6 +1104,7 @@
     function createTcCard(tc) {
       const cid       = tc.controller_id;
       const tiltBase  = (tc.tilt_color || '').split(':')[0];
+      const cardKey   = tc.card_key || tiltBase;
       const colorCode = tc.tilt_color_code || '#888';
       const darkBg    = ['#ffff00','#ffc0cb','#00ff00'].includes(colorCode);
       const textColor = darkBg ? 'black' : 'white';
@@ -1108,7 +1112,7 @@
       const card = document.createElement('article');
       card.className = 'tilt-card temp-ctrl-card';
       card.setAttribute('data-controller', String(cid));
-      card.setAttribute('data-for-tilt', tiltBase);
+      card.setAttribute('data-for-tilt', cardKey);
 
       card.innerHTML = `
         <div class="tc-header"
@@ -1354,7 +1358,7 @@
           tempVal = Number(tc.current_temp);
         } else if (tc.tilt_color) {
           const tiltBase = tc.tilt_color.split(':')[0];
-          const t = liveTilts[tc.tilt_color] || liveTilts[tiltBase];
+          const t = liveTilts[tc.card_key || tiltBase];
           if (t && t.temp_f != null && !isNaN(Number(t.temp_f))) tempVal = Number(t.temp_f);
         }
         if (curBox) curBox.textContent = (tempVal != null) ? tempVal.toFixed(1) : '--';
@@ -1423,7 +1427,7 @@
             if (tc.tilt_color && !document.getElementById('tc_section_' + tc.controller_id)) {
               const tiltBase = tc.tilt_color.split(':')[0];
               const liveTilts = data.live_tilts || {};
-              const tiltActive = liveTilts[tc.tilt_color] || liveTilts[tiltBase];
+              const tiltActive = liveTilts[tc.card_key || tiltBase];
               if (tiltActive && container) {
                 container.appendChild(createTcCard(tc));
                 positionTempCards();

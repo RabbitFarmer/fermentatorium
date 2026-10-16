@@ -1570,6 +1570,48 @@ def get_active_tilt_devices():
     devices.sort(key=lambda d: (d['color'], d['mac']))
     return devices
 
+def get_mac_assignment_prompts():
+    """
+    Colors whose plain (color-only) batch record has no recorded device MAC while more
+    than one Tilt of that color is currently active.  The user must say which physical
+    Tilt the existing record belongs to.  Returns [{'color', 'beer_name', 'devices': [...]}].
+    """
+    by_color = {}
+    for d in get_active_tilt_devices():
+        if d['mac']:
+            by_color.setdefault(d['color'], []).append(d)
+    prompts = []
+    for color, devs in by_color.items():
+        cfg = tilt_cfg.get(color, {}) or {}
+        if len(devs) < 2 or not cfg.get('brewid') or cfg.get('tilt_mac'):
+            continue
+        prompts.append({
+            'color': color,
+            'beer_name': cfg.get('beer_name', ''),
+            'batch_name': cfg.get('batch_name', ''),
+            'devices': [{
+                'mac': d['mac'],
+                'temp_f': d['data'].get('temp_f'),
+                'gravity': d['data'].get('gravity'),
+                'timestamp': d['data'].get('timestamp'),
+                'is_pro': d['data'].get('is_pro', False),
+            } for d in sorted(devs, key=lambda x: x['mac'])],
+        })
+    return prompts
+
+
+def controller_card_key(controller):
+    """
+    Main-display card key for the Tilt a controller is assigned to: the plain color
+    when it is that color's primary device (or the controller has no MAC), otherwise
+    the "Color:MAC" device key.
+    """
+    tc = (controller or {}).get('tilt_color', '') or ''
+    if ':' not in tc:
+        return tc
+    return resolve_device_key(tilt_key_base(tc), tilt_key_mac(tc))
+
+
 def get_dashboard_tilts():
     """
     Active tilts to show on the main display, keyed by device key: the plain color
@@ -5683,7 +5725,7 @@ def dashboard():
     active_tilts = get_dashboard_tilts()
 
     # Pass controllers array to template
-    controllers = temp_cfg.get('controllers', [])
+    controllers = [dict(c, card_key=controller_card_key(c)) for c in temp_cfg.get('controllers', [])]
 
     # now_ts is used in the template to append a cache-busting query string
     # to the stylesheet URL so the browser always fetches the latest CSS.
@@ -5695,6 +5737,7 @@ def dashboard():
         tilt_status=tilt_status,
         controllers=controllers,
         live_tilts=active_tilts,
+        mac_prompts=get_mac_assignment_prompts(),
         now_ts=int(time.time())
     )
 
@@ -6406,6 +6449,7 @@ def batch_settings():
         active_colors=active_colors,
         live_tilts=active_tilts,
         active_devices=get_active_tilt_devices(),
+        mac_prompts=get_mac_assignment_prompts(),
         selected_mac=selected_mac,
         selected_label=selected_label,
         selected_tilt=selected,
@@ -8130,6 +8174,7 @@ def live_snapshot():
             "low_limit": controller.get("low_limit"),
             "high_limit": controller.get("high_limit"),
             "tilt_color": tilt_color,
+            "card_key": controller_card_key(controller),
             "tilt_color_code": get_tilt_color_hex(tilt_color),
             "heater_on": controller.get("heater_on"),
             "cooler_on": controller.get("cooler_on"),
@@ -9194,6 +9239,40 @@ def archive_batch():
     except Exception as e:
         print(f"[LOG] Error archiving batch: {e}")
         return redirect(url_for('log_management', error=f'Error archiving batch: {str(e)}'))
+
+
+@app.route('/assign_tilt_mac', methods=['POST'])
+def assign_tilt_mac():
+    """Record which physical Tilt (MAC) a color-only batch record belongs to."""
+    color = (request.form.get('color') or '').strip()
+    mac = normalize_mac(request.form.get('mac') or '')
+    if color not in TILT_UUIDS.values() or color not in tilt_cfg or not mac:
+        return jsonify({'success': False, 'error': 'Invalid Tilt color or MAC'}), 400
+    if mac not in {d['mac'] for d in get_active_tilt_devices() if d['color'] == color}:
+        return jsonify({'success': False, 'error': 'That device is not currently active'}), 400
+    brewid = tilt_cfg[color].get('brewid')
+    tilt_cfg[color]['tilt_mac'] = mac
+    # Correct the batch history record too
+    path = batch_history_path(color)
+    try:
+        with open(path, 'r') as f:
+            batches = json.load(f)
+        for b in batches:
+            if b.get('brewid') == brewid:
+                b['tilt_mac'] = mac
+        with open(path, 'w') as f:
+            json.dump(batches, f, indent=2)
+    except Exception as e:
+        print(f"[LOG] Could not update batch history MAC for {color}: {e}")
+    try:
+        save_json(TILT_CONFIG_FILE, tilt_cfg)
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Could not save: {e}'}), 500
+    # Re-point the plain-color live entry at the chosen device right away
+    chosen = live_tilts.get(f"{color}:{mac}")
+    if chosen:
+        live_tilts[color] = dict(chosen, device_key=color)
+    return jsonify({'success': True})
 
 
 @app.route('/close_batch', methods=['POST'])

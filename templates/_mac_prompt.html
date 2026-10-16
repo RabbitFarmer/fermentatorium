@@ -1,0 +1,35 @@
+{% if mac_prompts %}
+<div class="mac-prompt" style="max-width:1000px; margin:10px auto; padding:12px 16px; background:#fff3cd; border:1px solid #ffe08a; border-radius:8px; color:#5c4400;">
+  {% for pr in mac_prompts %}
+  <div style="margin-bottom:10px;">
+    <strong>⚠️ More than one {{ pr.color }} Tilt was found.</strong>
+    The existing {{ pr.color }} batch "{{ pr.beer_name or 'Unnamed Beer' }}{% if pr.batch_name %} / {{ pr.batch_name }}{% endif %}" has no device recorded.
+    Which Tilt does it belong to?
+    <ul style="margin:8px 0 0 18px; padding:0;">
+      {% for d in pr.devices %}
+      <li style="margin-bottom:6px;">
+        <code>{{ d.mac }}</code>{% if d.is_pro %} (Pro){% endif %} —
+        {% if d.temp_f is not none %}{{ d.temp_f }}°F{% else %}--{% endif %},
+        {% if d.gravity is not none %}{{ "%.3f"|format(d.gravity) }}{% else %}--{% endif %}
+        <button type="button" class="btn-action" style="margin-left:8px;"
+                onclick="assignTiltMac('{{ pr.color }}','{{ d.mac }}')">This is the one</button>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+</div>
+<script>
+  function assignTiltMac(color, mac) {
+    if (!confirm('Assign the existing ' + color + ' batch to ' + mac + '?')) return;
+    fetch('/assign_tilt_mac', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'color=' + encodeURIComponent(color) + '&mac=' + encodeURIComponent(mac)
+    }).then(r => r.json()).then(d => {
+      if (d.success) { window.location.reload(); }
+      else { alert('Error: ' + (d.error || 'Unknown error')); }
+    }).catch(e => alert('Error: ' + e));
+  }
+</script>
+{% endif %}
