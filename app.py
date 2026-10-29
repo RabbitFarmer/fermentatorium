@@ -11185,12 +11185,20 @@ def _browser_display_env():
             if os.path.exists(os.path.join(runtime, n)):
                 env['WAYLAND_DISPLAY'] = n
                 break
-    if not env.get('DISPLAY') and not env.get('WAYLAND_DISPLAY'):
+    if not env.get('DISPLAY') and (not env.get('WAYLAND_DISPLAY') or os.path.exists('/tmp/.X11-unix/X0')):
         env['DISPLAY'] = ':0'
+    bus = os.path.join(runtime, 'bus')
+    if not env.get('DBUS_SESSION_BUS_ADDRESS') and os.path.exists(bus):
+        env['DBUS_SESSION_BUS_ADDRESS'] = f'unix:path={bus}'
     xauth = os.path.expanduser('~/.Xauthority')
     if not env.get('XAUTHORITY') and os.path.exists(xauth):
         env['XAUTHORITY'] = xauth
     return env
+
+
+def _browser_platform_flags(env):
+    """Chromium defaults to X11; select Wayland explicitly when a Wayland session is present."""
+    return ['--ozone-platform=wayland'] if env.get('WAYLAND_DISPLAY') else []
 
 
 def _request_is_from_this_machine():
@@ -11242,6 +11250,7 @@ def browser_mode():
         'exec "$@"'
     )
     env = _browser_display_env()
+    flags += _browser_platform_flags(env)
     try:
         log = open('/tmp/fermentatorium_browser.log', 'ab')
         subprocess.Popen(
@@ -11344,6 +11353,7 @@ def open_browser(port=5001):
     # is present (e.g. an accidental headless run), so Chromium has a display
     # to connect to instead of failing silently.
     browser_env = _browser_display_env()
+    chromium_flags += _browser_platform_flags(browser_env)
 
     try:
         # 1) Chromium on Raspberry Pi OS / most Debian-based Linux
