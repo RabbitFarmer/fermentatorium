@@ -18,7 +18,7 @@ If you are not a computer person, don't worry — here is what you need to know 
 4. Optional: a **TP-Link Kasa smart plug** — to automatically control a heater or refrigerator.
 
 ### Five steps to get running
-1. **Set up the Raspberry Pi** — install Raspberry Pi OS on the MicroSD card (free software, plenty of online guides for your specific Pi model).
+1. **Set up the Raspberry Pi** — install Raspberry Pi OS on the MicroSD card (free software, plenty of online guides for your specific Pi model). When asked to set a password for "Default Keyings", leave BLANK. A password here interferes with the program.
 2. **Install Fermentatorium** — connect the Pi to the internet, open a terminal, and paste one line of text (see [Installation](#installation) below).
 3. **Open the dashboard** — on any phone, tablet, or computer on your home Wi-Fi, open a browser and go to `http://<your-pi-ip>:5001`.
 4. **Enter your settings** — tap the **⚙ gear icon** (top-right of the dashboard) and fill in your brewery name, temperature units, and Tilt colors.
@@ -122,7 +122,7 @@ All notifications include smart deduplication and automatic retry with exponenti
 3. Open a terminal on the Pi (or SSH into it from another computer).
 4. Run the one-line installer below.
 5. Open a browser on any device on your network and go to `http://<pi-ip>:5001`.
-
+NOTE: In the initial install, you will be asked to provide a password for "Default Keyings."  Leave it Blank.
 ---
 
 ### Option A — One-Command Install (Recommended)
