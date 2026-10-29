@@ -11173,6 +11173,26 @@ def exit_system():
     return render_template('exit_system.html')
 
 
+def _browser_display_env():
+    """Environment for launching Chromium on the local screen, even from a systemd service."""
+    env = os.environ.copy()
+    uid = os.getuid()
+    runtime = env.get('XDG_RUNTIME_DIR') or f'/run/user/{uid}'
+    if os.path.isdir(runtime):
+        env.setdefault('XDG_RUNTIME_DIR', runtime)
+    if not env.get('WAYLAND_DISPLAY'):
+        for n in ('wayland-0', 'wayland-1'):
+            if os.path.exists(os.path.join(runtime, n)):
+                env['WAYLAND_DISPLAY'] = n
+                break
+    if not env.get('DISPLAY') and not env.get('WAYLAND_DISPLAY'):
+        env['DISPLAY'] = ':0'
+    xauth = os.path.expanduser('~/.Xauthority')
+    if not env.get('XAUTHORITY') and os.path.exists(xauth):
+        env['XAUTHORITY'] = xauth
+    return env
+
+
 def _request_is_from_this_machine():
     """True when the request comes from the machine running the app (the kiosk screen)."""
     addr = request.remote_addr or ''
@@ -11221,11 +11241,9 @@ def browser_mode():
         '"$HOME/.config/chromium/Default/Preferences" 2>/dev/null ; '
         'exec "$@"'
     )
-    env = os.environ.copy()
-    if not env.get('DISPLAY') and not env.get('WAYLAND_DISPLAY'):
-        env['DISPLAY'] = ':0'
+    env = _browser_display_env()
     try:
-        log = open('app.log', 'ab')
+        log = open('/tmp/fermentatorium_browser.log', 'ab')
         subprocess.Popen(
             ['sh', '-c', script, 'sh', browser, *flags, url],
             stdin=subprocess.DEVNULL, stdout=log, stderr=log,
@@ -11309,10 +11327,11 @@ def open_browser(port=5001):
                 print(f"[LOG] Flask not responding after {max_attempts} seconds, opening browser anyway")
 
     # Launch Chromium in fullscreen with no address bar or error dialogs.
-    # --start-fullscreen is used instead of --kiosk so that the F11 and ESC
-    # keys remain active and can toggle fullscreen on and off.
+    # --kiosk gives a true kiosk display; use the gear menu's "Exit Kiosk"
+    # item to switch to a normal window.
     chromium_flags = [
-        '--start-fullscreen',
+        '--new-window',
+        '--kiosk',
         '--noerrdialogs',
         '--disable-infobars',
         '--disable-session-crashed-bubble',
@@ -11324,10 +11343,7 @@ def open_browser(port=5001):
     # it automatically.  The fallback to ":0" only fires when neither variable
     # is present (e.g. an accidental headless run), so Chromium has a display
     # to connect to instead of failing silently.
-    browser_env = os.environ.copy()
-    if not browser_env.get('DISPLAY') and not browser_env.get('WAYLAND_DISPLAY'):
-        browser_env['DISPLAY'] = ':0'
-        print("[LOG] DISPLAY not set — defaulting to :0 for browser launch")
+    browser_env = _browser_display_env()
 
     try:
         # 1) Chromium on Raspberry Pi OS / most Debian-based Linux
