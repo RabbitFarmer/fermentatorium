@@ -11208,18 +11208,30 @@ def browser_mode():
     flags.insert(1, '--kiosk' if mode == 'kiosk' else '--start-maximized')
 
     # Detached helper: close the current window, then relaunch in the requested mode.
-    kill_cmds = ' ; '.join(f'pkill -x {b} 2>/dev/null' for b in ('chromium-browser', 'chromium', 'chrome'))
+    # Wait for the old Chromium to exit completely and clear its profile lock,
+    # otherwise the new instance hands off to the dying one and exits silently.
     script = (
-        f'sleep 1 ; {kill_cmds} ; sleep 2 ; '
-        'rm -f "$HOME/.config/chromium/SingletonLock" ; '
+        'sleep 1 ; pkill -x chromium-browser ; pkill -x chromium ; pkill -x chrome ; '
+        'i=0 ; while [ $i -lt 15 ] && pgrep -x "chromium|chromium-browser|chrome" >/dev/null ; '
+        'do sleep 1 ; i=$((i+1)) ; done ; '
+        'pkill -9 -x chromium ; pkill -9 -x chromium-browser ; pkill -9 -x chrome ; sleep 1 ; '
+        'rm -f "$HOME/.config/chromium/SingletonLock" "$HOME/.config/chromium/SingletonSocket" '
+        '"$HOME/.config/chromium/SingletonCookie" ; '
+        'sed -i \'s/"exit_type"[[:space:]]*:[[:space:]]*"Crashed"/"exit_type": "Normal"/g\' '
+        '"$HOME/.config/chromium/Default/Preferences" 2>/dev/null ; '
         'exec "$@"'
     )
+    env = os.environ.copy()
+    if not env.get('DISPLAY') and not env.get('WAYLAND_DISPLAY'):
+        env['DISPLAY'] = ':0'
     try:
+        log = open('app.log', 'ab')
         subprocess.Popen(
             ['sh', '-c', script, 'sh', browser, *flags, url],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+            start_new_session=True, env=env,
         )
+        log.close()
     except Exception as e:
         print(f"[LOG] Error switching browser mode: {e}")
         return jsonify({'success': False, 'error': 'Could not restart the browser'}), 500
