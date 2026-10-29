@@ -133,9 +133,9 @@ main() {
   install_os_deps
   ensure_bluetooth_access
   ensure_default_configs
+  fix_repo_ownership
   ensure_venv_and_deps
   install_systemd_service
-  fix_repo_ownership
 
   echo ""
   echo "Running from: ${REPO_DIR}"
