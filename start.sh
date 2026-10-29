@@ -86,6 +86,22 @@ open_browser_kiosk() {
             export DISPLAY=:0
         fi
     fi
+    local runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    local -a platform_flags=()
+    if [ -z "$WAYLAND_DISPLAY" ]; then
+        for _w in wayland-0 wayland-1; do
+            if [ -S "$runtime/$_w" ]; then export WAYLAND_DISPLAY="$_w"; break; fi
+        done
+    fi
+    if [ -n "$WAYLAND_DISPLAY" ]; then
+        # Chromium defaults to X11 and fails with "Missing X server or $DISPLAY" on Wayland.
+        platform_flags=(--ozone-platform=wayland)
+        if [ -z "$DISPLAY" ] && [ -e /tmp/.X11-unix/X0 ]; then export DISPLAY=:0; fi
+    fi
+    case "$DBUS_SESSION_BUS_ADDRESS" in
+        unix:*) ;;
+        *) [ -S "$runtime/bus" ] && export DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime/bus" ;;
+    esac
     local browser=""
     for candidate in chromium-browser chromium google-chrome google-chrome-stable; do
         if command -v "$candidate" > /dev/null 2>&1; then
@@ -123,6 +139,7 @@ open_browser_kiosk() {
             --noerrdialogs \
             --disable-infobars \
             --disable-session-crashed-bubble \
+            "${platform_flags[@]}" \
             "$url" >> app.log 2>&1 &
         disown $! 2>/dev/null || true
     elif command -v xdg-open > /dev/null 2>&1; then
