@@ -11140,9 +11140,9 @@ def exit_system():
                         [
                             'sh', '-c',
                             'sleep 5'
-                            ' && pkill chromium-browser 2>/dev/null || true'
-                            ' && pkill chromium 2>/dev/null || true'
-                            ' && pkill google-chrome 2>/dev/null || true'
+                            ' && pkill -x chromium-browse 2>/dev/null || true'
+                            ' && pkill -x chromium 2>/dev/null || true'
+                            ' && pkill -x chrome 2>/dev/null || true'
                             ' ; ' + os_cmd
                         ],
                         stdin=subprocess.DEVNULL,
@@ -11231,10 +11231,10 @@ def browser_mode():
     # Wait for the old Chromium to exit completely and clear its profile lock,
     # otherwise the new instance hands off to the dying one and exits silently.
     script = (
-        'sleep 1 ; pkill -x chromium-browser ; pkill -x chromium ; pkill -x chrome ; '
-        'i=0 ; while [ $i -lt 15 ] && pgrep -x "chromium|chromium-browser|chrome" >/dev/null ; '
+        'sleep 1 ; pkill -x chromium-browse ; pkill -x chromium ; pkill -x chrome ; '
+        'i=0 ; while [ $i -lt 15 ] && pgrep -x "chromium|chromium-browse|chrome" >/dev/null ; '
         'do sleep 1 ; i=$((i+1)) ; done ; '
-        'pkill -9 -x chromium ; pkill -9 -x chromium-browser ; pkill -9 -x chrome ; sleep 1 ; '
+        'pkill -9 -x chromium ; pkill -9 -x chromium-browse ; pkill -9 -x chrome ; sleep 1 ; '
         'rm -f "$HOME/.config/chromium/SingletonLock" "$HOME/.config/chromium/SingletonSocket" '
         '"$HOME/.config/chromium/SingletonCookie" ; '
         'sed -i \'s/"exit_type"[[:space:]]*:[[:space:]]*"Crashed"/"exit_type": "Normal"/g\' '
