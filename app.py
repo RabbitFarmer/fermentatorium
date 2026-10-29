@@ -11173,6 +11173,59 @@ def exit_system():
     return render_template('exit_system.html')
 
 
+def _request_is_from_this_machine():
+    """True when the request comes from the machine running the app (the kiosk screen)."""
+    addr = request.remote_addr or ''
+    if addr in ('127.0.0.1', '::1'):
+        return True
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(('10.255.255.255', 1))
+            return addr == s.getsockname()[0]
+    except OSError:
+        return False
+
+
+@app.route('/browser_mode', methods=['POST'])
+def browser_mode():
+    """
+    Restart the local Chromium window in kiosk or normal (windowed) mode so the
+    user can reach other programs.  Only honoured from the machine itself.
+    """
+    mode = request.form.get('mode') or (request.get_json(silent=True) or {}).get('mode')
+    if mode not in ('kiosk', 'normal'):
+        return jsonify({'success': False, 'error': 'mode must be kiosk or normal'}), 400
+    if not _request_is_from_this_machine():
+        return jsonify({'success': False, 'error': 'Only available on the local display'}), 403
+
+    browser = next((b for b in ('chromium-browser', 'chromium', 'google-chrome', 'google-chrome-stable')
+                    if shutil.which(b)), None)
+    if not browser:
+        return jsonify({'success': False, 'error': 'Chromium/Chrome not found'}), 404
+
+    url = request.host_url
+    flags = ['--new-window', '--noerrdialogs', '--disable-infobars', '--disable-session-crashed-bubble']
+    flags.insert(1, '--kiosk' if mode == 'kiosk' else '--start-maximized')
+
+    # Detached helper: close the current window, then relaunch in the requested mode.
+    kill_cmds = ' ; '.join(f'pkill -x {b} 2>/dev/null' for b in ('chromium-browser', 'chromium', 'chrome'))
+    script = (
+        f'sleep 1 ; {kill_cmds} ; sleep 2 ; '
+        'rm -f "$HOME/.config/chromium/SingletonLock" ; '
+        'exec "$@"'
+    )
+    try:
+        subprocess.Popen(
+            ['sh', '-c', script, 'sh', browser, *flags, url],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception as e:
+        print(f"[LOG] Error switching browser mode: {e}")
+        return jsonify({'success': False, 'error': 'Could not restart the browser'}), 500
+    return jsonify({'success': True, 'mode': mode})
+
+
 # --- Program entry ---------------------------------------------------------
 def open_browser(port=5001):
     """
