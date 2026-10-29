@@ -61,8 +61,8 @@ get_local_ip() {
 
 # Open the browser in kiosk mode (no address bar, always fullscreen).
 # Tries Chromium (with --kiosk) first; falls back to xdg-open.
-# --kiosk gives a true kiosk display — the in-app "Exit Kiosk" button on
-# the dashboard (or Alt+F4 at the OS level) closes the window.
+# --kiosk gives a true kiosk display — use the gear menu's "Exit Kiosk
+# (windowed)" item on the dashboard (or Alt+F4 at the OS level) to leave it.
 # --new-window ensures a dedicated kiosk window is opened even when a
 # Chromium instance is already running (without it Chromium would open a
 # plain tab in the existing window and ignore --kiosk).

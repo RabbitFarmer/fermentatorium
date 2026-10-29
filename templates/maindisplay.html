@@ -474,6 +474,8 @@
           <a href="{{ url_for('batch_history') }}" role="menuitem">Batch History</a>
           <a href="{{ url_for('reports') }}" role="menuitem">Reports</a>
           <a href="{{ url_for('log_management') }}" role="menuitem">Log Management</a>
+          <a href="#" role="menuitem" onclick="return switchBrowserMode('normal');">Exit Kiosk (windowed)</a>
+          <a href="#" role="menuitem" onclick="return switchBrowserMode('kiosk');">Enter Kiosk</a>
           <a href="{{ url_for('exit_system') }}" role="menuitem" class="exit-link">Exit System</a>
         </div>
       </div>
@@ -1664,6 +1666,19 @@
       });
   }());
   </script>
-
+  <script>
+    function switchBrowserMode(mode) {
+      var msg = mode === 'normal'
+        ? 'Leave kiosk mode? The browser will restart in a normal window.'
+        : 'Enter kiosk mode? The browser will restart fullscreen.';
+      if (!confirm(msg)) return false;
+      fetch('/browser_mode', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                              body: JSON.stringify({mode: mode})})
+        .then(function (r) { return r.json(); })
+        .then(function (d) { if (!d.success) alert(d.error || 'Failed to switch mode'); })
+        .catch(function () {});
+      return false;
+    }
+  </script>
 </body>
 </html>
