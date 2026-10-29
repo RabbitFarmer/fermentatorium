@@ -11188,7 +11188,7 @@ def _browser_display_env():
     if not env.get('DISPLAY') and (not env.get('WAYLAND_DISPLAY') or os.path.exists('/tmp/.X11-unix/X0')):
         env['DISPLAY'] = ':0'
     bus = os.path.join(runtime, 'bus')
-    if not env.get('DBUS_SESSION_BUS_ADDRESS') and os.path.exists(bus):
+    if not env.get('DBUS_SESSION_BUS_ADDRESS', '').startswith('unix:') and os.path.exists(bus):
         env['DBUS_SESSION_BUS_ADDRESS'] = f'unix:path={bus}'
     xauth = os.path.expanduser('~/.Xauthority')
     if not env.get('XAUTHORITY') and os.path.exists(xauth):
@@ -11240,7 +11240,7 @@ def browser_mode():
     # otherwise the new instance hands off to the dying one and exits silently.
     script = (
         'sleep 1 ; pkill -x chromium-browse ; pkill -x chromium ; pkill -x chrome ; '
-        'i=0 ; while [ $i -lt 15 ] && pgrep -x "chromium|chromium-browse|chrome" >/dev/null ; '
+        'i=0 ; while [ $i -lt 15 ] && { pgrep -x chromium-browse || pgrep -x chromium || pgrep -x chrome ; } >/dev/null ; '
         'do sleep 1 ; i=$((i+1)) ; done ; '
         'pkill -9 -x chromium ; pkill -9 -x chromium-browse ; pkill -9 -x chrome ; sleep 1 ; '
         'rm -f "$HOME/.config/chromium/SingletonLock" "$HOME/.config/chromium/SingletonSocket" '
