@@ -7546,6 +7546,9 @@ def calculate_batch_statistics(batch_data, batch_info):
                 stats['ferm_status'] = f'Active Fermentation — started {dt.strftime("%Y-%m-%d")}'
             except Exception:
                 stats['ferm_status'] = 'Active Fermentation'
+    elif stats['rate_status'] in ('Rapid', 'Active'):
+        # Gravity is dropping now, even if the start notification was never recorded.
+        stats['ferm_status'] = 'Active Fermentation'
     elif all_samples:
         stats['ferm_status'] = 'Pre-Fermentation / Conditioning'
     else:
@@ -10181,108 +10184,156 @@ def run_dropbox_backup():
     return jsonify(result), status
 
 
+def _restore_from_archive(archive_path):
+    """Validate and restore an archive into the application directory.
+
+    Returns (success, message, http_status).
+    """
+    import tarfile
+    import tempfile
+
+    temp_dir = tempfile.mkdtemp(prefix='fermenter_restore_')
+    try:
+        with tarfile.open(archive_path, 'r:gz') as tar:
+            members = tar.getmembers()
+            for member in members:
+                parts = member.name.replace('\\', '/').split('/')
+                if member.name.startswith('/') or '..' in parts or member.issym() or member.islnk():
+                    return False, 'Invalid backup file: contains unsafe paths', 400
+            tar.extractall(temp_dir, members=members)
+
+        for item in os.listdir(temp_dir):
+            src = os.path.join(temp_dir, item)
+            dst = os.path.join(_HERE, item)
+
+            if os.path.exists(dst):
+                backup_old = f'{dst}.backup_before_restore'
+                if os.path.isdir(dst):
+                    if os.path.exists(backup_old):
+                        shutil.rmtree(backup_old)
+                    shutil.copytree(dst, backup_old)
+                else:
+                    shutil.copy2(dst, backup_old)
+
+            if os.path.isdir(src):
+                if os.path.exists(dst):
+                    shutil.rmtree(dst)
+                shutil.copytree(src, dst)
+            else:
+                shutil.copy2(src, dst)
+        return True, '', 200
+    except Exception as e:
+        app.logger.exception('Restore failed while processing archive: %s', archive_path)
+        return False, 'Restore failed due to an internal error.', 500
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+_BACKUP_FILENAME_RE = re.compile(r'^fermenter_backup_[A-Za-z0-9_]+\.tar\.gz$')
+
+
 @app.route('/restore_system', methods=['POST'])
 def restore_system():
     """Restore system from a backup file."""
-    import tarfile
-    import shutil
-    
     backup_path = request.form.get('backup_path', '/media/usb')
     backup_filename = request.form.get('backup_filename', '')
-    
+
     if not backup_filename:
-        return jsonify({
-            'success': False,
-            'message': 'No backup file specified.'
-        }), 400
-    
-    # Security: Validate filename to prevent directory traversal
-    if '..' in backup_filename or '/' in backup_filename or '\\' in backup_filename:
-        return jsonify({
-            'success': False,
-            'message': 'Invalid backup filename.'
-        }), 400
-    
-    # Security: Ensure filename has expected format
-    if not backup_filename.startswith('fermenter_backup_') or not backup_filename.endswith('.tar.gz'):
-        return jsonify({
-            'success': False,
-            'message': 'Invalid backup file format.'
-        }), 400
-    
+        return jsonify({'success': False, 'message': 'No backup file specified.'}), 400
+
+    if not _BACKUP_FILENAME_RE.match(backup_filename):
+        return jsonify({'success': False, 'message': 'Invalid backup file format.'}), 400
+
     backup_full_path = os.path.join(backup_path, backup_filename)
-    
-    # Validate that the backup file exists
     if not os.path.exists(backup_full_path):
         return jsonify({
             'success': False,
             'message': f'Backup file does not exist: {backup_full_path}'
         }), 400
-    
+
+    ok, msg, status = _restore_from_archive(backup_full_path)
+    if not ok:
+        return jsonify({'success': False, 'message': msg}), status
+    return jsonify({
+        'success': True,
+        'message': f'System restored successfully from {backup_filename}. Please restart the application for changes to take effect.',
+        'restart_required': True
+    })
+
+
+def _dropbox_resolve_folder_and_token():
+    access_token = _sanitize_dropbox_access_token(system_cfg.get('dropbox_access_token', ''))
+    if not access_token:
+        raise _DropboxError('Dropbox access token is not configured. Save it in System Settings first.')
+    _validate_dropbox_access_token(access_token)
+    folder = _dropbox_create_folder_if_needed(
+        access_token,
+        _normalize_dropbox_folder(system_cfg.get('dropbox_backup_folder', '/FermentatoriumBackups')))
+    return access_token, folder
+
+
+@app.route('/list_dropbox_backups', methods=['POST'])
+def list_dropbox_backups():
+    """List backup files stored in the configured Dropbox folder."""
     try:
-        # Create a secure temporary directory for extraction validation
-        import tempfile
-        temp_dir = tempfile.mkdtemp(prefix='fermenter_restore_')
-        
-        try:
-            # Extract the backup to temporary directory first
-            with tarfile.open(backup_full_path, 'r:gz') as tar:
-                # Security check: ensure no absolute paths or parent directory references
-                safe_members = []
-                for member in tar.getmembers():
-                    if member.name.startswith('/') or '..' in member.name:
-                        shutil.rmtree(temp_dir)
-                        return jsonify({
-                            'success': False,
-                            'message': f'Invalid backup file: contains unsafe paths'
-                        }), 400
-                    safe_members.append(member)
-                
-                # Extract only validated members to temp directory
-                tar.extractall(temp_dir, members=safe_members)
-            
-            # Now copy files from temp to current directory
-            # This allows us to validate before overwriting
-            current_dir = os.getcwd()
-            
-            for item in os.listdir(temp_dir):
-                src = os.path.join(temp_dir, item)
-                dst = os.path.join(current_dir, item)
-                
-                # Backup existing files before overwriting
-                if os.path.exists(dst):
-                    backup_old = f'{dst}.backup_before_restore'
-                    if os.path.isdir(dst):
-                        if os.path.exists(backup_old):
-                            shutil.rmtree(backup_old)
-                        shutil.copytree(dst, backup_old)
-                    else:
-                        shutil.copy2(dst, backup_old)
-                
-                # Copy from temp to current
-                if os.path.isdir(src):
-                    if os.path.exists(dst):
-                        shutil.rmtree(dst)
-                    shutil.copytree(src, dst)
-                else:
-                    shutil.copy2(src, dst)
-            
-            return jsonify({
-                'success': True,
-                'message': f'System restored successfully from {backup_filename}. Please restart the application for changes to take effect.',
-                'restart_required': True
-            })
-            
-        finally:
-            # Always cleanup temp directory
-            if os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir)
-        
+        access_token, folder = _dropbox_resolve_folder_and_token()
+        req = urllib.request.Request(
+            'https://api.dropboxapi.com/2/files/list_folder',
+            data=json.dumps({'path': '' if folder == '/' else folder}).encode('utf-8'),
+            method='POST')
+        req.add_header('Authorization', f'Bearer {access_token}')
+        req.add_header('Content-Type', 'application/json')
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode('utf-8', errors='replace'))
+        backups = []
+        for entry in data.get('entries', []):
+            name = entry.get('name', '')
+            if entry.get('.tag') == 'file' and _BACKUP_FILENAME_RE.match(name):
+                backups.append({
+                    'filename': name,
+                    'size_mb': f"{entry.get('size', 0) / (1024 * 1024):.2f}",
+                    'modified': str(entry.get('server_modified', '')).replace('T', ' ').rstrip('Z'),
+                })
+        backups.sort(key=lambda x: x['modified'], reverse=True)
+        return jsonify({'success': True, 'backups': backups, 'path': folder})
+    except _DropboxError as e:
+        print(f"[LOG] Dropbox list backups validation/config error: {e}")
+        return jsonify({'success': False, 'message': 'Could not list Dropbox backups. Check Dropbox settings and try again.', 'backups': []})
     except Exception as e:
+        print(f"[LOG] Dropbox list backups failed: {e}")
+        return jsonify({'success': False, 'message': 'Could not list Dropbox backups. Check token, folder and network.', 'backups': []})
+
+
+@app.route('/restore_dropbox_backup', methods=['POST'])
+def restore_dropbox_backup():
+    """Download a backup from Dropbox and restore it."""
+    import tempfile
+    backup_filename = request.form.get('backup_filename', '')
+    if not _BACKUP_FILENAME_RE.match(backup_filename):
+        return jsonify({'success': False, 'message': 'Invalid backup file format.'}), 400
+    try:
+        access_token, folder = _dropbox_resolve_folder_and_token()
+        dropbox_path = f'/{backup_filename}' if folder == '/' else f'{folder}/{backup_filename}'
+        req = urllib.request.Request('https://content.dropboxapi.com/2/files/download', method='POST')
+        req.add_header('Authorization', f'Bearer {access_token}')
+        req.add_header('Dropbox-API-Arg', json.dumps({'path': dropbox_path}))
+        with tempfile.TemporaryDirectory(prefix='fermenter_dropbox_restore_') as tmpdir:
+            local = os.path.join(tmpdir, 'downloaded_backup.zip')
+            with urllib.request.urlopen(req, timeout=300) as resp, open(local, 'wb') as out:
+                shutil.copyfileobj(resp, out)
+            ok, msg, status = _restore_from_archive(local)
+        if not ok:
+            return jsonify({'success': False, 'message': msg}), status
         return jsonify({
-            'success': False,
-            'message': f'Restore failed: {str(e)}'
-        }), 500
+            'success': True,
+            'message': f'System restored successfully from Dropbox backup {backup_filename}. Please restart the application for changes to take effect.',
+            'restart_required': True
+        })
+    except _DropboxError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        print(f"[LOG] Dropbox restore failed: {e}")
+        return jsonify({'success': False, 'message': 'Dropbox restore failed. Check token, folder and network.'}), 500
 
 
 @app.route('/list_backups', methods=['POST'])

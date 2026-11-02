@@ -718,10 +718,13 @@
             <td colspan="2" style="background-color: #f5f5f5; padding: 15px;">
               <h4 style="margin: 0 0 10px 0;">Restore from Backup</h4>
               <button type="button" class="btn-secondary" onclick="refreshBackupList()" style="margin-bottom: 10px;">
-                Refresh Backup List
+                Refresh USB Backup List
+              </button>
+              <button type="button" class="btn-secondary" onclick="refreshDropboxBackupList()" style="margin-bottom: 10px;">
+                Refresh Dropbox Backup List
               </button>
               <div id="backup-list-container" style="margin-top: 10px;">
-                <p style="font-style: italic; color: #666;">Click "Refresh Backup List" to see available backups.</p>
+                <p style="font-style: italic; color: #666;">Click a "Refresh" button to see available backups.</p>
               </div>
             </td>
           </tr>
@@ -876,13 +879,14 @@
       });
     }
     
-    function refreshBackupList() {
+    function refreshBackupList(source) {
+      source = (source === 'dropbox') ? 'dropbox' : 'usb';
       const backupPath = document.getElementById('backup_path').value;
       const container = document.getElementById('backup-list-container');
       
       container.innerHTML = '<p style="font-style: italic; color: #666;">Loading backups...</p>';
       
-      fetch('/list_backups', {
+      fetch(source === 'dropbox' ? '/list_dropbox_backups' : '/list_backups', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -906,7 +910,7 @@
             html += '<td style="padding: 8px; text-align: center;">' + escapedSize + '</td>';
             html += '<td style="padding: 8px; text-align: center;">' + escapedDate + '</td>';
             html += '<td style="padding: 8px; text-align: center;">';
-            html += '<button type="button" class="btn-primary restore-btn" data-filename="' + escapedFilename + '" style="font-size: 14px; padding: 5px 15px;">Restore</button>';
+            html += '<button type="button" class="btn-primary restore-btn" data-filename="' + escapedFilename + '" data-source="' + source + '" style="font-size: 14px; padding: 5px 15px;">Restore</button>';
             html += '</td>';
             html += '</tr>';
           });
@@ -918,7 +922,7 @@
           document.querySelectorAll('.restore-btn').forEach(btn => {
             btn.addEventListener('click', function() {
               const filename = this.getAttribute('data-filename');
-              restoreBackup(filename);
+              restoreBackup(filename, this.getAttribute('data-source'));
             });
           });
         } else if (data.success && data.backups.length === 0) {
@@ -932,7 +936,11 @@
       });
     }
     
-    function restoreBackup(filename) {
+    function refreshDropboxBackupList() {
+      refreshBackupList('dropbox');
+    }
+
+    function restoreBackup(filename, source) {
       if (!confirm('Are you sure you want to restore from this backup?\n\nThis will overwrite current files and requires an application restart.\n\nBackup: ' + filename)) {
         return;
       }
@@ -942,7 +950,7 @@
       
       container.innerHTML = '<p style="font-style: italic; color: blue;">Restoring from backup, please wait...</p>';
       
-      fetch('/restore_system', {
+      fetch(source === 'dropbox' ? '/restore_dropbox_backup' : '/restore_system', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',

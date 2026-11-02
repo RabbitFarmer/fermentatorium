@@ -1411,10 +1411,33 @@
     }
 
     /* ── Poll /live_snapshot ── */
+    /* When the server stops answering (e.g. the port was changed and this
+       page is a leftover from the old address), cover the stale data. */
+    let snapshotFailures = 0;
+    function setServerOffline(offline) {
+      let el = document.getElementById('serverOfflineOverlay');
+      if (!offline) { if (el) el.style.display = 'none'; return; }
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'serverOfflineOverlay';
+        el.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(30,30,30,0.93);color:#fff;' +
+          'display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;' +
+          'font-family:sans-serif;padding:20px;';
+        el.innerHTML = '<h2>Server not responding</h2>' +
+          '<p>This display is out of date. The server at ' + location.host + ' is no longer active,<br>' +
+          'or it has moved to a different port.</p>' +
+          '<p>Check the current IP:port and open the new address.</p>';
+        document.body.appendChild(el);
+      }
+      el.style.display = 'flex';
+    }
+
     async function pollLiveSnapshot() {
       try {
-        const r = await fetch('/live_snapshot', { cache: 'no-cache' });
-        if (!r.ok) return;
+        const r = await fetch('/live_snapshot', { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        snapshotFailures = 0;
+        setServerOffline(false);
         const data = await r.json();
         if (!data) return;
 
@@ -1440,6 +1463,7 @@
         }
       } catch(err) {
         console.error('pollLiveSnapshot error', err);
+        if (++snapshotFailures >= 3) setServerOffline(true);
       }
     }
 
@@ -1528,6 +1552,9 @@
       });
 
     }); // end DOMContentLoaded
+
+    /* A page restored from the back/forward cache is stale; reload it. */
+    window.addEventListener('pageshow', function(e) { if (e.persisted) location.reload(); });
 
     /* Start polling immediately and at interval */
     pollLiveSnapshot();
