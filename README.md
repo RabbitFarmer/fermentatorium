@@ -587,6 +587,8 @@ From the dashboard, open **⚙ gear → System Settings → Backup & Restore / U
 
 USB backups are stored at your configured mount path (default `/media/usb`).
 
+**Google Drive, OneDrive, and iCloud Drive:** choose the drive from the **Backup Destination** dropdown. Fermentatorium does not log in to these services and does not ask for a username or password. It is assumed you have already set up the drive on the device (for example with `rclone mount` or the vendor's sync client), signed in, and have a local folder that is mounted or synced to it. Enter that folder path in the path field; if the folder does not exist, the backup or restore will fail.
+
 ---
 
 ## Utilities
