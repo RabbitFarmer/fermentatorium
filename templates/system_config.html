@@ -690,17 +690,26 @@
       <div id="backup-restore" class="tab-content {% if active_tab == 'backup-restore' %}active{% endif %}">
         <h3 style="text-align: center; margin-top: 20px;">System Backup, Restore, and Update</h3>
         <p style="text-align: center; font-style: italic; color: #666; margin-bottom: 30px;">
-          Backup all programs and data to a USB device, restore from a previous backup, or update to the latest version.
+          Backup all programs and data to a USB device or cloud drive, restore from a previous backup, or update to the latest version.
         </p>
         
         <table class="config-table" style="width: 70%; margin: auto;">
           <tr>
             <td colspan="2" style="background-color: #f5f5f5; padding: 15px;">
               <h4 style="margin: 0 0 10px 0;">Backup Configuration</h4>
-              <label for="backup_path"><b>USB Mount Path</b></label><br>
-              <input type="text" id="backup_path" name="backup_path" value="{{ system_settings.get('backup_path', '/media/usb') }}" placeholder="/media/usb" style="width: 100%; margin-top: 5px;">
-              <div style="font-size:0.9em;color:#666;margin-top:6px;">
-                Enter the path where your USB device is mounted (e.g., /media/usb, /mnt/usb0)
+              {% set dest = system_settings.get('backup_destination', 'usb') %}
+              <label for="backup_destination"><b>Backup Destination</b></label><br>
+              <select id="backup_destination" name="backup_destination" onchange="updateBackupDestination(true)" style="width: 100%; margin-top: 5px;">
+                <option value="usb" {% if dest == 'usb' %}selected{% endif %}>USB Device</option>
+                <option value="dropbox" {% if dest == 'dropbox' %}selected{% endif %}>Dropbox</option>
+                <option value="google_drive" {% if dest == 'google_drive' %}selected{% endif %}>Google Drive</option>
+                <option value="onedrive" {% if dest == 'onedrive' %}selected{% endif %}>Microsoft OneDrive</option>
+                <option value="icloud" {% if dest == 'icloud' %}selected{% endif %}>Apple iCloud Drive</option>
+              </select>
+              <div id="backup-path-section" style="margin-top: 12px;">
+                <label for="backup_path"><b id="backup_path_label">USB Mount Path</b></label><br>
+                <input type="text" id="backup_path" name="backup_path" value="{{ system_settings.get('backup_path', '/media/usb') }}" placeholder="/media/usb" style="width: 100%; margin-top: 5px;">
+                <div id="backup_path_help" style="font-size:0.9em;color:#666;margin-top:6px;"></div>
               </div>
             </td>
           </tr>
@@ -718,18 +727,15 @@
             <td colspan="2" style="background-color: #f5f5f5; padding: 15px;">
               <h4 style="margin: 0 0 10px 0;">Restore from Backup</h4>
               <button type="button" class="btn-secondary" onclick="refreshBackupList()" style="margin-bottom: 10px;">
-                Refresh USB Backup List
-              </button>
-              <button type="button" class="btn-secondary" onclick="refreshDropboxBackupList()" style="margin-bottom: 10px;">
-                Refresh Dropbox Backup List
+                Refresh Backup List
               </button>
               <div id="backup-list-container" style="margin-top: 10px;">
-                <p style="font-style: italic; color: #666;">Click a "Refresh" button to see available backups.</p>
+                <p style="font-style: italic; color: #666;">Click "Refresh Backup List" to see available backups.</p>
               </div>
             </td>
           </tr>
           <tr>
-            <td colspan="2" style="background-color: #f5f5f5; padding: 15px;">
+            <td id="dropbox-section" colspan="2" style="background-color: #f5f5f5; padding: 15px;">
               <h4 style="margin: 0 0 10px 0;">Automatic Dropbox Backups</h4>
               <div style="margin-bottom: 10px;">
                 <label>
@@ -851,7 +857,37 @@
       }
     }
     
+    const BACKUP_DEST_INFO = {
+      usb: {label: 'USB Mount Path', path: '/media/usb', help: 'Enter the path where your USB device is mounted (e.g., /media/usb, /mnt/usb0)'},
+      google_drive: {label: 'Google Drive Folder Path', path: '/mnt/googledrive/FermentatoriumBackups', help: 'Enter a local folder synced or mounted to Google Drive (e.g., via rclone mount or a sync client).'},
+      onedrive: {label: 'OneDrive Folder Path', path: '/mnt/onedrive/FermentatoriumBackups', help: 'Enter a local folder synced or mounted to Microsoft OneDrive (e.g., via rclone mount or a sync client).'},
+      icloud: {label: 'iCloud Drive Folder Path', path: '/mnt/icloud/FermentatoriumBackups', help: 'Enter a local folder synced or mounted to Apple iCloud Drive (e.g., via rclone mount or a sync client).'}
+    };
+
+    function updateBackupDestination(changed) {
+      const dest = document.getElementById('backup_destination').value;
+      const pathInput = document.getElementById('backup_path');
+      const isDropbox = dest === 'dropbox';
+      document.getElementById('backup-path-section').style.display = isDropbox ? 'none' : '';
+      document.getElementById('dropbox-section').style.display = isDropbox ? '' : 'none';
+      const info = BACKUP_DEST_INFO[dest];
+      if (info) {
+        document.getElementById('backup_path_label').textContent = info.label;
+        document.getElementById('backup_path_help').textContent = info.help;
+        pathInput.placeholder = info.path;
+        const defaults = Object.values(BACKUP_DEST_INFO).map(i => i.path);
+        if (changed && (!pathInput.value.trim() || defaults.includes(pathInput.value.trim()))) {
+          pathInput.value = info.path;
+        }
+      }
+    }
+    document.addEventListener('DOMContentLoaded', function() { updateBackupDestination(false); });
+
     function createBackup() {
+      if (document.getElementById('backup_destination').value === 'dropbox') {
+        runDropboxBackupNow('backup-status');
+        return;
+      }
       const backupPath = document.getElementById('backup_path').value;
       const statusDiv = document.getElementById('backup-status');
       
@@ -880,7 +916,7 @@
     }
     
     function refreshBackupList(source) {
-      source = (source === 'dropbox') ? 'dropbox' : 'usb';
+      source = (document.getElementById('backup_destination').value === 'dropbox') ? 'dropbox' : 'usb';
       const backupPath = document.getElementById('backup_path').value;
       const container = document.getElementById('backup-list-container');
       
@@ -936,10 +972,6 @@
       });
     }
     
-    function refreshDropboxBackupList() {
-      refreshBackupList('dropbox');
-    }
-
     function restoreBackup(filename, source) {
       if (!confirm('Are you sure you want to restore from this backup?\n\nThis will overwrite current files and requires an application restart.\n\nBackup: ' + filename)) {
         return;
@@ -1006,8 +1038,8 @@
       });
     }
 
-    function runDropboxBackupNow() {
-      const statusDiv = document.getElementById('dropbox-backup-status');
+    function runDropboxBackupNow(statusId) {
+      const statusDiv = document.getElementById(statusId || 'dropbox-backup-status');
       statusDiv.innerHTML = '<span style="color: blue;">Running Dropbox backup, please wait...</span>';
 
       fetch('/run_dropbox_backup', {

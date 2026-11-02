@@ -9,6 +9,7 @@
   "tilt_inactivity_timeout_minutes": 30,
   "flask_port": 5001,
   "backup_path": "/media/usb",
+  "backup_destination": "usb",
   "dropbox_backup_enabled": false,
   "dropbox_backup_interval_hours": 24,
   "dropbox_backup_folder": "/FermentatoriumBackups",

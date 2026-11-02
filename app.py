@@ -967,6 +967,7 @@ tilt_table = load_tilt_table()  # MAC-keyed device registry (persists calibratio
 def ensure_system_defaults():
     """Ensure required system settings are present."""
     system_cfg.setdefault('backup_path', '/media/usb')
+    system_cfg.setdefault('backup_destination', 'usb')
     system_cfg.setdefault('dropbox_backup_enabled', False)
     system_cfg.setdefault('dropbox_backup_interval_hours', 24)
     system_cfg.setdefault('dropbox_backup_folder', '/FermentatoriumBackups')
@@ -5870,6 +5871,7 @@ def update_system_config():
         "kasa_rate_limit_seconds": data.get("kasa_rate_limit_seconds", system_cfg.get('kasa_rate_limit_seconds', 10)),
         "tilt_logging_interval_minutes": int(data.get("tilt_logging_interval_minutes", system_cfg.get("tilt_logging_interval_minutes", 15))),
         "backup_path": data.get("backup_path", system_cfg.get("backup_path", "/media/usb")).strip() or "/media/usb",
+        "backup_destination": data.get("backup_destination", system_cfg.get("backup_destination", "usb")) if data.get("backup_destination", "usb") in ("usb", "dropbox", "google_drive", "onedrive", "icloud") else "usb",
         "dropbox_backup_enabled": 'dropbox_backup_enabled' in data,
         "dropbox_backup_interval_hours": int(data.get("dropbox_backup_interval_hours", system_cfg.get("dropbox_backup_interval_hours", 24))),
         "dropbox_backup_folder": _normalize_dropbox_folder(data.get("dropbox_backup_folder", system_cfg.get("dropbox_backup_folder", "/FermentatoriumBackups"))),
