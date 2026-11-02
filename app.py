@@ -10223,7 +10223,8 @@ def _restore_from_archive(archive_path):
                 shutil.copy2(src, dst)
         return True, '', 200
     except Exception as e:
-        return False, f'Restore failed: {str(e)}', 500
+        app.logger.exception('Restore failed while processing archive: %s', archive_path)
+        return False, 'Restore failed due to an internal error.', 500
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
