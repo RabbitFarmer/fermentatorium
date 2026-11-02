@@ -10297,7 +10297,8 @@ def list_dropbox_backups():
         backups.sort(key=lambda x: x['modified'], reverse=True)
         return jsonify({'success': True, 'backups': backups, 'path': folder})
     except _DropboxError as e:
-        return jsonify({'success': False, 'message': str(e), 'backups': []})
+        print(f"[LOG] Dropbox list backups validation/config error: {e}")
+        return jsonify({'success': False, 'message': 'Could not list Dropbox backups. Check Dropbox settings and try again.', 'backups': []})
     except Exception as e:
         print(f"[LOG] Dropbox list backups failed: {e}")
         return jsonify({'success': False, 'message': 'Could not list Dropbox backups. Check token, folder and network.', 'backups': []})
