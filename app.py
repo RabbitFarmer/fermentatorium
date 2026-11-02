@@ -10316,7 +10316,7 @@ def restore_dropbox_backup():
         req.add_header('Authorization', f'Bearer {access_token}')
         req.add_header('Dropbox-API-Arg', json.dumps({'path': dropbox_path}))
         with tempfile.TemporaryDirectory(prefix='fermenter_dropbox_restore_') as tmpdir:
-            local = os.path.join(tmpdir, backup_filename)
+            local = os.path.join(tmpdir, 'downloaded_backup.zip')
             with urllib.request.urlopen(req, timeout=300) as resp, open(local, 'wb') as out:
                 shutil.copyfileobj(resp, out)
             ok, msg, status = _restore_from_archive(local)
