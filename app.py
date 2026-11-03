@@ -1403,7 +1403,13 @@ def batch_history_path(key):
     safe_key = valid_device_key(key)
     if safe_key is None:
         raise ValueError(f"Invalid Tilt device key: {key!r}")
-    return f"batches/batch_history_{safe_key.replace(':', '_')}.json"
+
+    base_dir = os.path.realpath("batches")
+    filename = f"batch_history_{safe_key.replace(':', '_')}.json"
+    candidate = os.path.realpath(os.path.join(base_dir, filename))
+    if os.path.commonpath([base_dir, candidate]) != base_dir:
+        raise ValueError("Resolved batch history path is outside allowed directory")
+    return candidate
 
 
 def load_batch_index(key):
