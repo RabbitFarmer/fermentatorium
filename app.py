@@ -1403,7 +1403,110 @@ def batch_history_path(key):
     safe_key = valid_device_key(key)
     if safe_key is None:
         raise ValueError(f"Invalid Tilt device key: {key!r}")
-    return f"batches/batch_history_{safe_key.replace(':', '_')}.json"
+
+    base_dir = os.path.realpath("batches")
+    filename = f"batch_history_{safe_key.replace(':', '_')}.json"
+    candidate = os.path.realpath(os.path.join(base_dir, filename))
+    if os.path.commonpath([base_dir, candidate]) != base_dir:
+        raise ValueError("Resolved batch history path is outside allowed directory")
+    return candidate
+
+
+def load_batch_index(key):
+    """Load archived batch records for a Tilt device."""
+    path = os.path.realpath(batch_history_path(key))
+    if not path.startswith(os.path.realpath("batches") + os.sep):
+        raise ValueError("Resolved batch history path is outside allowed directory")
+    try:
+        with open(path, 'r') as f:
+            batches = json.load(f)
+    except FileNotFoundError:
+        return []
+    if not isinstance(batches, list):
+        raise ValueError(f"Invalid batch index format in {path}")
+    return batches
+
+
+def save_batch_index(key, batches):
+    """Persist archived batch records for a Tilt device."""
+    return save_json(batch_history_path(key), batches)
+
+
+def load_batch_log(brewid):
+    """Read the JSONL event stream belonging to a batch."""
+    try:
+        filenames = [
+            name for name in os.listdir(BATCHES_DIR)
+            if name.endswith('.jsonl')
+            and (name[:-6] == brewid or name[:-6].endswith(f'_{brewid}'))
+        ]
+    except OSError as e:
+        print(f"[LOG] Could not list batch logs for {brewid}: {e}")
+        return []
+
+    if not filenames:
+        return []
+    path = os.path.join(BATCHES_DIR, sorted(filenames)[0])
+    entries = []
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError as e:
+                    print(f"[LOG] Skipping invalid JSONL entry in {path}: {e}")
+    except OSError as e:
+        print(f"[LOG] Could not read batch log {path}: {e}")
+    return entries
+
+
+def load_latest_batch_metadata(brewid):
+    """Return the latest full metadata snapshot from a batch's event stream."""
+    metadata = {}
+    for entry in load_batch_log(brewid):
+        if entry.get('event') != 'batch_metadata':
+            continue
+        payload = entry.get('payload')
+        if isinstance(payload, dict) and payload.get('brewid') == brewid:
+            metadata = payload
+    return metadata
+
+
+def find_batch_record(brewid):
+    """Find a batch, preferring the live Tilt record over its archive entry."""
+    for color, batch in tilt_cfg.items():
+        if isinstance(batch, dict) and batch.get('brewid') == brewid:
+            record = dict(batch)
+            record.update(load_latest_batch_metadata(brewid))
+            return record, color
+
+    for color in all_history_keys():
+        try:
+            batches = load_batch_index(color)
+        except (OSError, ValueError, json.JSONDecodeError) as e:
+            print(f"[LOG] Error loading batch index for {color}: {e}")
+            continue
+        for batch in batches:
+            if isinstance(batch, dict) and batch.get('brewid') == brewid:
+                return dict(batch), color
+    return None, None
+
+
+def get_live_batch_records():
+    """Return configured active batches, keyed with their Tilt color."""
+    records = []
+    for color, batch in tilt_cfg.items():
+        if not isinstance(batch, dict) or not batch.get('brewid'):
+            continue
+        if batch.get('is_active', True) is False:
+            continue
+        record = dict(batch)
+        record.update(load_latest_batch_metadata(batch['brewid']))
+        record['color'] = color
+        records.append(record)
+    return records
 
 
 def all_history_keys():
@@ -1427,7 +1530,9 @@ def update_live_tilt(color, gravity, temp_f, rssi, mac_address=None, is_pro=Fals
     existing_mac = live_tilts.get(color, {}).get("mac_address", "")
     resolved_mac = mac_address if mac_address else existing_mac
     dev_key = resolve_device_key(color, resolved_mac)
-    cfg = tilt_cfg.get(dev_key, {})
+    cfg = dict(tilt_cfg.get(dev_key, {}) or {})
+    if cfg.get('brewid'):
+        cfg.update(load_latest_batch_metadata(cfg['brewid']))
 
     # Apply calibration variances — prefer MAC-keyed tilt_table (survives color reassignment),
     # fall back to color-keyed tilt_cfg for backwards compat.
@@ -3206,9 +3311,17 @@ def save_notification_state_to_config(color, brewid):
         tilt_cfg[color]['ferm_start_date'] = get_derived_ferm_start_date(tilt_cfg[color])
     
     try:
-        save_json(TILT_CONFIG_FILE, tilt_cfg)
+        if not save_json(TILT_CONFIG_FILE, tilt_cfg):
+            return
     except Exception as e:
         print(f"[LOG] Could not save notification state for {color}: {e}")
+        return
+    metadata = dict(tilt_cfg[color])
+    metadata['brewid'] = brewid
+    metadata['batch_start_date'] = get_batch_start_date(metadata)
+    metadata['ferm_start_date'] = get_ferm_start_date(metadata)
+    if not append_batch_metadata_to_batch_jsonl(color, metadata):
+        print(f"[LOG] Could not append notification state to batch log for {color}")
 
 def load_notification_state_from_config(color, brewid, cfg):
     """
@@ -6264,6 +6377,9 @@ def batch_settings():
         batch_start_date = data.get('batch_start_date', data.get('ferm_start_date', '')).strip()
         submitted_ferm_start_date = data.get('ferm_start_date', '').strip()
         existing = tilt_cfg.get(color, {})
+        if existing.get('brewid'):
+            existing = dict(existing)
+            existing.update(load_latest_batch_metadata(existing['brewid']))
         old_brew_id = existing.get('brewid')
         brew_id = existing.get('brewid')
         if not brew_id:
@@ -6383,40 +6499,20 @@ def batch_settings():
             else (derived_ferm_start_date or submitted_ferm_start_date)
         )
 
-        # Load existing batches
-        try:
-            with open(batch_history_path(color), 'r') as f:
-                batches = json.load(f)
-        except Exception:
-            batches = []
-        
-        # UPSERT: Update existing batch entry or append new one
-        # This prevents duplicate entries when editing the same batch
-        batch_found = False
-        for i, batch in enumerate(batches):
-            if batch.get('brewid') == brew_id:
-                # Update existing batch entry instead of creating duplicate
-                batches[i] = batch_entry
-                batch_found = True
-                break
-        
-        if not batch_found:
-            # New batch - append it
-            batches.append(batch_entry)
-        
-        try:
-            with open(batch_history_path(color), 'w') as f:
-                json.dump(batches, f, indent=2)
-        except Exception as e:
-            print(f"[LOG] Could not save batch history for {color}: {e}")
         tilt_cfg[color] = batch_entry
         # Clear any paused tracking state when a batch is saved — the user is
         # explicitly setting up a new batch so recording should resume.
         tilt_cfg[color].pop('tracking_paused', None)
+        if not save_json(TILT_CONFIG_FILE, tilt_cfg):
+            return "Could not save active batch record", 500
         try:
-            save_json(TILT_CONFIG_FILE, tilt_cfg)
-        except Exception as e:
-            print(f"[LOG] Could not save tilt_config in batch_settings: {e}")
+            archived = load_batch_index(color)
+            remaining = [batch for batch in archived if batch.get('brewid') != brew_id]
+            if len(remaining) != len(archived) and not save_batch_index(color, remaining):
+                return "Could not remove active batch from archive index", 500
+        except (OSError, ValueError, json.JSONDecodeError) as e:
+            print(f"[LOG] Could not update batch index for {color}: {e}")
+            return "Could not update batch archive index", 500
         # Persist variances to tilt_table keyed by MAC so calibration follows the
         # physical device even if it is later reassigned to a different color slot.
         if tilt_mac:
@@ -6428,7 +6524,8 @@ def batch_settings():
             except Exception as e:
                 print(f"[LOG] Could not save tilt_table in batch_settings: {e}")
         # --- PATCH: Append batch_metadata to .jsonl whenever batch is edited
-        append_batch_metadata_to_batch_jsonl(color, batch_entry)
+        if not append_batch_metadata_to_batch_jsonl(color, batch_entry):
+            return "Could not append active batch metadata to its event log", 500
         return redirect(f"/batch_settings?tilt_color={color}")
 
     selected = request.args.get('tilt_color')
@@ -7174,29 +7271,27 @@ def batch_history():
     # Get sort order from query parameter (default: newest first)
     sort_order = request.args.get('sort', 'newest')
     
-    active_batches = []
+    active_batches = get_live_batch_records()
+    live_ids = {batch.get('brewid') for batch in active_batches}
     closed_batches = []
-    
-    # Check each color / device for batch history
+
+    # Keep old index-based active records visible until they are next edited.
     for color in all_history_keys():
-        batch_history_file = batch_history_path(color)
-        if os.path.exists(batch_history_file):
-            try:
-                with open(batch_history_file, 'r') as f:
-                    batches = json.load(f)
-                    for batch in batches:
-                        # Add color to batch for display
-                        batch['color'] = color
-                        # Migrate old batches without is_active field (default to active)
-                        if 'is_active' not in batch:
-                            batch['is_active'] = True
-                        
-                        if batch.get('is_active', True):
-                            active_batches.append(batch)
-                        else:
-                            closed_batches.append(batch)
-            except Exception as e:
-                print(f"[LOG] Error loading batch history for {color}: {e}")
+        try:
+            batches = load_batch_index(color)
+            for batch in batches:
+                if not isinstance(batch, dict):
+                    continue
+                batch = dict(batch)
+                batch['color'] = color
+                if batch.get('is_active', True):
+                    if batch.get('brewid') not in live_ids:
+                        active_batches.append(batch)
+                        live_ids.add(batch.get('brewid'))
+                else:
+                    closed_batches.append(batch)
+        except (OSError, ValueError, json.JSONDecodeError) as e:
+            print(f"[LOG] Error loading batch index for {color}: {e}")
     
     # Define sorting function
     def apply_sort(batches, sort_order):
@@ -7230,25 +7325,7 @@ def batch_review(brewid):
     if not re.match(r'^[a-zA-Z0-9\-_]+$', brewid):
         return "Invalid batch ID", 400
     
-    # Find the batch in batch_history files
-    batch_info = None
-    color = None
-    
-    for c in all_history_keys():
-        batch_history_file = batch_history_path(c)
-        if os.path.exists(batch_history_file):
-            try:
-                with open(batch_history_file, 'r') as f:
-                    batches = json.load(f)
-                    for b in batches:
-                        if b.get('brewid') == brewid:
-                            batch_info = b
-                            color = c
-                            break
-            except Exception:
-                pass
-        if batch_info:
-            break
+    batch_info, color = find_batch_record(brewid)
     
     if not batch_info:
         return "Batch not found", 404
@@ -7508,8 +7585,21 @@ def calculate_batch_statistics(batch_data, batch_info):
     
     # --- Fermentation status descriptor ---
     notif_state = batch_info.get('notification_state', {}) or {}
-    ferm_start_dt = notif_state.get('fermentation_start_datetime')
-    ferm_comp_dt = notif_state.get('fermentation_completion_datetime')
+    logged_events = {}
+    for entry in batch_data:
+        event_type = entry.get('event_type')
+        timestamp = entry.get('timestamp')
+        if timestamp and event_type in ('fermentation_starting', 'fermentation_completion', 'fermentation_finished'):
+            logged_events.setdefault(event_type, timestamp)
+    ferm_start_dt = (
+        notif_state.get('fermentation_start_datetime')
+        or logged_events.get('fermentation_starting')
+    )
+    ferm_comp_dt = (
+        notif_state.get('fermentation_completion_datetime')
+        or logged_events.get('fermentation_completion')
+        or logged_events.get('fermentation_finished')
+    )
     batch_closed = batch_info.get('is_active') is False
     
     if batch_closed and ferm_comp_dt:
@@ -7655,25 +7745,7 @@ def batch_data_view(brewid):
     if not re.match(r'^[a-zA-Z0-9\-_]+$', brewid):
         return "Invalid batch ID", 400
     
-    # Find the batch in batch_history files
-    batch_info = None
-    color = None
-    
-    for c in all_history_keys():
-        batch_history_file = batch_history_path(c)
-        if os.path.exists(batch_history_file):
-            try:
-                with open(batch_history_file, 'r') as f:
-                    batches = json.load(f)
-                    for b in batches:
-                        if b.get('brewid') == brewid:
-                            batch_info = b
-                            color = c
-                            break
-            except Exception:
-                pass
-        if batch_info:
-            break
+    batch_info, color = find_batch_record(brewid)
     
     if not batch_info:
         return "Batch not found", 404
@@ -7745,25 +7817,7 @@ def export_batch_data_csv(brewid):
     if not re.match(r'^[a-zA-Z0-9\-_]+$', brewid):
         return "Invalid batch ID", 400
     
-    # Find the batch
-    batch_info = None
-    color = None
-    
-    for c in all_history_keys():
-        batch_history_file = batch_history_path(c)
-        if os.path.exists(batch_history_file):
-            try:
-                with open(batch_history_file, 'r') as f:
-                    batches = json.load(f)
-                    for b in batches:
-                        if b.get('brewid') == brewid:
-                            batch_info = b
-                            color = c
-                            break
-            except Exception:
-                pass
-        if batch_info:
-            break
+    batch_info, color = find_batch_record(brewid)
     
     if not batch_info:
         return "Batch not found", 404
@@ -9301,23 +9355,10 @@ def assign_tilt_mac():
         return jsonify({'success': False, 'error': 'That device is not currently active'}), 400
     brewid = tilt_cfg[color].get('brewid')
     tilt_cfg[color]['tilt_mac'] = mac
-    # Correct the batch history record too
-    path = batch_history_path(color)
-    try:
-        with open(path, 'r') as f:
-            batches = json.load(f)
-        for b in batches:
-            if b.get('brewid') == brewid:
-                b['tilt_mac'] = mac
-        with open(path, 'w') as f:
-            json.dump(batches, f, indent=2)
-    except Exception as e:
-        print(f"[LOG] Could not update batch history MAC for {color}: {e}")
-    try:
-        save_json(TILT_CONFIG_FILE, tilt_cfg)
-    except Exception as e:
-        print(f"[LOG] Could not save tilt_config in assign_tilt_mac: {e}")
+    if not save_json(TILT_CONFIG_FILE, tilt_cfg):
         return jsonify({'success': False, 'error': 'Could not save the assignment'}), 500
+    if brewid:
+        append_batch_metadata_to_batch_jsonl(color, tilt_cfg[color])
     # Re-point the plain-color live entry at the chosen device right away
     chosen = live_tilts.get(f"{color}:{mac}")
     if chosen:
@@ -9328,8 +9369,7 @@ def assign_tilt_mac():
 @app.route('/close_batch', methods=['POST'])
 def close_batch():
     """
-    Close a batch by marking it as inactive in batch_history.
-    This moves the batch from Current Activity to Batch History section.
+    Move an active batch record into the closed-batch index.
     """
     try:
         brewid = request.form.get('brewid')
@@ -9347,38 +9387,40 @@ def close_batch():
         if not re.match(r'^[a-zA-Z0-9\-_]+$', brewid):
             return jsonify({'success': False, 'error': 'Invalid batch ID format'}), 400
         
-        # Load batch history for this color
-        batch_history_file = batch_history_path(color)
-        batches = []
-        if os.path.exists(batch_history_file):
-            try:
-                with open(batch_history_file, 'r') as f:
-                    batches = json.load(f)
-            except Exception as e:
-                return jsonify({'success': False, 'error': f'Error reading batch history: {e}'}), 500
-        
-        # Find and update all batches with this brewid
-        # (handles duplicates that may have been created before the fix)
-        batch_found = False
-        for batch in batches:
-            if batch.get('brewid') == brewid:
-                batch['is_active'] = False
-                batch['closed_date'] = datetime.utcnow().strftime('%Y-%m-%d')
-                batch_found = True
-                # Continue to close ALL matching batches (don't break)
-        
-        if not batch_found:
-            return jsonify({'success': False, 'error': 'Batch not found in history'}), 404
-        
-        # Save updated batch history
+        live_record = tilt_cfg.get(color)
+        if not isinstance(live_record, dict) or live_record.get('brewid') != brewid:
+            live_record = None
         try:
-            with open(batch_history_file, 'w') as f:
-                json.dump(batches, f, indent=2)
-        except Exception as e:
-            return jsonify({'success': False, 'error': f'Error saving batch history: {e}'}), 500
-        
-        # Clear this batch from tilt_cfg if it's currently assigned
-        if color in tilt_cfg and tilt_cfg[color].get('brewid') == brewid:
+            archived = load_batch_index(color)
+        except (OSError, ValueError, json.JSONDecodeError) as e:
+            app.logger.exception("Error reading batch index for color=%s", color)
+            return jsonify({'success': False, 'error': 'Error reading batch index'}), 500
+
+        if live_record is not None:
+            batch_record = dict(live_record)
+            batch_record.update(load_latest_batch_metadata(brewid))
+        else:
+            batch_record = next(
+                (dict(batch) for batch in archived
+                 if isinstance(batch, dict) and batch.get('brewid') == brewid
+                 and batch.get('is_active', True)),
+                None
+            )
+        if batch_record is None or batch_record.get('is_active', True) is False:
+            return jsonify({'success': False, 'error': 'Batch not found in history'}), 404
+
+        batch_record['is_active'] = False
+        batch_record['closed_date'] = datetime.utcnow().strftime('%Y-%m-%d')
+        archived = [batch for batch in archived
+                    if not isinstance(batch, dict) or batch.get('brewid') != brewid]
+        archived.append(batch_record)
+        if not save_batch_index(color, archived):
+            return jsonify({'success': False, 'error': 'Could not save batch archive index'}), 500
+
+        log_event('batch_closed', f"Batch {brewid} closed.", tilt_color=color)
+        if live_record is not None:
+            append_batch_metadata_to_batch_jsonl(color, batch_record)
+        if live_record is not None:
             tilt_cfg[color] = {
                 "beer_name": "",
                 "batch_name": "",
@@ -9399,11 +9441,13 @@ def close_batch():
                     "last_daily_report": None
                 }
             }
-            try:
-                save_json(TILT_CONFIG_FILE, tilt_cfg)
-            except Exception as e:
-                print(f"[LOG] Error clearing tilt config: {e}")
-        
+            if not save_json(TILT_CONFIG_FILE, tilt_cfg):
+                tilt_cfg[color] = live_record
+                rollback = [batch for batch in archived
+                            if not isinstance(batch, dict) or batch.get('brewid') != brewid]
+                save_batch_index(color, rollback)
+                return jsonify({'success': False, 'error': 'Could not clear active batch record'}), 500
+
         return jsonify({'success': True, 'message': f'Batch {brewid} closed successfully'})
     except Exception as e:
         print(f"[LOG] Error closing batch: {e}")
@@ -9413,8 +9457,7 @@ def close_batch():
 @app.route('/reopen_batch', methods=['POST'])
 def reopen_batch():
     """
-    Reopen a closed batch by marking it as active again.
-    This moves the batch from Batch History to Current Activity section.
+    Move a closed batch from the archive index back to a live Tilt record.
     """
     try:
         brewid = request.form.get('brewid')
@@ -9432,69 +9475,47 @@ def reopen_batch():
         if not re.match(r'^[a-zA-Z0-9\-_]+$', brewid):
             return jsonify({'success': False, 'error': 'Invalid batch ID format'}), 400
         
-        # Refuse to reopen if the same physical Tilt (color + MAC) is already
-        # assigned to a different active batch.
+        # A live Tilt record can only represent one active batch.
         cur = tilt_cfg.get(color, {}) or {}
         cur_brewid = cur.get('brewid')
         if cur_brewid and cur_brewid != brewid and cur.get('is_active', True) is not False:
-            def _identity_mac(cfg_entry):
-                m = (cfg_entry or {}).get('tilt_mac') or _batch_review_tilt_mac(color) or ''
-                return normalize_mac(m) if m else ''
-            reopen_entry = None
-            try:
-                with open(batch_history_path(color), 'r') as f:
-                    for b in json.load(f):
-                        if b.get('brewid') == brewid:
-                            reopen_entry = b
-                            break
-            except Exception:
-                pass
-            if _identity_mac(cur) == _identity_mac(reopen_entry):
-                name = cur.get('beer_name') or cur_brewid
-                return jsonify({'success': False, 'error':
-                    f'The {color} Tilt (same device) is currently active in another batch ("{name}"). '
-                    f'Close that batch first before reopening this one.'}), 409
+            name = cur.get('beer_name') or cur_brewid
+            return jsonify({'success': False, 'error':
+                f'The {color} Tilt is currently active in another batch ("{name}"). '
+                f'Close that batch first before reopening this one.'}), 409
 
-        # Load batch history for this color
-        batch_history_file = batch_history_path(color)
-        batches = []
-        if os.path.exists(batch_history_file):
-            try:
-                with open(batch_history_file, 'r') as f:
-                    batches = json.load(f)
-            except Exception as e:
-                return jsonify({'success': False, 'error': f'Error reading batch history: {e}'}), 500
-        
-        # Find and update all batches with this brewid
-        # (handles duplicates that may have been created before the fix)
-        batch_found = False
-        for batch in batches:
-            if batch.get('brewid') == brewid:
-                batch['is_active'] = True
-                batch['closed_date'] = None
-                batch_found = True
-                # Continue to reopen ALL matching batches (don't break)
-        
-        if not batch_found:
-            return jsonify({'success': False, 'error': 'Batch not found in history'}), 404
-        
-        # Save updated batch history
         try:
-            with open(batch_history_file, 'w') as f:
-                json.dump(batches, f, indent=2)
-        except Exception as e:
-            return jsonify({'success': False, 'error': f'Error saving batch history: {e}'}), 500
-        
-        # Restore the batch to the tilt slot if no other batch occupies it
-        if color in tilt_cfg and not tilt_cfg[color].get('brewid'):
-            for batch in batches:
-                if batch.get('brewid') == brewid:
-                    tilt_cfg[color] = dict(batch)
-                    break
-            try:
-                save_json(TILT_CONFIG_FILE, tilt_cfg)
-            except Exception as e:
-                print(f"[LOG] Error restoring tilt config: {e}")
+            archived = load_batch_index(color)
+        except (OSError, ValueError, json.JSONDecodeError) as e:
+            app.logger.exception("Error reading batch index for color=%s, brewid=%s", color, brewid)
+            return jsonify({'success': False, 'error': 'Error reading batch index'}), 500
+
+        reopen_record = next(
+            (dict(batch) for batch in archived
+             if isinstance(batch, dict) and batch.get('brewid') == brewid),
+            None
+        )
+        if reopen_record is None:
+            return jsonify({'success': False, 'error': 'Batch not found in archive'}), 404
+
+        reopen_record['is_active'] = True
+        reopen_record['closed_date'] = None
+        tilt_cfg[color] = reopen_record
+        if not save_json(TILT_CONFIG_FILE, tilt_cfg):
+            if cur_brewid:
+                tilt_cfg[color] = cur
+            return jsonify({'success': False, 'error': 'Could not restore active batch record'}), 500
+
+        remaining = [batch for batch in archived
+                     if not isinstance(batch, dict) or batch.get('brewid') != brewid]
+        if not save_batch_index(color, remaining):
+            tilt_cfg[color] = cur
+            save_json(TILT_CONFIG_FILE, tilt_cfg)
+            return jsonify({'success': False, 'error': 'Could not remove batch from archive index'}), 500
+
+        log_event('batch_reopened', f"Batch {brewid} reopened.", tilt_color=color)
+        if not append_batch_metadata_to_batch_jsonl(color, reopen_record):
+            return jsonify({'success': False, 'error': 'Could not append reopened batch metadata to its event log'}), 500
 
         return jsonify({'success': True, 'message': f'Batch {brewid} reopened successfully'})
     except Exception as e:
@@ -10702,18 +10723,19 @@ def utilities():
 
 def _load_all_batches_for_reports():
     """Return a list of all batches (active + closed) across all colors, sorted newest first."""
-    batches = []
+    batches = get_live_batch_records()
+    live_ids = {batch.get('brewid') for batch in batches}
     for color in all_history_keys():
-        history_file = os.path.join(BATCHES_DIR, os.path.basename(batch_history_path(color)))
-        if not os.path.exists(history_file):
-            continue
         try:
-            with open(history_file, 'r') as f:
-                for b in json.load(f):
-                    b['color'] = color
-                    batches.append(b)
+            for batch in load_batch_index(color):
+                if not isinstance(batch, dict) or batch.get('brewid') in live_ids:
+                    continue
+                record = dict(batch)
+                record['color'] = color
+                batches.append(record)
+                live_ids.add(record.get('brewid'))
         except Exception as e:
-            print(f"[REPORTS] Error reading {history_file}: {e}")
+            print(f"[REPORTS] Error reading batch index for {color}: {e}")
     batches.sort(key=lambda x: x.get('batch_start_date') or x.get('ferm_start_date', ''), reverse=True)
     return batches
 
@@ -10950,24 +10972,7 @@ def reports_view():
     if not brewid or not _re.match(r'^[a-zA-Z0-9\-_]+$', brewid):
         return redirect(url_for('reports'))
 
-    # Find batch info
-    batch_info = None
-    color = None
-    for c in all_history_keys():
-        history_file = os.path.join(BATCHES_DIR, os.path.basename(batch_history_path(c)))
-        if not os.path.exists(history_file):
-            continue
-        try:
-            with open(history_file, 'r') as f:
-                for b in json.load(f):
-                    if b.get('brewid') == brewid:
-                        batch_info = b
-                        color = c
-                        break
-        except Exception:
-            pass
-        if batch_info:
-            break
+    batch_info, color = find_batch_record(brewid)
 
     if not batch_info:
         return redirect(url_for('reports'))
@@ -11032,24 +11037,7 @@ def reports_export_csv():
     if not brewid or not _re.match(r'^[a-zA-Z0-9\-_]+$', brewid):
         return redirect(url_for('reports'))
 
-    # Find batch info
-    batch_info = None
-    color = None
-    for c in all_history_keys():
-        history_file = os.path.join(BATCHES_DIR, os.path.basename(batch_history_path(c)))
-        if not os.path.exists(history_file):
-            continue
-        try:
-            with open(history_file, 'r') as f:
-                for b in json.load(f):
-                    if b.get('brewid') == brewid:
-                        batch_info = b
-                        color = c
-                        break
-        except Exception:
-            pass
-        if batch_info:
-            break
+    batch_info, color = find_batch_record(brewid)
 
     if not batch_info:
         return redirect(url_for('reports'))

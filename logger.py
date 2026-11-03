@@ -157,6 +157,8 @@ BATCH_EVENTS = {
     'fermentation_starting',
     'fermentation_completion',
     'fermentation_finished',
+    'batch_closed',
+    'batch_reopened',
     'daily_report',
 }
 
