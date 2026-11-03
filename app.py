@@ -9391,7 +9391,8 @@ def close_batch():
         try:
             archived = load_batch_index(color)
         except (OSError, ValueError, json.JSONDecodeError) as e:
-            return jsonify({'success': False, 'error': f'Error reading batch index: {e}'}), 500
+            app.logger.exception("Error reading batch index for color=%s", color)
+            return jsonify({'success': False, 'error': 'Error reading batch index'}), 500
 
         if live_record is not None:
             batch_record = dict(live_record)
