@@ -2776,7 +2776,7 @@ def _send_push_ntfy(body, subject="Fermenter Notification"):
     
     try:
         # ntfy API endpoint
-        url = f"{ntfy_server}/{ntfy_topic}"
+        url = f"{ntfy_server.rstrip('/')}/{_url_quote(ntfy_topic, safe='')}"
         
         # Prepare headers (ntfy uses headers for metadata).
         # HTTP headers must be latin-1 encodable; percent-encode any non-ASCII
@@ -2798,7 +2798,7 @@ def _send_push_ntfy(body, subject="Fermenter Notification"):
         # Optional: Add auth token if configured
         auth_token = system_cfg.get("ntfy_auth_token", "").strip()
         if auth_token:
-            headers["Authorization"] = f"Bearer {auth_token}"
+            headers["Authorization"] = "Bearer " + auth_token
         
         # Send push notification (body is sent as plain text in request body)
         response = requests.post(
