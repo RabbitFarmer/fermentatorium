@@ -1414,7 +1414,9 @@ def batch_history_path(key):
 
 def load_batch_index(key):
     """Load archived batch records for a Tilt device."""
-    path = batch_history_path(key)
+    path = os.path.realpath(batch_history_path(key))
+    if not path.startswith(os.path.realpath("batches") + os.sep):
+        raise ValueError("Resolved batch history path is outside allowed directory")
     try:
         with open(path, 'r') as f:
             batches = json.load(f)
