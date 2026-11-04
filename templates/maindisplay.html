@@ -91,6 +91,11 @@
       opacity: 0.85;
       margin-top: 3px;
     }
+    .beer-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
 
     /* White body area — fills remaining card height */
     .tc-body {
@@ -1429,8 +1434,11 @@
         // Notifications
         if (notifEl) {
           const items = [];
-          if (tc.heater_on)  items.push('<div class="tc-notification-item heating">Heating ON</div>');
-          if (tc.cooler_on)  items.push('<div class="tc-notification-item cooling">Cooling ON</div>');
+          if (tc.cooler_on) {
+            items.push('<div class="tc-notification-item cooling">Cooling ON</div>');
+          } else if (tc.heater_on) {
+            items.push('<div class="tc-notification-item heating">Heating ON</div>');
+          }
           if (tc.swapped_plugs_detected) {
             const pt  = tc.swapped_plug_type || 'unknown';
             const msg = pt === 'heating'
