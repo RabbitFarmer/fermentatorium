@@ -66,7 +66,7 @@ If you are not a computer person, don't worry — here is what you need to know 
 | Capability | Details |
 |---|---|
 | **Multi-Tilt Monitoring** | All 8 Tilt colors (Black, Blue, Green, Orange, Pink, Purple, Red, Yellow) — standard, Pro, and Mini-Pro models |
-| **3 Independent Temperature Controllers** | Simultaneous heating and/or cooling for up to 3 fermenters using TP-Link Kasa smart plugs |
+| **3 Independent Temperature Controllers** | Heating or cooling (one action per controller) for up to 3 fermenters using TP-Link Kasa smart plugs |
 | **Live Web Dashboard** | Real-time gravity & temperature display — works headless or with a local monitor in kiosk mode |
 | **Interactive Charts** | Gravity trends, temperature history, and heating/cooling events powered by Plotly |
 | **External Logging** | Post data to Brewer's Friend, BrewFather, or any custom HTTP endpoint on a configurable interval |
@@ -272,7 +272,8 @@ All navigation is through the **⚙ gear icon** in the top-right corner of the m
 ### Clicking on cards
 
 - **Tilt brew cards** on the main display are clickable — tap anywhere on the card to open the interactive chart for that Tilt color. Each card also shows a **STATUS** pill (when a batch is active) that links directly to the batch details screen.
-- **Temperature control cards** on the main display are clickable — tap a temp-control card to open the temperature summary page for that controller.
+- **Temperature control cards** on the main display are clickable — tap a temp-control card to open the temperature summary page for that controller. A nonzero max-run timer is shown beneath Low Limit as **Heating Timer** or **Cooling Timer**, according to the selected action.
+- The temperature summary shows the selected action's timer after **Cooling Enabled**; it displays the configured minutes or **Off** when the timer is zero.
 
 ---
 
@@ -307,8 +308,8 @@ Temperature control requires at least one TP-Link Kasa smart plug connected to a
    - **Low Limit** — minimum temperature (heater turns on when temp falls below this).
    - **High Limit** — maximum temperature (cooler turns on when temp rises above this).
    - **Temp Variance for Power Off** — the heater shuts off at *High Limit − Variance* and the cooler shuts off at *Low Limit + Variance*. This prevents the plug from cycling on and off constantly. A value of 1°F is a good starting point.
-   - **Max Run Time** — maximum minutes a plug can stay on in one cycle (safety shutoff). Set to 0 to disable.
-   - **Enable Heating / Enable Cooling** — check the boxes for what you are controlling.
+   - **Max Run Time** — maximum minutes the selected plug can stay on in one cycle (safety shutoff). Set to 0 to disable.
+   - **Enabled Action** — choose **Heating** or **Cooling** (or **None**); heating and cooling cannot both be selected for one controller.
    - **Heating Plug** — IP address of the Kasa plug connected to your heater.
    - **Cooling Plug** — IP address of the Kasa plug connected to your fridge/cooler.
    - **Heating Plug Port / Cooling Plug Port** — leave blank for automatic detection. Only override for non-standard network configurations.
@@ -444,8 +445,8 @@ Up to 3 independent controllers are supported. Each controller has:
 | `high_limit` | Upper temperature bound — cooler turns on above this |
 | `power_off_variance` | Degrees of variance for early shutoff: heater turns off at *High Limit − Variance*, cooler at *Low Limit + Variance*. Prevents rapid on/off cycling. Set to 0 to use the limits directly |
 | `max_run_minutes` | Maximum minutes a plug can stay on in one cycle (safety shutoff). Set to 0 to disable |
-| `enable_heating` | `true` to allow the heating plug to switch on |
-| `enable_cooling` | `true` to allow the cooling plug to switch on |
+| `enable_heating` | `true` to select heating for this controller; do not enable cooling at the same time |
+| `enable_cooling` | `true` to select cooling for this controller; do not enable heating at the same time |
 | `heating_plug` | IP address of the Kasa plug connected to the heater |
 | `heating_plug_port` | Network port for the heating plug (leave blank for auto-detection; override only for non-standard setups) |
 | `cooling_plug` | IP address of the Kasa plug connected to the cooler/fridge |
@@ -454,7 +455,7 @@ Up to 3 independent controllers are supported. Each controller has:
 | `schedule_enabled` | `true` to use the temperature schedule instead of fixed limits |
 | `schedule` | Array of schedule steps — each with a trigger type (days elapsed / gravity / fermentation complete), trigger value, low limit, and high limit |
 
-**Control logic:** When temperature falls below `low_limit`, the heater turns on (if enabled). When temperature rises above `high_limit`, the cooler turns on (if enabled). The `power_off_variance` causes early shutoff to avoid overshoot. `max_run_minutes` provides a safety cutoff for any single run cycle. Temperature control pauses automatically if the Tilt goes offline.
+**Control logic:** Select heating or cooling for each controller, never both. When heating is selected, the heater turns on below `low_limit`; when cooling is selected, the cooler turns on above `high_limit`. The `power_off_variance` causes early shutoff to avoid overshoot. `max_run_minutes` provides a safety cutoff for any single run cycle and is displayed on the main-display card and temperature summary when nonzero. Temperature control pauses automatically if the Tilt goes offline. Existing configurations with both actions enabled are prevented from operating until one action is selected in settings.
 
 **Temperature Schedule:** Define steps that automatically change Low/High Limits as fermentation progresses. Each step has a trigger (e.g., "after 3 days" or "when gravity ≤ 1.020") and the desired limits for that stage. When the schedule is active it overrides the manual limits.
 

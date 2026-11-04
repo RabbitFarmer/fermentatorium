@@ -66,6 +66,23 @@
           <div class="info-label">Cooling Enabled</div>
           <div class="info-value">{{ 'Yes' if controller.get('enable_cooling') else 'No' }}</div>
         </div>
+        {% if controller.get('enable_heating') and not controller.get('enable_cooling') %}
+        <div class="info-card">
+          <div class="info-label">Timer - Heating</div>
+          <div class="info-value">
+            {% set timer_minutes = controller.get('max_run_minutes', 0)|float %}
+            {% if timer_minutes > 0 %}{{ '%g'|format(timer_minutes) }} {{ 'minute' if timer_minutes == 1 else 'minutes' }}{% else %}Off{% endif %}
+          </div>
+        </div>
+        {% elif controller.get('enable_cooling') and not controller.get('enable_heating') %}
+        <div class="info-card">
+          <div class="info-label">Timer - Cooling</div>
+          <div class="info-value">
+            {% set timer_minutes = controller.get('max_run_minutes', 0)|float %}
+            {% if timer_minutes > 0 %}{{ '%g'|format(timer_minutes) }} {{ 'minute' if timer_minutes == 1 else 'minutes' }}{% else %}Off{% endif %}
+          </div>
+        </div>
+        {% endif %}
       </div>
 
       <div class="section-title">Operational Mode</div>

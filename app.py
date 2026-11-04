@@ -4495,8 +4495,12 @@ def temperature_control_logic_single(temp_cfg):
         # Preserve all settings and return early to prevent any control actions
         return
     if enable_heat and enable_cool:
-        temp_cfg['mode'] = "Heating & Cooling"
-    elif enable_heat:
+        control_heating("off", temp_cfg)
+        control_cooling("off", temp_cfg)
+        temp_cfg['mode'] = "Configuration Error"
+        temp_cfg['status'] = "Configuration Error: Select heating or cooling, not both"
+        return
+    if enable_heat:
         temp_cfg['mode'] = "Heating"
     elif enable_cool:
         temp_cfg['mode'] = "Cooling"
@@ -4620,20 +4624,10 @@ def temperature_control_logic_single(temp_cfg):
             control_cooling("off", temp_cfg)
             return
 
-    # When both heating and cooling are enabled, compute the midpoint once.
-    # Heating turns off at midpoint; cooling turns off at midpoint.
-    # This prevents the two systems from fighting each other.
-    both_active = enable_heat and enable_cool
-    if both_active and low is not None and high is not None:
-        midpoint = (low + high) / 2.0
-    else:
-        midpoint = None
-
-    # Power-off variance: when only heating OR only cooling is active, shift the
+    # Power-off variance shifts the selected action's
     # turn-off threshold inward to prevent overshoot.
     #   Heating:  turns off at (high_limit - variance)  [stops before getting too hot]
     #   Cooling:  turns off at (low_limit  + variance)  [stops before getting too cold]
-    # When both H+C are active the midpoint is used instead (unchanged).
     power_off_variance = float(temp_cfg.get("power_off_variance") or 0)
 
     # Max run time timer: either/or with the variance threshold.
@@ -4643,14 +4637,12 @@ def temperature_control_logic_single(temp_cfg):
 
     # Heating control:
     # - Turn ON when temp <= low_limit
-    # - Turn OFF at midpoint (both H+C) or (high_limit - variance) (heating only),
+    # - Turn OFF at (high_limit - variance),
     #   OR when the max run timer expires (whichever comes first).
     # Note: if the off-threshold is None (no high limit configured), heating will not
     # turn off between readings — this matches the original single-mode behaviour.
     if enable_heat:
-        if both_active:
-            heat_off_threshold = midpoint
-        elif high is not None:
+        if high is not None:
             heat_off_threshold = high - power_off_variance
         else:
             heat_off_threshold = high
@@ -4688,14 +4680,12 @@ def temperature_control_logic_single(temp_cfg):
 
     # Cooling control:
     # - Turn ON when temp >= high_limit
-    # - Turn OFF at midpoint (both H+C) or (low_limit + variance) (cooling only),
+    # - Turn OFF at (low_limit + variance),
     #   OR when the max run timer expires (whichever comes first).
     # Note: if the off-threshold is None (no low limit configured), cooling will not
     # turn off between readings — this matches the original single-mode behaviour.
     if enable_cool:
-        if both_active:
-            cool_off_threshold = midpoint
-        elif low is not None:
+        if low is not None:
             cool_off_threshold = low + power_off_variance
         else:
             cool_off_threshold = low
@@ -4737,23 +4727,6 @@ def temperature_control_logic_single(temp_cfg):
     elif temp_cfg.get("cooler_on"):
         current_action = "Cooling"
     
-    # Safety check: Both heating and cooling should never be ON simultaneously
-    if enable_heat and enable_cool:
-        if temp_cfg.get("heater_on") and temp_cfg.get("cooler_on"):
-            # This should never happen, but if it does, turn both off for safety
-            control_heating("off", temp_cfg)
-            control_cooling("off", temp_cfg)
-            temp_cfg["status"] = "Safety Error: Both heating and cooling were ON"
-            append_control_log("temp_control_safety_shutdown", {
-                "controller_id": temp_cfg.get("controller_id", 0),
-                "tilt_color": temp_cfg.get("tilt_color", ""),
-                "reason": "Both heating and cooling active simultaneously",
-                "low_limit": low,
-                "high_limit": high,
-                "current_temp": temp
-            })
-            return
-
     try:
         if isinstance(low, (int, float)) and isinstance(high, (int, float)) and (low <= temp <= high):
             # Temperature is in range
@@ -6907,14 +6880,27 @@ def update_temp_config():
         if not new_tilt_color:
             new_tilt_color = controller.get("tilt_color", "")
 
+        enabled_action = data.get("enabled_action")
+        if enabled_action == "heating":
+            enable_heating, enable_cooling = True, False
+        elif enabled_action == "cooling":
+            enable_heating, enable_cooling = False, True
+        elif enabled_action == "none":
+            enable_heating, enable_cooling = False, False
+        else:
+            legacy_heating = "enable_heating" in data
+            legacy_cooling = "enable_cooling" in data
+            enable_heating = legacy_heating and not legacy_cooling
+            enable_cooling = legacy_cooling and not legacy_heating
+
         controller.update({
             "tilt_color": new_tilt_color,
             "low_limit": low_limit,
             "high_limit": high_limit,
             "power_off_variance": power_off_variance,
             "max_run_minutes": max_run_minutes,
-            "enable_heating": 'enable_heating' in data,
-            "enable_cooling": 'enable_cooling' in data,
+            "enable_heating": enable_heating,
+            "enable_cooling": enable_cooling,
             "heating_plug": data.get("heating_plug", ""),
             "cooling_plug": data.get("cooling_plug", ""),
             "heating_plug_port": _parse_plug_port(data.get("heating_plug_port")),
@@ -7036,6 +7022,12 @@ def toggle_temp_control():
             new_state = active_value.lower() in ('true', '1')
         else:
             new_state = bool(active_value)
+
+        if new_state and controller.get('enable_heating') and controller.get('enable_cooling'):
+            return jsonify({
+                'success': False,
+                'error': 'Select heating or cooling, not both, in Temperature Control settings before turning it on.'
+            }), 400
         
         # Check if this is a new session request (archive existing log)
         new_session = data.get('new_session', False)
@@ -8285,6 +8277,7 @@ def live_snapshot():
             "cooler_pending": controller.get("cooler_pending"),
             "enable_heating": controller.get("enable_heating"),
             "enable_cooling": controller.get("enable_cooling"),
+            "max_run_minutes": controller.get("max_run_minutes", 0),
             "status": controller.get("status"),
             "mode": controller.get("mode", 'Off'),
             "temp_control_active": controller.get('temp_control_active', False),

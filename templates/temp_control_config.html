@@ -212,8 +212,7 @@
       const sel = document.getElementById('tilt_color');
       const lowLimit = document.getElementById('low_limit');
       const highLimit = document.getElementById('high_limit');
-      const enableHeating = document.querySelector('[name="enable_heating"]');
-      const enableCooling = document.querySelector('[name="enable_cooling"]');
+      const enabledAction = document.querySelector('[name="enabled_action"]:checked');
       const heatingPlug = document.getElementById('heating_plug');
       const heatingPort = document.getElementById('heating_plug_port');
       const coolingPlug = document.getElementById('cooling_plug');
@@ -224,8 +223,7 @@
         high_limit: highLimit ? highLimit.value : '',
         power_off_variance: document.getElementById('power_off_variance') ? document.getElementById('power_off_variance').value : '0',
         max_run_minutes: document.getElementById('max_run_minutes') ? document.getElementById('max_run_minutes').value : '0',
-        enable_heating: enableHeating ? enableHeating.checked : false,
-        enable_cooling: enableCooling ? enableCooling.checked : false,
+        enabled_action: enabledAction ? enabledAction.value : 'none',
         heating_plug: heatingPlug ? heatingPlug.value : '',
         heating_plug_port: heatingPort ? heatingPort.value : '',
         cooling_plug: coolingPlug ? coolingPlug.value : '',
@@ -270,10 +268,15 @@
           if (powVariance && state.power_off_variance !== undefined) powVariance.value = state.power_off_variance;
           const maxRunMinutes = document.getElementById('max_run_minutes');
           if (maxRunMinutes && state.max_run_minutes !== undefined) maxRunMinutes.value = state.max_run_minutes;
-          const enableHeating = document.querySelector('[name="enable_heating"]');
-          if (enableHeating && state.enable_heating !== undefined) enableHeating.checked = state.enable_heating;
-          const enableCooling = document.querySelector('[name="enable_cooling"]');
-          if (enableCooling && state.enable_cooling !== undefined) enableCooling.checked = state.enable_cooling;
+          let enabledAction = state.enabled_action;
+          if (enabledAction === undefined) {
+            if (state.enable_heating && !state.enable_cooling) enabledAction = 'heating';
+            else if (state.enable_cooling && !state.enable_heating) enabledAction = 'cooling';
+            else enabledAction = 'none';
+          }
+          if (!['none', 'heating', 'cooling'].includes(enabledAction)) enabledAction = 'none';
+          const actionOption = document.querySelector('[name="enabled_action"][value="' + enabledAction + '"]');
+          if (actionOption) actionOption.checked = true;
           const heatingPlug = document.getElementById('heating_plug');
           if (heatingPlug && state.heating_plug !== undefined) heatingPlug.value = state.heating_plug;
           const heatingPort = document.getElementById('heating_plug_port');
@@ -574,11 +577,13 @@
           </div>
 
           <div class="form-row">
-            <label>Enabled Actions:</label>
+            <label>Enabled Action:</label>
             <div>
-              <label style="display:inline-block; width:auto;"><input type="checkbox" name="enable_heating" {% if temp_control.enable_heating %}checked{% endif %}> Enable Heating</label>
-              <label style="display:inline-block; width:auto; margin-left:12px;"><input type="checkbox" name="enable_cooling" {% if temp_control.enable_cooling %}checked{% endif %}> Enable Cooling</label>
+              <label style="display:inline-block; width:auto;"><input type="radio" name="enabled_action" value="none" {% if not temp_control.enable_heating and not temp_control.enable_cooling or temp_control.enable_heating and temp_control.enable_cooling %}checked{% endif %}> None</label>
+              <label style="display:inline-block; width:auto; margin-left:12px;"><input type="radio" name="enabled_action" value="heating" {% if temp_control.enable_heating and not temp_control.enable_cooling %}checked{% endif %}> Heating</label>
+              <label style="display:inline-block; width:auto; margin-left:12px;"><input type="radio" name="enabled_action" value="cooling" {% if temp_control.enable_cooling and not temp_control.enable_heating %}checked{% endif %}> Cooling</label>
             </div>
+            <span class="small">Choose heating or cooling, not both. Temperature control can be switched on after saving.</span>
           </div>
 
           <div class="form-row">
