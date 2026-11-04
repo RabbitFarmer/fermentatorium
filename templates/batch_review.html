@@ -155,12 +155,12 @@
       </div>
       {% if stats.ferm_status %}
         {% set fs = stats.ferm_status %}
-        {% if 'Active' in fs %}
+        {% if 'Slowing' in fs or 'Near' in fs or 'Stalled' in fs %}
+          <span class="ferm-status-badge ferm-status-slowing">⚠️ {{ fs }}</span>
+        {% elif 'Active' in fs %}
           <span class="ferm-status-badge ferm-status-active">🍺 {{ fs }}</span>
         {% elif 'Complete' in fs or 'Closed' in fs %}
           <span class="ferm-status-badge ferm-status-complete">✅ {{ fs }}</span>
-        {% elif 'Slowing' in fs or 'Near' in fs %}
-          <span class="ferm-status-badge ferm-status-slowing">⚠️ {{ fs }}</span>
         {% elif 'Pre-' in fs or 'Conditioning' in fs %}
           <span class="ferm-status-badge ferm-status-pre">🧪 {{ fs }}</span>
         {% else %}
@@ -223,9 +223,10 @@
         <div class="info-card"><div class="info-label">Total Readings</div><div class="info-value">{{ stats.total_readings }}</div></div>
         {% if stats.duration_days is not none %}<div class="info-card"><div class="info-label">Duration (days)</div><div class="info-value">{{ stats.duration_days }}</div></div>{% endif %}
         {% if stats.avg_temp is not none %}<div class="info-card"><div class="info-label">Average Temperature</div><div class="info-value">{{ "%.1f"|format(stats.avg_temp) }}°F</div></div>{% endif %}
-        {% if stats.fermentation_rate is not none %}
+        {% if stats.rate_window_label %}
         <div class="info-card">
-          <div class="info-label">Gravity Drop / Day (recent)</div>
+          <div class="info-label">Gravity Drop / Day ({{ stats.rate_window_label }})</div>
+          {% if stats.fermentation_rate is not none %}
           <div class="info-value">{{ "%.4f"|format(stats.fermentation_rate) }}
             {% if stats.rate_status %}
               {% set rs = stats.rate_status %}
@@ -236,6 +237,19 @@
               {% endif %}
             {% endif %}
           </div>
+          <div style="font-size:0.75em;color:#666;margin-top:4px;">
+            {{ stats.rate_window_start[:16].replace('T', ' ') }} → {{ stats.rate_window_end[:16].replace('T', ' ') }}<br>
+            Gravity {{ "%.3f"|format(stats.rate_window_start_gravity) }} → {{ "%.3f"|format(stats.rate_window_end_gravity) }}
+          </div>
+          {% else %}
+          <div class="info-value">—</div>
+          {% endif %}
+          {% if stats.hours_since_gravity_change is not none %}
+          <div style="font-size:0.75em;color:#666;margin-top:2px;">
+            Last gravity change (≥0.001): {{ stats.last_gravity_change_time[:16].replace('T', ' ') }}
+            ({% if stats.hours_since_gravity_change >= 48 %}{{ "%.1f"|format(stats.hours_since_gravity_change / 24) }} days{% else %}{{ "%.1f"|format(stats.hours_since_gravity_change) }} h{% endif %} before latest reading)
+          </div>
+          {% endif %}
         </div>
         {% endif %}
       </div>
