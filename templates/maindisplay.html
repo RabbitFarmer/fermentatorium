@@ -235,6 +235,7 @@
     }
     .tc-ftr-ts { font-size: 0.9em; font-weight: 700; opacity: 0.95; }
     .tc-chart-pill { font-size: 13px; }
+    .tc-ftr-top .footer-pills { flex-shrink: 0; }
 
     /* Chart link pill */
     .chart-pill {
@@ -246,6 +247,10 @@
       text-decoration: none;
       font-size: 13px;
       white-space: nowrap;
+      display: block;
+      min-width: 72px;
+      text-align: center;
+      box-sizing: border-box;
     }
 
     /* Container for stacked pills (CHART + STATUS) */
@@ -576,6 +581,9 @@
                   </div>
                 </div>
                 <div class="footer-pills">
+                  <a class="chart-pill"
+                     href="{{ url_for('chart_plotly_for', tilt_color=card_key) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
+                     style="color:{{ tilt.color_code }};">CHART</a>
                   {%- if tilt.brewid %}
                   <a class="chart-pill"
                      href="{{ url_for('batch_review', brewid=tilt.brewid) }}?from=dashboard"
@@ -855,9 +863,14 @@
                       {% if controller.temp_control_active %}Temp Control ON{% else %}Temp Control OFF{% endif %}
                     </span>
                   </div>
-                  <a class="chart-pill tc-chart-pill"
-                     href="{{ url_for('chart_plotly_for', tilt_color='TempControl') }}?tc_color={{ tilt_color | urlencode }}"
-                     style="color:{{ color_code }};">CHART</a>
+                  <div class="footer-pills">
+                    <a class="chart-pill tc-chart-pill"
+                       href="{{ url_for('chart_plotly_for', tilt_color='TempControl') }}?tc_color={{ tilt_color | urlencode }}"
+                       style="color:{{ color_code }};">CHART</a>
+                    <a class="chart-pill tc-chart-pill"
+                       href="{{ url_for('temp_summary', controller_id=cid) }}"
+                       style="color:{{ color_code }};">STATUS</a>
+                  </div>
                      {# tilt_base is the plain colour used to filter the per-controller TC chart #}
                 </div>
                 <div class="tc-ftr-ts">
@@ -1102,6 +1115,7 @@
             ${fermDaysHtml}
           </div>
           <div class="footer-pills">
+            <a class="chart-pill" href="${chartHref}" style="color:${colorCode};">CHART</a>
             ${statusHref ? `<a class="chart-pill" href="${statusHref}" style="color:${colorCode};">STATUS</a>` : ''}
           </div>
         </footer>
@@ -1179,8 +1193,12 @@
               </label>
               <span class="toggle-label" id="toggle_label_${cid}">Temp Control OFF</span>
             </div>
-            <a class="chart-pill tc-chart-pill" href="/chart_plotly/TempControl?tc_color=${encodeURIComponent(tc.tilt_color || tiltBase)}"
-               style="color:${colorCode};">CHART</a>
+            <div class="footer-pills">
+              <a class="chart-pill tc-chart-pill" href="/chart_plotly/TempControl?tc_color=${encodeURIComponent(tc.tilt_color || tiltBase)}"
+                 style="color:${colorCode};">CHART</a>
+              <a class="chart-pill tc-chart-pill" href="/temp_summary/${cid}"
+                 style="color:${colorCode};">STATUS</a>
+            </div>
           </div>
           <div class="tc-ftr-ts">Last: <span id="tc_ftr_ts_${cid}">--</span></div>
         </div>
