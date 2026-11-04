@@ -863,8 +863,13 @@
       onedrive: {label: 'OneDrive Folder Path', path: '/mnt/onedrive/FermentatoriumBackups', help: 'Enter a local folder synced or mounted to Microsoft OneDrive (e.g., via rclone mount or a sync client).'},
       icloud: {label: 'iCloud Drive Folder Path', path: '/mnt/icloud/FermentatoriumBackups', help: 'Enter a local folder synced or mounted to Apple iCloud Drive (e.g., via rclone mount or a sync client).'}
     };
+    let backupListRequestId = 0;
 
     function updateBackupDestination(changed) {
+      if (changed) {
+        backupListRequestId++;
+        document.getElementById('backup-list-container').innerHTML = '<p style="font-style: italic; color: #666;">Click "Refresh Backup List" to see available backups.</p>';
+      }
       const dest = document.getElementById('backup_destination').value;
       const pathInput = document.getElementById('backup_path');
       const isDropbox = dest === 'dropbox';
@@ -919,6 +924,7 @@
       source = (document.getElementById('backup_destination').value === 'dropbox') ? 'dropbox' : 'usb';
       const backupPath = document.getElementById('backup_path').value;
       const container = document.getElementById('backup-list-container');
+      const requestId = ++backupListRequestId;
       
       container.innerHTML = '<p style="font-style: italic; color: #666;">Loading backups...</p>';
       
@@ -931,6 +937,7 @@
       })
       .then(response => response.json())
       .then(data => {
+        if (requestId !== backupListRequestId) return;
         if (data.success && data.backups.length > 0) {
           let html = '<table style="width: 100%; border-collapse: collapse;">';
           html += '<tr style="background-color: #e0e0e0;"><th style="padding: 8px; text-align: left;">Backup File</th><th style="padding: 8px;">Size (MB)</th><th style="padding: 8px;">Date</th><th style="padding: 8px;">Action</th></tr>';
@@ -968,6 +975,7 @@
         }
       })
       .catch(error => {
+        if (requestId !== backupListRequestId) return;
         container.innerHTML = '<p style="color: red;">Error loading backups: ' + escapeHtml(error.message) + '</p>';
       });
     }
