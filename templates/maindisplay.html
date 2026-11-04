@@ -656,6 +656,9 @@
                   {%- endif %}
                 </div>
                 <div class="footer-pills">
+                  <a class="chart-pill"
+                     href="{{ url_for('chart_plotly_for', tilt_color=card_key) }}{% if off_cfg.get('brewid') %}?brew={{ off_cfg.get('brewid') | urlencode }}{% endif %}"
+                     style="color:{{ off_color }};">CHART</a>
                   {%- if off_cfg.get('brewid') %}
                   <a class="chart-pill"
                      href="{{ url_for('batch_review', brewid=off_cfg.get('brewid')) }}?from=dashboard"
@@ -744,6 +747,9 @@
                   {%- endif %}
                 </div>
                 <div class="footer-pills">
+                  <a class="chart-pill"
+                     href="{{ url_for('chart_plotly_for', tilt_color=color) }}{% if tilt.brewid %}?brew={{ tilt.brewid | urlencode }}{% endif %}"
+                     style="color:{{ tilt.color_code }};">CHART</a>
                   {%- if tilt.brewid %}
                   <a class="chart-pill"
                      href="{{ url_for('batch_review', brewid=tilt.brewid) }}?from=dashboard"
