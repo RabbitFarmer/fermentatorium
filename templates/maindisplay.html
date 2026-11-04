@@ -814,6 +814,16 @@
                       </span><span class="tc-value-unit"> F</span>
                     </div>
                   </div>
+
+                  {% set timer_minutes = controller.get('max_run_minutes', 0)|float %}
+                  {% set timer_enabled = (controller.get('enable_heating') and not controller.get('enable_cooling')) or (controller.get('enable_cooling') and not controller.get('enable_heating')) %}
+                  <div class="tc-label" id="tc_timer_label_{{ cid }}"
+                       style="display:{% if timer_enabled and timer_minutes > 0 %}block{% else %}none{% endif %};">
+                    {% if controller.get('enable_heating') and not controller.get('enable_cooling') %}Heating Timer{% else %}Cooling Timer{% endif %}
+                  </div>
+                  <div id="tc_timer_value_container_{{ cid }}" style="text-align:right;display:{% if timer_enabled and timer_minutes > 0 %}block{% else %}none{% endif %};">
+                    <div class="tc-value-box"><span id="tc_timer_value_{{ cid }}">{{ '%g'|format(timer_minutes) }} {{ 'minute' if timer_minutes == 1 else 'minutes' }}</span></div>
+                  </div>
                 </div>
 
                 <div id="temp_control_status_top_{{ cid }}" class="tc-status"
@@ -1148,6 +1158,10 @@
                 <span id="tc_low_limit_${cid}">--</span><span class="tc-value-unit"> F</span>
               </div>
             </div>
+            <div class="tc-label" id="tc_timer_label_${cid}" style="display:none;"></div>
+            <div id="tc_timer_value_container_${cid}" style="text-align:right;display:none;">
+              <div class="tc-value-box"><span id="tc_timer_value_${cid}"></span></div>
+            </div>
           </div>
           <div id="temp_control_status_top_${cid}" class="tc-status" style="display:none;"></div>
           <div id="tc_notifications_${cid}" class="tc-notifications" style="display:none;"
@@ -1317,6 +1331,9 @@
       const curBox     = document.getElementById('temp_control_current_'    + cid);
       const highLimitEl = document.getElementById('tc_high_limit_'         + cid);
       const lowLimitEl  = document.getElementById('tc_low_limit_'          + cid);
+      const timerLabelEl = document.getElementById('tc_timer_label_'       + cid);
+      const timerValueContainer = document.getElementById('tc_timer_value_container_' + cid);
+      const timerValueEl = document.getElementById('tc_timer_value_'       + cid);
       const statusEl   = document.getElementById('temp_control_status_top_' + cid);
       const notifEl    = document.getElementById('tc_notifications_'        + cid);
       const ftrTsEl    = document.getElementById('tc_ftr_ts_'               + cid);
@@ -1325,6 +1342,18 @@
       const modeEl     = document.getElementById('tc_mode_'                 + cid);
 
       const isActive = !!tc.temp_control_active;
+      const hasHeatingTimer = !!tc.enable_heating && !tc.enable_cooling;
+      const hasCoolingTimer = !!tc.enable_cooling && !tc.enable_heating;
+      const timerMinutes = Number(tc.max_run_minutes);
+      const showTimer = (hasHeatingTimer || hasCoolingTimer) && Number.isFinite(timerMinutes) && timerMinutes > 0;
+      if (timerLabelEl) {
+        timerLabelEl.textContent = hasHeatingTimer ? 'Heating Timer' : 'Cooling Timer';
+        timerLabelEl.style.display = showTimer ? '' : 'none';
+      }
+      if (timerValueContainer) timerValueContainer.style.display = showTimer ? '' : 'none';
+      if (timerValueEl && showTimer) {
+        timerValueEl.textContent = timerMinutes + (timerMinutes === 1 ? ' minute' : ' minutes');
+      }
 
       // TC body is always visible; values show '--' when inactive (see else-branch below)
 
