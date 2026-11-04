@@ -774,10 +774,9 @@
                      data-controller="{{ cid }}"
                      data-for-tilt="{{ card_key }}">
 
-              <!-- Coloured header (mirrors the tilt banner colour; clickable → temp summary) -->
+              <!-- Coloured header (mirrors the tilt banner colour) -->
               <div class="tc-header"
-                   style="background-color:{{ color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};"
-                  >
+                   style="background-color:{{ color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};">
                 TEMP CONTROLLER #{{ cid + 1 }}
               </div>
 
