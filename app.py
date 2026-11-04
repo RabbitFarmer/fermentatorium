@@ -28,7 +28,7 @@ import sys
 import threading
 import time
 from collections import deque, defaultdict, namedtuple
-from datetime import datetime
+from datetime import datetime, timedelta
 from glob import glob as glob_func
 from math import ceil
 from multiprocessing import Process, Queue
@@ -5956,6 +5956,7 @@ def update_system_config():
         "smtp_starttls": 'smtp_starttls' in data,
         "kasa_rate_limit_seconds": data.get("kasa_rate_limit_seconds", system_cfg.get('kasa_rate_limit_seconds', 10)),
         "tilt_logging_interval_minutes": int(data.get("tilt_logging_interval_minutes", system_cfg.get("tilt_logging_interval_minutes", 15))),
+        "gravity_flat_hours": max(1.0, float(data.get("gravity_flat_hours", system_cfg.get("gravity_flat_hours", 12)) or 12)),
         "backup_path": data.get("backup_path", system_cfg.get("backup_path", "/media/usb")).strip() or "/media/usb",
         "backup_destination": data.get("backup_destination", system_cfg.get("backup_destination", "usb")) if data.get("backup_destination", "usb") in ("usb", "dropbox", "google_drive", "onedrive", "icloud") else "usb",
         "dropbox_backup_enabled": 'dropbox_backup_enabled' in data,
@@ -7498,7 +7499,14 @@ def calculate_batch_statistics(batch_data, batch_info):
         'max_temp': None,
         'estimated_abv': None,
         'fermentation_rate': None,   # gravity units per day (recent)
-        'rate_status': None,         # 'Rapid' / 'Active' / 'Slowing' / 'Stalled / Complete'
+        'rate_status': None,         # 'Rapid' / 'Active' / 'Slowing' / 'Stalled / Flat'
+        'rate_window_label': None,
+        'rate_window_start': None,
+        'rate_window_end': None,
+        'rate_window_start_gravity': None,
+        'rate_window_end_gravity': None,
+        'hours_since_gravity_change': None,
+        'last_gravity_change_time': None,
         'ferm_status': None,         # human-readable fermentation status
     }
     
@@ -7545,8 +7553,17 @@ def calculate_batch_statistics(batch_data, batch_info):
         except Exception:
             pass
     
-    # --- Fermentation rate: gravity drop per day using up to last 5 readings ---
-    # Requires at least 2 timestamped readings; uses whichever are available (up to 5).
+    # --- Fermentation rate: gravity drop per day over a time window ---
+    # Window = last 24h of readings (or the span since the first reading if the
+    # batch has less than 24h of data). Under ~2h of data is "insufficient".
+    GRAVITY_NOISE_THRESHOLD = 0.001
+    MIN_WINDOW_HOURS = 2.0
+    WINDOW_HOURS = 24.0
+    try:
+        flat_hours = max(1.0, float(system_cfg.get('gravity_flat_hours', 12)))
+    except (TypeError, ValueError):
+        flat_hours = 12.0
+    stats['gravity_flat_hours'] = flat_hours
     recent_grav_ts = []
     for s in all_samples:
         g = s.get('gravity')
@@ -7557,23 +7574,50 @@ def calculate_batch_statistics(batch_data, batch_info):
                 recent_grav_ts.append((ts, float(g)))
             except Exception:
                 pass
+    recent_grav_ts.sort(key=lambda p: p[0])
     if len(recent_grav_ts) >= 2:
-        last_five = recent_grav_ts[-5:]
-        earliest_ts, earliest_g = last_five[0]
-        latest_ts, latest_g = last_five[-1]
-        elapsed_days = (latest_ts - earliest_ts).total_seconds() / 86400.0
-        if elapsed_days > 0:
-            # A positive rate means gravity is dropping (active fermentation)
-            rate = round((earliest_g - latest_g) / elapsed_days, 4)
-            stats['fermentation_rate'] = rate
-            if rate > 0.010:
-                stats['rate_status'] = 'Rapid'
-            elif rate >= 0.003:
-                stats['rate_status'] = 'Active'
-            elif rate >= 0.001:
-                stats['rate_status'] = 'Slowing'
+        first_ts = recent_grav_ts[0][0]
+        latest_ts, latest_g = recent_grav_ts[-1]
+        span_hours = (latest_ts - first_ts).total_seconds() / 3600.0
+
+        # Time since gravity last moved by at least the sensor-noise threshold
+        ref_g = recent_grav_ts[0][1]
+        last_change_ts = first_ts
+        for ts, g in recent_grav_ts[1:]:
+            if abs(g - ref_g) >= GRAVITY_NOISE_THRESHOLD:
+                ref_g = g
+                last_change_ts = ts
+        hours_since_change = (latest_ts - last_change_ts).total_seconds() / 3600.0
+        stats['hours_since_gravity_change'] = round(hours_since_change, 1)
+        stats['last_gravity_change_time'] = last_change_ts.isoformat()
+
+        if span_hours < MIN_WINDOW_HOURS:
+            stats['rate_window_label'] = 'Insufficient data (need ~2h of readings)'
+        else:
+            if span_hours > WINDOW_HOURS:
+                window_start = latest_ts - timedelta(hours=WINDOW_HOURS)
+                in_window = [p for p in recent_grav_ts if p[0] >= window_start]
+                stats['rate_window_label'] = 'Last 24 hours'
             else:
-                stats['rate_status'] = 'Stalled / Complete'
+                in_window = recent_grav_ts
+                stats['rate_window_label'] = f'Since first reading ({span_hours:.1f} h)'
+            w_start_ts, w_start_g = in_window[0]
+            elapsed_days = (latest_ts - w_start_ts).total_seconds() / 86400.0
+            if elapsed_days > 0:
+                rate = round((w_start_g - latest_g) / elapsed_days, 4)
+                stats['fermentation_rate'] = rate
+                stats['rate_window_start'] = w_start_ts.isoformat()
+                stats['rate_window_end'] = latest_ts.isoformat()
+                stats['rate_window_start_gravity'] = w_start_g
+                stats['rate_window_end_gravity'] = latest_g
+                if hours_since_change >= flat_hours:
+                    stats['rate_status'] = 'Stalled / Flat'
+                elif rate > 0.010:
+                    stats['rate_status'] = 'Rapid'
+                elif rate >= 0.003:
+                    stats['rate_status'] = 'Active'
+                else:
+                    stats['rate_status'] = 'Slowing'
     
     # --- Fermentation status descriptor ---
     notif_state = batch_info.get('notification_state', {}) or {}
@@ -7622,7 +7666,9 @@ def calculate_batch_statistics(batch_data, batch_info):
         except Exception:
             stats['ferm_status'] = 'Fermentation Complete'
     elif ferm_start_dt:
-        if stats['rate_status'] in ('Stalled / Complete', 'Slowing'):
+        if stats['rate_status'] == 'Stalled / Flat':
+            stats['ferm_status'] = 'Fermentation Stalled / Flat'
+        elif stats['rate_status'] == 'Slowing':
             stats['ferm_status'] = 'Fermentation Slowing / Near Complete'
         else:
             try:

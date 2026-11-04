@@ -173,6 +173,13 @@
             </td>
             <td><input type="number" name="tilt_logging_interval_minutes" id="tilt_logging_interval_minutes" value="{{ system_settings.get('tilt_logging_interval_minutes','15') }}"></td>
           </tr>
+          <tr>
+            <td>
+              <label for="gravity_flat_hours"><b>Gravity Stalled Threshold (hours)</b></label>
+              <div style="font-size:0.85em;color:#666;margin-top:4px;">Hours with no gravity change (≥0.001) before a batch is flagged "Stalled / Flat" (default 12)</div>
+            </td>
+            <td><input type="number" min="1" step="1" name="gravity_flat_hours" id="gravity_flat_hours" value="{{ system_settings.get('gravity_flat_hours', 12) }}"></td>
+          </tr>
 
           <tr>
             <td>
