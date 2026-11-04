@@ -135,6 +135,7 @@
       line-height: 1;
     }
     .tc-value-unit { font-size: 0.6em; vertical-align: middle; }
+    .tc-timer-value { font-size: 0.75em; }
     .tc-value-current { border-width: 3px; border-color: #111; font-size: 28px; padding: 6px 6px; white-space: nowrap; }
 
     /* Status line */
@@ -822,7 +823,7 @@
                     {% if controller.get('enable_heating') and not controller.get('enable_cooling') %}Heating Timer{% else %}Cooling Timer{% endif %}
                   </div>
                   <div id="tc_timer_value_container_{{ cid }}" style="text-align:right;display:{% if timer_enabled and timer_minutes > 0 %}block{% else %}none{% endif %};">
-                    <div class="tc-value-box"><span id="tc_timer_value_{{ cid }}">{{ '%g'|format(timer_minutes) }} {{ 'minute' if timer_minutes == 1 else 'minutes' }}</span></div>
+                    <div class="tc-value-box"><span class="tc-timer-value" id="tc_timer_value_{{ cid }}">{{ '%g'|format(timer_minutes) }} min.</span></div>
                   </div>
                 </div>
 
@@ -1160,7 +1161,7 @@
             </div>
             <div class="tc-label" id="tc_timer_label_${cid}" style="display:none;"></div>
             <div id="tc_timer_value_container_${cid}" style="text-align:right;display:none;">
-              <div class="tc-value-box"><span id="tc_timer_value_${cid}"></span></div>
+              <div class="tc-value-box"><span class="tc-timer-value" id="tc_timer_value_${cid}"></span></div>
             </div>
           </div>
           <div id="temp_control_status_top_${cid}" class="tc-status" style="display:none;"></div>
@@ -1352,7 +1353,7 @@
       }
       if (timerValueContainer) timerValueContainer.style.display = showTimer ? '' : 'none';
       if (timerValueEl && showTimer) {
-        timerValueEl.textContent = timerMinutes + (timerMinutes === 1 ? ' minute' : ' minutes');
+        timerValueEl.textContent = timerMinutes + ' min.';
       }
 
       // TC body is always visible; values show '--' when inactive (see else-branch below)
