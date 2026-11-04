@@ -83,10 +83,8 @@
       font-weight: 900;
       font-size: 22px;
       padding: 16px 12px 10px;
-      cursor: pointer;
       letter-spacing: 0.5px;
     }
-    .tc-header:hover { opacity: 0.9; }
     .tc-header-sub {
       font-size: 11px;
       font-weight: 500;
@@ -306,8 +304,6 @@
     .tilt-batch-name  { font-size: 18px; font-weight: 700; opacity: 0.95; margin-top: 4px; }
 
     /* Clickable tilt card */
-    article.tilt-card[data-tilt] { cursor: pointer; }
-    article.tilt-card[data-tilt]:hover { opacity: 0.92; }
     .display-mode-3 .tc-header      { font-size: 26px; padding: 8px 12px 6px; }
     .display-mode-3 .tc-status      { font-size: 24px; margin: 3px 0 4px; }
     .display-mode-3 .tc-label       { font-size: 22px; }
@@ -519,7 +515,7 @@
               <div class="tilt-banner"
                    style="background-color:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};"
                    data-tilt-color="{{ tilt_base | e }}"
-                   {% if tilt.brewid %}data-brewid="{{ tilt.brewid | e }}" title="View fermentation chart"{% endif %}>
+                   {% if tilt.brewid %}data-brewid="{{ tilt.brewid | e }}"{% endif %}>
                 <div class="beer-name">{{ tilt.beer_name or 'Unnamed Beer' }}</div>
                 <div class="tilt-batch-name">Batch: {{ tilt.batch_name or 'Unnamed Batch' }}</div>
               </div>
@@ -689,7 +685,7 @@
               <div class="tilt-banner"
                    style="background-color:{{ tilt.color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};"
                    data-tilt-color="{{ color | e }}"
-                   {% if tilt.brewid %}data-brewid="{{ tilt.brewid | e }}" title="View fermentation chart"{% endif %}>
+                   {% if tilt.brewid %}data-brewid="{{ tilt.brewid | e }}"{% endif %}>
                 <div class="beer-name">{{ tilt.beer_name or 'Unnamed Beer' }}</div>
                 <div class="tilt-batch-name">Batch: {{ tilt.batch_name or 'Unnamed Batch' }}{% if ':' in color %} &nbsp;({{ tilt.device_label }}){% endif %}</div>
               </div>
@@ -781,8 +777,7 @@
               <!-- Coloured header (mirrors the tilt banner colour; clickable → temp summary) -->
               <div class="tc-header"
                    style="background-color:{{ color_code }};color:{% if use_dark_text %}black{% else %}white{% endif %};"
-                   onclick="window.location='{{ url_for('temp_summary', controller_id=cid) }}'"
-                   title="View Temperature Control summary and chart">
+                  >
                 TEMP CONTROLLER #{{ cid + 1 }}
               </div>
 
@@ -1065,7 +1060,7 @@
                          (brewid !== '--' ? '?brew=' + encodeURIComponent(brewid) : '');
       const statusHref = brewid !== '--' ? '/batch_review/' + encodeURIComponent(brewid) + '?from=dashboard' : '';
       const brewAttr   = brewid !== '--'
-        ? `data-brewid="${brewid}" title="View fermentation chart"` : '';
+        ? `data-brewid="${brewid}"` : '';
 
       const card = document.createElement('article');
       card.className = 'tilt-card';
@@ -1144,8 +1139,7 @@
       card.innerHTML = `
         <div class="tc-header"
              style="background-color:${colorCode};color:${textColor};"
-             onclick="window.location='/temp_summary/${cid}'"
-             title="View Temperature Control summary and chart">
+            >
           TEMP CONTROLLER #${cid + 1}
         </div>
         <div class="tc-body" id="tc_section_${cid}">
@@ -1520,17 +1514,6 @@
 
       /* Position TC cards below their assigned tilts */
       positionTempCards();
-
-      /* Click on tilt card → chart (full card is the chart entry point) */
-      document.addEventListener('click', function(e) {
-        // Don't intercept clicks on interactive elements
-        if (e.target.tagName === 'A' || e.target.tagName === 'BUTTON' ||
-            e.target.tagName === 'INPUT' || e.target.tagName === 'LABEL') return;
-        const card = e.target.closest('article.tilt-card[data-tilt]');
-        if (!card) return;
-        const tiltColor = card.getAttribute('data-tilt');
-        if (tiltColor) { window.location.href = '/chart_plotly/' + encodeURIComponent(tiltColor); }
-      });
 
       /* ── Temp-control toggle switches ── */
       const sessionModal       = document.getElementById('sessionModal');
