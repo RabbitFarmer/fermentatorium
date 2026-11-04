@@ -404,6 +404,48 @@
       border-bottom: 1px solid #f0f0f0;
       transition: background 0.15s;
     }
+    .gear-dropdown .kiosk-mode-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 22px;
+      color: #333;
+      font-weight: 700;
+      font-size: 17px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .kiosk-mode-label { flex: 1; }
+    .kiosk-mode-state { min-width: 28px; font-size: 14px; }
+    .kiosk-switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+    .kiosk-switch input { opacity: 0; width: 0; height: 0; }
+    .kiosk-switch-slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background-color: #ccc;
+      transition: .3s;
+      border-radius: 24px;
+    }
+    .kiosk-switch-slider::before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .3s;
+      border-radius: 50%;
+    }
+    .kiosk-switch input:checked + .kiosk-switch-slider { background-color: #4CAF50; }
+    .kiosk-switch input:checked + .kiosk-switch-slider::before { transform: translateX(20px); }
+    .kiosk-switch input:focus-visible + .kiosk-switch-slider { outline: 2px solid #333; outline-offset: 2px; }
     .gear-dropdown a:last-child { border-bottom: none; }
     .gear-dropdown a:hover { background: #f5f0eb; }
     .gear-dropdown a.exit-link { color: #c91f1f; }
@@ -476,8 +518,15 @@
           <a href="{{ url_for('batch_history') }}" role="menuitem">Batch History</a>
           <a href="{{ url_for('reports') }}" role="menuitem">Reports</a>
           <a href="{{ url_for('log_management') }}" role="menuitem">Log Management</a>
-          <a href="#" role="menuitem" onclick="return switchBrowserMode('normal');">Exit Kiosk (windowed)</a>
-          <a href="#" role="menuitem" onclick="return switchBrowserMode('kiosk');">Enter Kiosk</a>
+          <div class="kiosk-mode-row">
+            <span class="kiosk-mode-label">Kiosk Mode</span>
+            <label class="kiosk-switch">
+              <input id="kioskModeToggle" type="checkbox" role="switch" aria-label="Kiosk Mode" checked
+                     onchange="switchBrowserMode(this.checked ? 'kiosk' : 'normal');">
+              <span class="kiosk-switch-slider"></span>
+            </label>
+            <span class="kiosk-mode-state" id="kioskModeState">On</span>
+          </div>
           <a href="{{ url_for('exit_system') }}" role="menuitem" class="exit-link">Exit System</a>
         </div>
       </div>
@@ -1730,16 +1779,49 @@
   }());
   </script>
   <script>
+    (function () {
+      var toggle = document.getElementById('kioskModeToggle');
+      var state = document.getElementById('kioskModeState');
+      if (!toggle || !state) return;
+      try {
+        var savedMode = localStorage.getItem('kioskMode');
+        if (savedMode !== null) toggle.checked = savedMode === 'on';
+      } catch (e) {
+        console.warn('Unable to read saved kiosk mode:', e);
+      }
+      state.textContent = toggle.checked ? 'On' : 'Off';
+    }());
+
     function switchBrowserMode(mode) {
+      var toggle = document.getElementById('kioskModeToggle');
+      var state = document.getElementById('kioskModeState');
+      var enabled = mode === 'kiosk';
+      var previousEnabled = !enabled;
       var msg = mode === 'normal'
         ? 'Leave kiosk mode? The browser will restart in a normal window.'
         : 'Enter kiosk mode? The browser will restart fullscreen.';
-      if (!confirm(msg)) return false;
+      if (!confirm(msg)) {
+        toggle.checked = previousEnabled;
+        state.textContent = previousEnabled ? 'On' : 'Off';
+        return false;
+      }
+      state.textContent = enabled ? 'On' : 'Off';
       fetch('/browser_mode', {method: 'POST', headers: {'Content-Type': 'application/json'},
                               body: JSON.stringify({mode: mode})})
         .then(function (r) { return r.json(); })
-        .then(function (d) { if (!d.success) alert(d.error || 'Failed to switch mode'); })
-        .catch(function () {});
+        .then(function (d) {
+          if (!d.success) throw new Error(d.error || 'Failed to switch mode');
+          try {
+            localStorage.setItem('kioskMode', enabled ? 'on' : 'off');
+          } catch (e) {
+            console.warn('Unable to persist kiosk mode:', e);
+          }
+        })
+        .catch(function (err) {
+          toggle.checked = previousEnabled;
+          state.textContent = previousEnabled ? 'On' : 'Off';
+          alert(err.message || 'Failed to switch mode');
+        });
       return false;
     }
   </script>
