@@ -98,6 +98,49 @@ open_browser_kiosk() {
         platform_flags=(--ozone-platform=wayland)
         if [ -z "$DISPLAY" ] && [ -e /tmp/.X11-unix/X0 ]; then export DISPLAY=:0; fi
     fi
+    local display_ready=false
+    for ((attempt = 0; attempt < 60; attempt++)); do
+        if [ -z "$WAYLAND_DISPLAY" ]; then
+            for _w in wayland-0 wayland-1; do
+                if [ -S "$runtime/$_w" ]; then
+                    export WAYLAND_DISPLAY="$_w"
+                    platform_flags=(--ozone-platform=wayland)
+                    break
+                fi
+            done
+        fi
+
+        if [ -n "$WAYLAND_DISPLAY" ]; then
+            if [[ "$WAYLAND_DISPLAY" = /* ]]; then
+                _wayland_socket="$WAYLAND_DISPLAY"
+            else
+                _wayland_socket="$runtime/$WAYLAND_DISPLAY"
+            fi
+            [ -S "$_wayland_socket" ] && display_ready=true
+        fi
+
+        if [ "$display_ready" != true ] && [ -z "$WAYLAND_DISPLAY" ] && [ -n "$DISPLAY" ]; then
+            if command -v xdpyinfo > /dev/null 2>&1; then
+                DISPLAY="$DISPLAY" xdpyinfo > /dev/null 2>&1 && display_ready=true
+            elif command -v xset > /dev/null 2>&1; then
+                DISPLAY="$DISPLAY" xset q > /dev/null 2>&1 && display_ready=true
+            elif [[ "$DISPLAY" =~ ^:([0-9]+)(\.[0-9]+)?$ ]] \
+                    && [ -S "/tmp/.X11-unix/X${BASH_REMATCH[1]}" ]; then
+                display_ready=true
+            fi
+        fi
+
+        if [ "$display_ready" = true ]; then
+            break
+        fi
+        sleep 1
+    done
+    if [ "$display_ready" != true ]; then
+        echo "[ERROR] No usable X11 or Wayland display became available; kiosk browser was not started." >> app.log
+        show_notification "Fermentatorium" "Display is not ready — the kiosk browser could not be opened." "critical"
+        return 1
+    fi
+
     case "$DBUS_SESSION_BUS_ADDRESS" in
         unix:*) ;;
         *) [ -S "$runtime/bus" ] && export DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime/bus" ;;
