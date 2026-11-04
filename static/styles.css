@@ -18,7 +18,7 @@
    the viewport width on screens narrower than the design width.             */
 .display-mode-4 {
   --card-width: 400px;
-  --card-height: 430px;
+  --card-height: 454px;
   --metric-number-size: 32px;
   --temp-number-size: 48px;
   --page-max-width: 1724px;
@@ -30,7 +30,7 @@
   --card-width: 400px;
   --metric-number-size: 32px;
   --temp-number-size: 48px;
-  --card-height: 394px;
+  --card-height: 418px;
   padding: 10px 14px 10px;
 }
 
