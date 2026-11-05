@@ -32,7 +32,8 @@
     .ferm-status-pre      { background:#f3e5f5; color:#4a148c; border:1px solid #9c27b0; }
     .ferm-status-waiting  { background:#f5f5f5; color:#555; border:1px solid #bbb; }
     /* Rate status badge inside stat card */
-    .rate-badge { display:inline-block; padding:2px 10px; border-radius:12px; font-size:0.75em; font-weight:700; margin-top:4px; }
+    .rate-badge { display:inline-block; padding:2px 10px; border-radius:12px; font-size:1em; font-weight:700; margin-top:4px; }
+    .rate-detail { font-size:1.1em; color:#666; }
     .rate-rapid   { background:#ffebee; color:#c62828; }
     .rate-active  { background:#e8f5e9; color:#1b5e20; }
     .rate-slowing { background:#fff8e1; color:#e65100; }
@@ -237,7 +238,7 @@
               {% endif %}
             {% endif %}
           </div>
-          <div style="font-size:0.75em;color:#666;margin-top:4px;">
+          <div class="rate-detail" style="margin-top:4px;">
             {{ stats.rate_window_start[:16].replace('T', ' ') }} → {{ stats.rate_window_end[:16].replace('T', ' ') }}<br>
             Gravity {{ "%.3f"|format(stats.rate_window_start_gravity) }} → {{ "%.3f"|format(stats.rate_window_end_gravity) }}
           </div>
@@ -245,7 +246,7 @@
           <div class="info-value">—</div>
           {% endif %}
           {% if stats.hours_since_gravity_change is not none %}
-          <div style="font-size:0.75em;color:#666;margin-top:2px;">
+          <div class="rate-detail" style="margin-top:2px;">
             Last gravity change (≥0.001): {{ stats.last_gravity_change_time[:16].replace('T', ' ') }}
             ({% if stats.hours_since_gravity_change >= 48 %}{{ "%.1f"|format(stats.hours_since_gravity_change / 24) }} days{% else %}{{ "%.1f"|format(stats.hours_since_gravity_change) }} h{% endif %} before latest reading)
           </div>
