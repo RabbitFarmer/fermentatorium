@@ -1105,12 +1105,9 @@ def ensure_temp_defaults_for_controller(controller):
     # Temperature schedule: ordered list of steps (max 10), each with a trigger and target limits.
     controller.setdefault("schedule_enabled", False)
     controller.setdefault("schedule", [])
-    # Heating/Cooling Fault detection:
-    # Track the last 2 temperature readings while the respective plug is actively ON.
-    # A fault is declared when the plug is ON but temperature fails to respond correctly
-    # over 2 consecutive readings (heater ON but temp not rising; cooler ON but temp not falling).
-    controller.setdefault("heater_fault_temps", [])   # last 2 temps while heater is on
-    controller.setdefault("cooler_fault_temps", [])   # last 2 temps while cooler is on
+    # Heating/Cooling Fault detection runtime state.
+    controller.setdefault("heater_fault_temps", [])   # legacy runtime state
+    controller.setdefault("cooler_fault_temps", [])
     controller.setdefault("heating_fault_detected", False)
     controller.setdefault("cooling_fault_detected", False)
     controller.setdefault("heating_fault_notified", False)
@@ -1123,6 +1120,14 @@ def ensure_temp_defaults():
             ensure_temp_defaults_for_controller(controller)
 
 ensure_temp_defaults()
+
+# Fault trend timestamps and notification flags are per-process runtime state.
+for _controller in temp_cfg.get("controllers", []):
+    _controller["fault_trends"] = {}
+    _controller["heating_fault_detected"] = False
+    _controller["cooling_fault_detected"] = False
+    _controller["heating_fault_notified"] = False
+    _controller["cooling_fault_notified"] = False
 
 def cleanup_phantom_tilt_assignments():
     """
@@ -4928,149 +4933,86 @@ def send_swapped_plug_notification(plug_type, baseline_temp, current_temp, temp_
     )
 
 
+FAULT_RESPONSE_WINDOW_SECONDS = 30 * 60
+
+
 def check_heating_cooling_faults():
-    """Detect heating and cooling device faults by monitoring temperature response.
-
-    A "Heating Fault" is declared when the heating plug is confirmed ON but the
-    temperature remains the same or decreases over 2 consecutive control-loop
-    readings.  A "Cooling Fault" is declared when the cooling plug is confirmed
-    ON but the temperature remains the same or increases over 2 consecutive
-    readings.
-
-    When a fault is detected the system:
-    1. Logs a fault event to the temp-control log.
-    2. Sends a notification via the configured channel.
-    3. Re-sends the plug "on" command as a soft-reset in case a transient power
-       interruption silently turned the device off without Kasa reporting it.
-
-    The fault is cleared automatically the next time the plug turns OFF (handled
-    in kasa_result_listener) or when the temperature moves in the expected
-    direction (indicating the device recovered).
-    """
+    """Alert once per plug-on cycle if there is no temperature progress for 30 minutes."""
     for controller in temp_cfg.get('controllers', []):
-        if not controller.get("temp_control_active", False):
-            # Clear any stale fault history when control is inactive
-            controller["heater_fault_temps"] = []
-            controller["cooler_fault_temps"] = []
-            controller["heating_fault_detected"] = False
-            controller["cooling_fault_detected"] = False
-            controller["heating_fault_notified"] = False
-            controller["cooling_fault_notified"] = False
-            continue
+        trends = controller.setdefault("fault_trends", {})
+        active = controller.get("temp_control_active", False)
+        enabled = controller.get("temp_control_enabled", True)
+        for role, device, direction in (("heating", "heater", 1), ("cooling", "cooler", -1)):
+            detected_key = f"{role}_fault_detected"
+            notified_key = f"{role}_fault_notified"
+            if not active or not controller.get(f"{device}_on"):
+                trends.pop(role, None)
+                controller[detected_key] = False
+                controller[notified_key] = False
+                continue
 
-        current_temp = controller.get("current_temp")
-        if current_temp is None:
-            continue
+            # Never issue an ON command while a shutdown is pending, or use
+            # cached readings after the sensor stops reporting.
+            if (not enabled or controller.get(f"{device}_pending_action") == "off"
+                    or get_current_temp_for_control_tilt(controller) is None
+                    or not is_control_tilt_active(controller)
+                    or controller.get("current_temp") is None):
+                trends.pop(role, None)
+                controller[detected_key] = False
+                continue
 
-        controller_id = controller.get("controller_id", 0)
-        tilt_color    = controller.get("tilt_color", "")
+            current_temp = controller["current_temp"]
+            now = time.monotonic()
+            tilt_color = get_control_tilt_color(controller)
+            trend = trends.get(role)
+            if trend is None or trend["tilt_color"] != tilt_color:
+                trends[role] = {"temp": current_temp, "time": now, "tilt_color": tilt_color}
+                continue
 
-        # ── Heating Fault ──────────────────────────────────────────────────
-        if controller.get("heater_on"):
-            hist = controller.setdefault("heater_fault_temps", [])
-            hist.append(current_temp)
-            # Keep only the last 2 readings
-            if len(hist) > 2:
-                hist[:] = hist[-2:]
+            # Compare at the control loop's 0.1°F resolution, avoiding float
+            # rounding noise and allowing slow but genuine progress.
+            progress = direction * (round(current_temp * 10) - round(trend["temp"] * 10))
+            if progress > 0:
+                if controller.get(detected_key):
+                    print(f"[FAULT] Controller {controller.get('controller_id', 0)}: {role.capitalize()} fault cleared — temperature responding")
+                controller[detected_key] = False
+                trends[role] = {"temp": current_temp, "time": now, "tilt_color": tilt_color}
+                continue
 
-            if len(hist) == 2:
-                prev, curr = hist[0], hist[1]
-                # Fault: temperature did not rise (stayed same or fell)
-                if curr <= prev:
-                    if not controller.get("heating_fault_detected"):
-                        controller["heating_fault_detected"] = True
-                        controller["heating_fault_notified"] = False
-                        print(f"[FAULT] ⚠️  Controller {controller_id}: HEATING FAULT — "
-                              f"heater ON but temp {prev:.1f}→{curr:.1f}°F (no rise)")
-                        append_control_log("heating_fault", {
-                            "controller_id": controller_id,
-                            "tilt_color": tilt_color,
-                            "prev_temp": round(prev, 1),
-                            "current_temp": round(curr, 1),
-                            "low_limit": controller.get("low_limit"),
-                            "high_limit": controller.get("high_limit"),
-                        })
+            if now - trend["time"] < FAULT_RESPONSE_WINDOW_SECONDS or controller.get(detected_key):
+                continue
 
-                    if not controller.get("heating_fault_notified"):
-                        controller["heating_fault_notified"] = True
-                        _send_fault_notification("heating", controller_id, tilt_color,
-                                                 prev, curr, controller)
-
-                    # Soft-reset: re-issue the "on" command to recover from a
-                    # silent power interruption that left the plug physically off.
-                    heating_plug = controller.get("heating_plug", "")
-                    if heating_plug and kasa_manager and _is_valid_controller_id(controller_id):
-                        print(f"[FAULT] Controller {controller_id}: Re-sending heating ON to recover from fault")
-                        kasa_manager.send(controller_id, 'heating', heating_plug, 'on',
-                                          port=None if _FORCE_IOT_PORT else controller.get('heating_plug_port'))
-                else:
-                    # Temperature rising — fault resolved
-                    if controller.get("heating_fault_detected"):
-                        print(f"[FAULT] Controller {controller_id}: Heating fault CLEARED — temp now rising")
-                    controller["heating_fault_detected"] = False
-                    controller["heating_fault_notified"] = False
-        else:
-            # Heater OFF — reset fault history
-            controller["heater_fault_temps"] = []
-            controller["heating_fault_detected"] = False
-            controller["heating_fault_notified"] = False
-
-        # ── Cooling Fault ──────────────────────────────────────────────────
-        if controller.get("cooler_on"):
-            hist = controller.setdefault("cooler_fault_temps", [])
-            hist.append(current_temp)
-            if len(hist) > 2:
-                hist[:] = hist[-2:]
-
-            if len(hist) == 2:
-                prev, curr = hist[0], hist[1]
-                # Fault: temperature did not drop (stayed same or rose)
-                if curr >= prev:
-                    if not controller.get("cooling_fault_detected"):
-                        controller["cooling_fault_detected"] = True
-                        controller["cooling_fault_notified"] = False
-                        print(f"[FAULT] ⚠️  Controller {controller_id}: COOLING FAULT — "
-                              f"cooler ON but temp {prev:.1f}→{curr:.1f}°F (no drop)")
-                        append_control_log("cooling_fault", {
-                            "controller_id": controller_id,
-                            "tilt_color": tilt_color,
-                            "prev_temp": round(prev, 1),
-                            "current_temp": round(curr, 1),
-                            "low_limit": controller.get("low_limit"),
-                            "high_limit": controller.get("high_limit"),
-                        })
-
-                    if not controller.get("cooling_fault_notified"):
-                        controller["cooling_fault_notified"] = True
-                        _send_fault_notification("cooling", controller_id, tilt_color,
-                                                 prev, curr, controller)
-
-                    # Soft-reset: re-issue the "on" command
-                    cooling_plug = controller.get("cooling_plug", "")
-                    if cooling_plug and kasa_manager and _is_valid_controller_id(controller_id):
-                        print(f"[FAULT] Controller {controller_id}: Re-sending cooling ON to recover from fault")
-                        kasa_manager.send(controller_id, 'cooling', cooling_plug, 'on',
-                                          port=None if _FORCE_IOT_PORT else controller.get('cooling_plug_port'))
-                else:
-                    # Temperature dropping — fault resolved
-                    if controller.get("cooling_fault_detected"):
-                        print(f"[FAULT] Controller {controller_id}: Cooling fault CLEARED — temp now dropping")
-                    controller["cooling_fault_detected"] = False
-                    controller["cooling_fault_notified"] = False
-        else:
-            # Cooler OFF — reset fault history
-            controller["cooler_fault_temps"] = []
-            controller["cooling_fault_detected"] = False
-            controller["cooling_fault_notified"] = False
+            controller_id = controller.get("controller_id", 0)
+            prev = trend["temp"]
+            controller[detected_key] = True
+            print(f"[FAULT] Controller {controller_id}: {role.upper()} FAULT — "
+                  f"no temperature progress for 30 minutes ({prev:.1f}→{current_temp:.1f}°F)")
+            append_control_log(f"{role}_fault", {
+                "controller_id": controller_id,
+                "tilt_color": tilt_color,
+                "prev_temp": round(prev, 1),
+                "current_temp": round(current_temp, 1),
+                "low_limit": controller.get("low_limit"),
+                "high_limit": controller.get("high_limit"),
+            })
+            if not controller.get(notified_key):
+                controller[notified_key] = True
+                plug = controller.get(f"{role}_plug", "")
+                reset_requested = bool(plug and kasa_manager and _is_valid_controller_id(controller_id))
+                if reset_requested:
+                    kasa_manager.send(controller_id, role, plug, 'on',
+                                      port=None if _FORCE_IOT_PORT else controller.get(f'{role}_plug_port'))
+                _send_fault_notification(role, controller_id, tilt_color,
+                                         prev, current_temp, controller, reset_requested)
 
 
-def _send_fault_notification(fault_type, controller_id, tilt_color, prev_temp, curr_temp, controller):
+def _send_fault_notification(fault_type, controller_id, tilt_color, prev_temp, curr_temp, controller, reset_requested=False):
     """Send a Heating Fault or Cooling Fault notification."""
     if fault_type == "heating":
         subject = f"⚠️ Heating Fault: Controller {controller_id + 1}"
         body = (
             f"HEATING FAULT detected on Controller {controller_id + 1}.\n\n"
-            f"The heating plug is ON but temperature is not rising.\n\n"
+            f"The heating plug is ON but temperature has made no net upward progress for at least 30 minutes.\n\n"
             f"  • Previous reading: {prev_temp:.1f}°F\n"
             f"  • Current reading:  {curr_temp:.1f}°F\n"
             f"  • Tilt: {tilt_color or 'Not assigned'}\n"
@@ -5080,14 +5022,14 @@ def _send_fault_notification(fault_type, controller_id, tilt_color, prev_temp, c
             f"  • Heating device lost power (check outlet / breaker)\n"
             f"  • Kasa plug lost connection and turned off silently\n"
             f"  • Heating device failed or is undersized\n\n"
-            f"A command has been sent to re-enable the heating plug.\n"
+            f"{'A command was requested to re-enable the heating plug.' if reset_requested else 'No plug reset was requested.'}\n"
             f"Check the heating device and restore power if needed."
         )
     else:
         subject = f"⚠️ Cooling Fault: Controller {controller_id + 1}"
         body = (
             f"COOLING FAULT detected on Controller {controller_id + 1}.\n\n"
-            f"The cooling plug is ON but temperature is not dropping.\n\n"
+            f"The cooling plug is ON but temperature has made no net downward progress for at least 30 minutes.\n\n"
             f"  • Previous reading: {prev_temp:.1f}°F\n"
             f"  • Current reading:  {curr_temp:.1f}°F\n"
             f"  • Tilt: {tilt_color or 'Not assigned'}\n"
@@ -5097,7 +5039,7 @@ def _send_fault_notification(fault_type, controller_id, tilt_color, prev_temp, c
             f"  • Cooling device lost power (check outlet / breaker)\n"
             f"  • Kasa plug lost connection and turned off silently\n"
             f"  • Cooling device failed or is undersized\n\n"
-            f"A command has been sent to re-enable the cooling plug.\n"
+            f"{'A command was requested to re-enable the cooling plug.' if reset_requested else 'No plug reset was requested.'}\n"
             f"Check the cooling device and restore power if needed."
         )
     attempt_send_notifications(subject=subject, body=body)
@@ -5192,6 +5134,7 @@ def kasa_result_listener():
                             controller["swapped_plugs_notified"] = False
                             controller["swapped_plug_type"] = ""
                         # Clear fault detection so it starts fresh next time heater turns ON
+                        controller.setdefault("fault_trends", {}).pop("heating", None)
                         controller["heater_fault_temps"] = []
                         controller["heating_fault_detected"] = False
                         controller["heating_fault_notified"] = False
@@ -5264,6 +5207,7 @@ def kasa_result_listener():
                             controller["swapped_plugs_notified"] = False
                             controller["swapped_plug_type"] = ""
                         # Clear fault detection so it starts fresh next time cooler turns ON
+                        controller.setdefault("fault_trends", {}).pop("cooling", None)
                         controller["cooler_fault_temps"] = []
                         controller["cooling_fault_detected"] = False
                         controller["cooling_fault_notified"] = False
@@ -5641,6 +5585,7 @@ def periodic_temp_control():
                     # Schedule runtime tracking — which step is currently active
                     'schedule_active_step',
                     # Heating/Cooling Fault detection runtime state
+                    'fault_trends',
                     'heater_fault_temps', 'cooler_fault_temps',
                     'heating_fault_detected', 'cooling_fault_detected',
                     'heating_fault_notified', 'cooling_fault_notified',

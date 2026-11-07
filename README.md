@@ -457,6 +457,8 @@ Up to 3 independent controllers are supported. Each controller has:
 
 **Control logic:** Select heating or cooling for each controller, never both. When heating is selected, the heater turns on below `low_limit`; when cooling is selected, the cooler turns on above `high_limit`. The `power_off_variance` causes early shutoff to avoid overshoot. `max_run_minutes` provides a safety cutoff for any single run cycle and is displayed on the main-display card and temperature summary when nonzero. Temperature control pauses automatically if the Tilt goes offline. Existing configurations with both actions enabled are prevented from operating until one action is selected in settings.
 
+**Heating/cooling faults:** While a plug is on and its Tilt is reporting, a fault is raised if the temperature makes no progress in the expected direction for 30 minutes at the controller's 0.1°F resolution. A fault sends at most one notification and requests at most one plug-on reset per continuous plug-on cycle; the next cycle can alert again. Temperature progress clears the fault, but does not re-arm notifications until the plug turns off. The trend restarts after a signal interruption or application restart. A fault is a warning, not proof that the equipment is off or defective.
+
 **Temperature Schedule:** Define steps that automatically change Low/High Limits as fermentation progresses. Each step has a trigger (e.g., "after 3 days" or "when gravity ≤ 1.020") and the desired limits for that stage. When the schedule is active it overrides the manual limits.
 
 ### Notifications
