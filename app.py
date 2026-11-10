@@ -4933,11 +4933,13 @@ def send_swapped_plug_notification(plug_type, baseline_temp, current_temp, temp_
     )
 
 
-FAULT_RESPONSE_WINDOW_SECONDS = 30 * 60
+DEFAULT_FAULT_RESPONSE_WINDOW_MINUTES = 30
 
 
 def check_heating_cooling_faults():
-    """Alert once per plug-on cycle if there is no temperature progress for 30 minutes."""
+    """Alert once per plug-on cycle if there is no temperature progress within the configured window."""
+    window_minutes = system_cfg.get('temp_control_notifications', {}).get(
+        'fault_response_window_minutes', DEFAULT_FAULT_RESPONSE_WINDOW_MINUTES)
     for controller in temp_cfg.get('controllers', []):
         trends = controller.setdefault("fault_trends", {})
         active = controller.get("temp_control_active", False)
@@ -4979,14 +4981,14 @@ def check_heating_cooling_faults():
                 trends[role] = {"temp": current_temp, "time": now, "tilt_color": tilt_color}
                 continue
 
-            if now - trend["time"] < FAULT_RESPONSE_WINDOW_SECONDS or controller.get(detected_key):
+            if now - trend["time"] < window_minutes * 60 or controller.get(detected_key):
                 continue
 
             controller_id = controller.get("controller_id", 0)
             prev = trend["temp"]
             controller[detected_key] = True
             print(f"[FAULT] Controller {controller_id}: {role.upper()} FAULT — "
-                  f"no temperature progress for 30 minutes ({prev:.1f}→{current_temp:.1f}°F)")
+                  f"no temperature progress for {window_minutes} minutes ({prev:.1f}→{current_temp:.1f}°F)")
             append_control_log(f"{role}_fault", {
                 "controller_id": controller_id,
                 "tilt_color": tilt_color,
@@ -5003,16 +5005,16 @@ def check_heating_cooling_faults():
                     kasa_manager.send(controller_id, role, plug, 'on',
                                       port=None if _FORCE_IOT_PORT else controller.get(f'{role}_plug_port'))
                 _send_fault_notification(role, controller_id, tilt_color,
-                                         prev, current_temp, controller, reset_requested)
+                                         prev, current_temp, controller, window_minutes, reset_requested)
 
 
-def _send_fault_notification(fault_type, controller_id, tilt_color, prev_temp, curr_temp, controller, reset_requested=False):
+def _send_fault_notification(fault_type, controller_id, tilt_color, prev_temp, curr_temp, controller, window_minutes, reset_requested=False):
     """Send a Heating Fault or Cooling Fault notification."""
     if fault_type == "heating":
         subject = f"⚠️ Heating Fault: Controller {controller_id + 1}"
         body = (
             f"HEATING FAULT detected on Controller {controller_id + 1}.\n\n"
-            f"The heating plug is ON but temperature has made no net upward progress for at least 30 minutes.\n\n"
+            f"The heating plug is ON but temperature has made no net upward progress for at least {window_minutes} minutes.\n\n"
             f"  • Previous reading: {prev_temp:.1f}°F\n"
             f"  • Current reading:  {curr_temp:.1f}°F\n"
             f"  • Tilt: {tilt_color or 'Not assigned'}\n"
@@ -5029,7 +5031,7 @@ def _send_fault_notification(fault_type, controller_id, tilt_color, prev_temp, c
         subject = f"⚠️ Cooling Fault: Controller {controller_id + 1}"
         body = (
             f"COOLING FAULT detected on Controller {controller_id + 1}.\n\n"
-            f"The cooling plug is ON but temperature has made no net downward progress for at least 30 minutes.\n\n"
+            f"The cooling plug is ON but temperature has made no net downward progress for at least {window_minutes} minutes.\n\n"
             f"  • Previous reading: {prev_temp:.1f}°F\n"
             f"  • Current reading:  {curr_temp:.1f}°F\n"
             f"  • Tilt: {tilt_color or 'Not assigned'}\n"
@@ -5834,6 +5836,16 @@ def update_system_config():
     if active_tab not in VALID_SYSTEM_CONFIG_TABS:
         active_tab = 'main-settings'
 
+    try:
+        fault_response_window_minutes = int(data.get(
+            'fault_response_window_minutes',
+            system_cfg.get('temp_control_notifications', {}).get(
+                'fault_response_window_minutes', DEFAULT_FAULT_RESPONSE_WINDOW_MINUTES)))
+        if fault_response_window_minutes < 1:
+            raise ValueError
+    except (TypeError, ValueError):
+        return "Heating/cooling fault response time must be a whole number of at least 1 minute.", 400
+
     # Handle password field - only update if provided
     sending_email_password = data.get("sending_email_password", "")
     if sending_email_password:
@@ -5925,6 +5937,7 @@ def update_system_config():
         'enable_cooling_on': 'enable_cooling_on' in data,
         'enable_cooling_off': 'enable_cooling_off' in data,
         'enable_kasa_error': 'enable_kasa_error' in data,
+        'fault_response_window_minutes': fault_response_window_minutes,
     }
     system_cfg['temp_control_notifications'] = temp_control_notif
     

@@ -467,6 +467,13 @@
             <td><label for="enable_kasa_error"><b>Kasa Plug Connection Failure</b></label></td>
             <td><input type="checkbox" name="enable_kasa_error" id="enable_kasa_error" {% if system_settings.get('temp_control_notifications', {}).get('enable_kasa_error', True) %}checked{% endif %}></td>
           </tr>
+          <tr>
+            <td>
+              <label for="fault_response_window_minutes"><b>Heating/Cooling Fault Response Time (Minutes)</b></label>
+              <div style="font-size:0.85em;color:#666;margin-top:4px;">Time without temperature progress before a fault alert and plug-on reset request. Applies to both heating and cooling.</div>
+            </td>
+            <td><input type="number" name="fault_response_window_minutes" id="fault_response_window_minutes" value="{{ system_settings.get('temp_control_notifications', {}).get('fault_response_window_minutes', 30) }}" min="1" step="1" required></td>
+          </tr>
         </table>
 
         <h3 style="text-align: center; margin-top: 30px;">Batch Notifications</h3>

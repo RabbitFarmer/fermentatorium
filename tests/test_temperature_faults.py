@@ -43,7 +43,8 @@ class TemperatureFaultTests(unittest.TestCase):
             "get_current_temp_for_control_tilt": self.live_temp,
             "is_control_tilt_active": self.sensor_active,
             "get_control_tilt_color": lambda controller: controller["tilt_color"],
-            "FAULT_RESPONSE_WINDOW_SECONDS": 1800,
+            "system_cfg": {},
+            "DEFAULT_FAULT_RESPONSE_WINDOW_MINUTES": 30,
         }
         load_fault_functions(self.namespace)
         self.check = self.namespace["check_heating_cooling_faults"]
@@ -144,6 +145,77 @@ class TemperatureFaultTests(unittest.TestCase):
         self.notifications.assert_not_called()
         self.sample(60, 38.0)
         self.assertEqual(self.notifications.call_count, 1)
+
+    def test_configured_window_applies_to_cooling_and_alert_text(self):
+        self.namespace["system_cfg"]["temp_control_notifications"] = {
+            "fault_response_window_minutes": 60,
+        }
+        self.sample(0, 38.0)
+        self.sample(30, 38.0)
+        self.sample(59, 38.0)
+        self.notifications.assert_not_called()
+        self.manager.send.assert_not_called()
+        self.sample(60, 38.0)
+        self.assertIn("at least 60 minutes", self.notifications.call_args.kwargs["body"])
+        self.manager.send.assert_called_once()
+
+    def test_changed_window_applies_to_existing_heating_trend(self):
+        self.controller.update(cooler_on=False, heater_on=True, heating_plug="192.0.2.2")
+        self.sample(0, 66.0)
+        self.sample(10, 66.0)
+        self.namespace["system_cfg"]["temp_control_notifications"] = {
+            "fault_response_window_minutes": 15,
+        }
+        self.sample(14, 66.0)
+        self.notifications.assert_not_called()
+        self.sample(15, 66.0)
+        self.assertIn("at least 15 minutes", self.notifications.call_args.kwargs["body"])
+
+
+class FaultSettingsTests(unittest.TestCase):
+    def setUp(self):
+        with open(os.path.join(ROOT, "app.py"), encoding="utf-8") as source:
+            tree = ast.parse(source.read())
+        node = next(n for n in tree.body
+                    if isinstance(n, ast.FunctionDef) and n.name == "update_system_config")
+        node.decorator_list = []
+        self.save = Mock()
+        self.form = {}
+        self.config = {}
+        namespace = {
+            "request": Mock(form=self.form),
+            "system_cfg": self.config,
+            "temp_cfg": {},
+            "VALID_SYSTEM_CONFIG_TABS": {"main-settings", "push-email"},
+            "DEFAULT_FAULT_RESPONSE_WINDOW_MINUTES": 30,
+            "_sanitize_dropbox_access_token": lambda value: value,
+            "_normalize_dropbox_folder": lambda value: value,
+            "log_kasa_diag": Mock(),
+            "save_json": self.save,
+            "SYSTEM_CFG_FILE": "system_config.json",
+            "kasa_manager": None,
+            "_FORCE_IOT_PORT": False,
+            "redirect": lambda value: value,
+        }
+        exec(compile(ast.Module([node], []), "app.py", "exec"), namespace)
+        self.update = namespace["update_system_config"]
+
+    def test_setting_is_saved_and_retained_when_omitted(self):
+        self.form["fault_response_window_minutes"] = "75"
+        self.update()
+        self.assertEqual(self.config["temp_control_notifications"]["fault_response_window_minutes"], 75)
+        self.assertEqual(self.save.call_args.args[1]["temp_control_notifications"]["fault_response_window_minutes"], 75)
+        self.form.clear()
+        self.update()
+        self.assertEqual(self.config["temp_control_notifications"]["fault_response_window_minutes"], 75)
+
+    def test_invalid_setting_is_rejected_without_mutating_config(self):
+        for value in ("0", "-1", "1.5", "", "abc"):
+            with self.subTest(value=value):
+                self.form["fault_response_window_minutes"] = value
+                self.assertEqual(self.update()[1], 400)
+                self.assertEqual(self.config, {})
+                self.save.assert_not_called()
 
 
 if __name__ == "__main__":
