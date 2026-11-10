@@ -457,7 +457,7 @@ Up to 3 independent controllers are supported. Each controller has:
 
 **Control logic:** Select heating or cooling for each controller, never both. When heating is selected, the heater turns on below `low_limit`; when cooling is selected, the cooler turns on above `high_limit`. The `power_off_variance` causes early shutoff to avoid overshoot. `max_run_minutes` provides a safety cutoff for any single run cycle and is displayed on the main-display card and temperature summary when nonzero. Temperature control pauses automatically if the Tilt goes offline. Existing configurations with both actions enabled are prevented from operating until one action is selected in settings.
 
-**Heating/cooling faults:** While a plug is on and its Tilt is reporting, a fault is raised if the temperature makes no progress in the expected direction for 30 minutes at the controller's 0.1°F resolution. A fault sends at most one notification and requests at most one plug-on reset per continuous plug-on cycle; the next cycle can alert again. Temperature progress clears the fault, but does not re-arm notifications until the plug turns off. The trend restarts after a signal interruption or application restart. A fault is a warning, not proof that the equipment is off or defective.
+**Heating/cooling faults:** While a plug is on and its Tilt is reporting, a fault is raised if the temperature makes no progress in the expected direction for the configured response time (default 30 minutes) at the controller's 0.1°F resolution. Set the shared heating/cooling response time in **System Settings → PUSH/eMail → Temperature Control Notifications**; changes apply to the current trend window. A fault sends at most one notification and requests at most one plug-on reset per continuous plug-on cycle; the next cycle can alert again. Temperature progress clears the fault, but does not re-arm notifications until the plug turns off. The trend restarts after a signal interruption or application restart. A fault is a warning, not proof that the equipment is off or defective.
 
 **Temperature Schedule:** Define steps that automatically change Low/High Limits as fermentation progresses. Each step has a trigger (e.g., "after 3 days" or "when gravity ≤ 1.020") and the desired limits for that stage. When the schedule is active it overrides the manual limits.
 
@@ -470,6 +470,7 @@ Configure in **⚙ gear → System Settings → PUSH/eMail tab**.
 | Timer | Default | Description |
 |---|---:|---|
 | Loss of Signal timeout | 30 minutes | Time without Tilt readings before a **Loss of Signal Alert** is sent (`loss_of_signal_timeout_minutes`, configurable in PUSH/eMail tab). |
+| Heating/cooling fault response time | 30 minutes | Time without temperature progress before a fault alert and plug-on reset request (configurable in PUSH/eMail tab). |
 | Fermentation completion window | 24 hours | Completion alert triggers when gravity remains stable (±0.002) across the 24-hour check window. |
 | Notification deduplication delay | 10 seconds | Identical queued notifications are deduplicated during this delay before sending. |
 | Retry backoff | 5 minutes, then 30 minutes | Failed notifications are retried automatically (up to 3 total attempts including the initial send). |
