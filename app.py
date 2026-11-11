@@ -6304,6 +6304,10 @@ def batch_settings():
         color = valid_device_key(color)
         if not color:
             return "Invalid Tilt", 400
+        expected_brewid = data.get('expected_brewid')
+        current_brewid = (tilt_cfg.get(color, {}) or {}).get('brewid') or ''
+        if expected_brewid is not None and expected_brewid != current_brewid:
+            return "This batch has changed or closed. Reload Batch Settings before saving.", 409
         beer_name = data.get('beer_name', '').strip()
         batch_name = data.get('batch_name', '').strip()
         batch_start_date = data.get('batch_start_date', data.get('ferm_start_date', '')).strip()

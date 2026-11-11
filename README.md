@@ -292,7 +292,7 @@ All navigation is through the **⚙ gear icon** in the top-right corner of the m
 5. Click **Save**. The dashboard now shows your batch name on the Tilt card.
 6. Gravity and temperature readings are logged automatically every 15 minutes (adjustable in System Settings).
 
-> **Batch records:** While a batch is active, its per-batch JSONL file is the source of truth for metadata, readings, and events. Closing a batch snapshots it into the Batch History index; reopening moves it back to active tracking. Use **Batch History → Archive** to close the current batch and start fresh, preserving your previous fermentation data.
+> **Batch records:** While a batch is active, its per-batch JSONL file is the source of truth for metadata, readings, and events. To finish a batch, save any changes to its details, then select **Closed** in Batch Settings and confirm. The batch is saved in Batch History and the Tilt remains available for a new batch. Reopening the batch restores active tracking.
 
 ---
 
